@@ -79,6 +79,7 @@ GET    /api/v1/channels/:channelId/messages?before=&after=&limit=
 POST   /api/v1/channels/:channelId/messages
 PATCH  /api/v1/messages/:messageId
 DELETE /api/v1/messages/:messageId
+WS     /api/v1/channels/:channelId/messages/ws
 ```
 
 ---

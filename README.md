@@ -4,9 +4,9 @@ OpenVoice ist ein vollständig self-hostbares, browserbasiertes Voice-/Chat-/Vid
 Die Umsetzung erfolgt phasenweise nach `PLANS.md`; das verbindliche Lastenheft liegt in
 `docs/lastenheft.md`.
 
-Die Umsetzung ist aktuell bis Phase 2 vorbereitet: Monorepo-Fundament, Auth/Workspaces und der
-Channel-Baum mit Rechte-Overrides. Chat, Voice, Video und Screenshare sind noch nicht
-implementiert.
+Die Umsetzung ist aktuell bis Phase 3 vorbereitet: Monorepo-Fundament, Auth/Workspaces,
+Channel-Baum mit Rechte-Overrides und persistenter Chat. Voice, Video und Screenshare sind noch
+nicht implementiert.
 
 ## Struktur
 

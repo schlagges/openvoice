@@ -1,7 +1,12 @@
 import {
   isChannelType,
+  isMessageContentFormat,
+  MessageContentFormat,
+  parseMessageCursor,
   parsePermissionMask,
   type ChannelType,
+  type MessageContentFormat as ContentFormat,
+  type MessageCursor,
   type PermissionMask,
 } from "@openvoice/shared";
 
@@ -43,6 +48,23 @@ export interface ReorderChannelRequestMove {
 export interface PermissionOverrideRequestBody {
   readonly allow: PermissionMask;
   readonly deny: PermissionMask;
+}
+
+export interface CreateMessageRequestBody {
+  readonly clientMessageId: string;
+  readonly content: string;
+  readonly contentFormat: ContentFormat;
+}
+
+export interface UpdateMessageRequestBody {
+  readonly content: string;
+  readonly contentFormat: ContentFormat;
+}
+
+export interface ListMessagesRequestQuery {
+  readonly after?: MessageCursor;
+  readonly before?: MessageCursor;
+  readonly limit: number;
 }
 
 export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
@@ -151,6 +173,35 @@ export function parsePermissionOverrideTargetType(value: string): PermissionOver
   });
 }
 
+export function parseCreateMessageRequest(body: Record<string, unknown>): CreateMessageRequestBody {
+  return {
+    clientMessageId: parseClientMessageId(body.clientMessageId),
+    content: parseMessageContent(body.content),
+    contentFormat: parseMessageContentFormat(body.contentFormat),
+  };
+}
+
+export function parseUpdateMessageRequest(body: Record<string, unknown>): UpdateMessageRequestBody {
+  return {
+    content: parseMessageContent(body.content),
+    contentFormat: parseMessageContentFormat(body.contentFormat),
+  };
+}
+
+export function parseListMessagesQuery(params: URLSearchParams): ListMessagesRequestQuery {
+  const before = params.get("before");
+  const after = params.get("after");
+  if (before && after) {
+    throw badRequest("before and after cursors cannot be combined.");
+  }
+
+  return {
+    ...(after ? { after: parseCursor(after, "after") } : {}),
+    ...(before ? { before: parseCursor(before, "before") } : {}),
+    limit: parseLimit(params.get("limit")),
+  };
+}
+
 export function parseUuidPathParameter(value: string, field: string): string {
   return parseUuidLikeString(value, field);
 }
@@ -198,6 +249,70 @@ function parseChannelType(value: unknown): ChannelType {
   }
 
   return value;
+}
+
+function parseMessageContent(value: unknown): string {
+  const content = parseNonEmptyString(value, "content");
+
+  if (content.length > 4000) {
+    throw badRequest("content must be at most 4000 characters.", {
+      field: "content",
+    });
+  }
+
+  return content;
+}
+
+function parseMessageContentFormat(value: unknown): ContentFormat {
+  if (value === undefined) {
+    return MessageContentFormat.MARKDOWN;
+  }
+
+  if (!isMessageContentFormat(value)) {
+    throw badRequest("Invalid message content format.", {
+      field: "contentFormat",
+    });
+  }
+
+  return value;
+}
+
+function parseClientMessageId(value: unknown): string {
+  const clientMessageId = parseNonEmptyString(value, "clientMessageId").trim();
+
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(clientMessageId)) {
+    throw badRequest("clientMessageId must be 1-128 URL-safe characters.", {
+      field: "clientMessageId",
+    });
+  }
+
+  return clientMessageId;
+}
+
+function parseCursor(value: string, field: string): MessageCursor {
+  const cursor = parseMessageCursor(value);
+  if (!cursor) {
+    throw badRequest(`${field} cursor is invalid.`, {
+      field,
+    });
+  }
+
+  return cursor;
+}
+
+function parseLimit(value: string | null): number {
+  if (value === null) {
+    return 50;
+  }
+
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+    throw badRequest("limit must be between 1 and 100.", {
+      field: "limit",
+    });
+  }
+
+  return parsed;
 }
 
 function parseNonNegativeInteger(value: unknown, field: string): number {

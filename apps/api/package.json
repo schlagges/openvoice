@@ -13,10 +13,12 @@
   "dependencies": {
     "@openvoice/shared": "workspace:*",
     "argon2": "0.44.0",
-    "pg": "8.16.3"
+    "pg": "8.16.3",
+    "ws": "8.18.3"
   },
   "devDependencies": {
     "@types/pg": "8.16.0",
+    "@types/ws": "8.18.1",
     "typescript": "5.9.3",
     "vitest": "4.0.15"
   }

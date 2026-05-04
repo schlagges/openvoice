@@ -7,15 +7,21 @@ import type {
   AuditLogEntry,
   ChannelNodeRecord,
   CreateChannelInput,
+  CreateMessageInput,
+  CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
+  ListMessagesInput,
+  MessageRecord,
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
   Role,
   Session,
+  SoftDeleteMessageInput,
+  UpdateMessageInput,
   UpsertPermissionOverrideInput,
   User,
   Workspace,
@@ -31,6 +37,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     readonly roleId: string;
     readonly workspaceMemberId: string;
   }> = [];
+  public readonly messages: MessageRecord[] = [];
   public readonly permissionOverrides: PermissionOverrideRecord[] = [];
   public readonly roles: Role[] = [];
   public readonly sessions: Session[] = [];
@@ -410,6 +417,109 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     }
   }
 
+  public async createMessage(input: CreateMessageInput): Promise<CreateMessageResult> {
+    const existing = this.messages.find(
+      (message) =>
+        message.channelId === input.channelId &&
+        message.authorId === input.authorId &&
+        message.clientMessageId === input.clientMessageId,
+    );
+    if (existing) {
+      return { created: false, message: existing };
+    }
+
+    const now = new Date();
+    const message: MessageRecord = {
+      authorId: input.authorId,
+      channelId: input.channelId,
+      clientMessageId: input.clientMessageId,
+      content: input.content,
+      contentFormat: input.contentFormat,
+      createdAt: now,
+      deletedAt: null,
+      deletedBy: null,
+      editedAt: null,
+      id: input.id,
+      updatedAt: now,
+      workspaceId: input.workspaceId,
+    };
+
+    this.messages.push(message);
+    return { created: true, message };
+  }
+
+  public async findMessageById(messageId: string): Promise<MessageRecord | null> {
+    return this.messages.find((message) => message.id === messageId) ?? null;
+  }
+
+  public async listMessages(input: ListMessagesInput): Promise<readonly MessageRecord[]> {
+    return this.messages
+      .filter((message) => message.channelId === input.channelId)
+      .filter((message) => {
+        if (input.before) {
+          return compareMessageCursor(message, input.before) < 0;
+        }
+
+        if (input.after) {
+          return compareMessageCursor(message, input.after) > 0;
+        }
+
+        return true;
+      })
+      .sort(compareMessagesDesc)
+      .slice(0, input.limit);
+  }
+
+  public async updateMessage(input: UpdateMessageInput): Promise<MessageRecord> {
+    const message = this.messages.find((candidate) => candidate.id === input.messageId);
+    if (!message) {
+      throw new Error("Message not found.");
+    }
+
+    const replacement: MessageRecord = {
+      ...message,
+      content: input.content,
+      contentFormat: input.contentFormat,
+      editedAt: new Date(),
+      updatedAt: new Date(),
+    };
+    this.messages[this.messages.indexOf(message)] = replacement;
+    return replacement;
+  }
+
+  public async softDeleteMessage(input: SoftDeleteMessageInput): Promise<MessageRecord> {
+    const message = this.messages.find((candidate) => candidate.id === input.messageId);
+    if (!message) {
+      throw new Error("Message not found.");
+    }
+
+    const now = new Date();
+    const replacement: MessageRecord = {
+      ...message,
+      deletedAt: message.deletedAt ?? now,
+      deletedBy: message.deletedBy ?? input.deletedBy,
+      updatedAt: now,
+    };
+    this.messages[this.messages.indexOf(message)] = replacement;
+
+    if (!message.deletedAt) {
+      this.auditLogEntries.push({
+        actorId: input.actorId,
+        createdAt: now,
+        event: "MESSAGE_DELETE",
+        id: randomUUID(),
+        ipHash: null,
+        metadata: { channelId: message.channelId },
+        reason: null,
+        targetId: message.id,
+        targetType: "message",
+        workspaceId: message.workspaceId,
+      });
+    }
+
+    return replacement;
+  }
+
   private writePermissionOverrideAudit(
     input: UpsertPermissionOverrideInput,
     event: "PERMISSION_OVERRIDE_CREATE" | "PERMISSION_OVERRIDE_UPDATE",
@@ -438,4 +548,17 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       workspaceId: channel.workspaceId,
     });
   }
+}
+
+function compareMessagesDesc(left: MessageRecord, right: MessageRecord): number {
+  return right.createdAt.getTime() - left.createdAt.getTime() || right.id.localeCompare(left.id);
+}
+
+function compareMessageCursor(
+  message: MessageRecord,
+  cursor: { readonly createdAt: Date; readonly id: string },
+): number {
+  return (
+    message.createdAt.getTime() - cursor.createdAt.getTime() || message.id.localeCompare(cursor.id)
+  );
 }
