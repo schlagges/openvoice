@@ -4,6 +4,6 @@ import { formatWebTitle } from "../src/main";
 
 describe("web foundation", () => {
   it("formats the phase title", () => {
-    expect(formatWebTitle(0)).toBe("OpenVoice Phase 0");
+    expect(formatWebTitle(1)).toBe("OpenVoice Phase 1");
   });
 });
