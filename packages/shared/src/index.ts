@@ -1,4 +1,6 @@
-export const OPENVOICE_PHASE = 0 as const;
+export const OPENVOICE_PHASE = 1 as const;
+
+export * from "./permissions/index.js";
 
 export interface OpenVoicePackageInfo {
   readonly name: string;

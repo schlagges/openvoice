@@ -7,7 +7,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json && vite build",
     "dev": "vite",
-    "test": "vitest run tests"
+    "test": "vitest run --root ../.."
   },
   "dependencies": {
     "@openvoice/shared": "workspace:*"

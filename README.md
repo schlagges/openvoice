@@ -45,6 +45,12 @@ Die Phase-0-Compose-Datei startet PostgreSQL und Valkey:
 docker compose --env-file .env.example -f infra/docker-compose.yml up -d
 ```
 
+Migrationen laufen gegen `DATABASE_URL`:
+
+```bash
+pnpm db:migrate
+```
+
 Die Beispielwerte in `.env.example` sind Platzhalter für lokale Entwicklung. Produktive Secrets
 dürfen nicht in Git gespeichert werden.
 

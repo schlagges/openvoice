@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "pnpm -r --sort --if-present build",
+    "db:migrate": "pnpm --filter @openvoice/api build && pnpm --filter @openvoice/api migrate",
     "format": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,yaml,yml}\" \"docs/decision-log.md\" \"pnpm-workspace.yaml\" --write",
     "format:check": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,yaml,yml}\" \"docs/decision-log.md\" \"pnpm-workspace.yaml\" --check",
     "lint": "eslint . --max-warnings=0",

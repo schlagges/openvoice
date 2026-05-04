@@ -13,3 +13,17 @@
 ## Dependency License Check
 
 Direct Phase 0 dependencies are documented in `THIRD_PARTY_NOTICES.md`. They use MIT or Apache-2.0 licenses, both OSI-compatible.
+
+## 2026-05-04: Phase 1 API Foundation
+
+- API framework: no Express/Fastify dependency in Phase 1. The API uses the Node.js HTTP server and a small local fetch-style router to avoid adding a web framework before route volume requires it.
+- Input validation: local validators for Phase 1 request bodies. This keeps validation explicit and avoids introducing a schema library before shared API schemas are broader.
+- Password hashing: `argon2` with Argon2id, because the security requirements explicitly require Argon2id password hashing.
+- Database client: `pg`, because PostgreSQL is required and Phase 1 needs migrations plus persistence without introducing an ORM before query patterns are clearer.
+- Session cookies: cookies are `HttpOnly` and `SameSite=Lax`; `Secure` is enabled by default in production and configurable for local HTTP development through `SESSION_COOKIE_SECURE`.
+- CSRF: authenticated unsafe cookie requests require an `x-openvoice-csrf-token` header. Register and login return the token once a session is created.
+- Permission constants: implemented as a TypeScript `const` object plus union type instead of a native `enum`, because TypeScript does not allow BigInt enum members. The public usage remains `Permission.NAME`, and masks remain `bigint` as required.
+
+## Phase 1 Dependency License Check
+
+Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md`. `argon2`, `pg`, and `@types/pg` use MIT licenses, which are OSI-compatible.
