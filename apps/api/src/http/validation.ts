@@ -1,3 +1,11 @@
+import {
+  isChannelType,
+  parsePermissionMask,
+  type ChannelType,
+  type PermissionMask,
+} from "@openvoice/shared";
+
+import type { PermissionOverrideTargetType } from "../db/models.js";
 import { badRequest } from "./errors.js";
 
 export interface RegisterRequestBody {
@@ -13,6 +21,28 @@ export interface LoginRequestBody {
 
 export interface CreateWorkspaceRequestBody {
   readonly name: string;
+}
+
+export interface CreateChannelRequestBody {
+  readonly name: string;
+  readonly parentId?: string | null;
+  readonly position?: number;
+  readonly type: ChannelType;
+}
+
+export interface ReorderChannelsRequestBody {
+  readonly moves: readonly ReorderChannelRequestMove[];
+}
+
+export interface ReorderChannelRequestMove {
+  readonly channelId: string;
+  readonly parentId: string | null;
+  readonly position: number;
+}
+
+export interface PermissionOverrideRequestBody {
+  readonly allow: PermissionMask;
+  readonly deny: PermissionMask;
 }
 
 export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
@@ -60,6 +90,71 @@ export function parseCreateWorkspaceRequest(
   };
 }
 
+export function parseCreateChannelRequest(body: Record<string, unknown>): CreateChannelRequestBody {
+  const parentId =
+    body.parentId === undefined || body.parentId === null
+      ? null
+      : parseUuidLikeString(body.parentId, "parentId");
+  const position =
+    body.position === undefined ? undefined : parseNonNegativeInteger(body.position, "position");
+
+  return {
+    name: parseDisplayName(body.name, "name"),
+    ...(parentId !== null ? { parentId } : {}),
+    ...(position !== undefined ? { position } : {}),
+    type: parseChannelType(body.type),
+  };
+}
+
+export function parseReorderChannelsRequest(
+  body: Record<string, unknown>,
+): ReorderChannelsRequestBody {
+  if (!Array.isArray(body.moves)) {
+    throw badRequest("moves is required.", {
+      field: "moves",
+    });
+  }
+
+  return {
+    moves: body.moves.map((move, index) => {
+      if (!isPlainObject(move)) {
+        throw badRequest("Each move must be an object.", {
+          index,
+        });
+      }
+
+      return {
+        channelId: parseUuidLikeString(move.channelId, "channelId"),
+        parentId: move.parentId === null ? null : parseUuidLikeString(move.parentId, "parentId"),
+        position: parseNonNegativeInteger(move.position, "position"),
+      };
+    }),
+  };
+}
+
+export function parsePermissionOverrideRequest(
+  body: Record<string, unknown>,
+): PermissionOverrideRequestBody {
+  return {
+    allow: parsePermissionMaskString(body.allow, "allow"),
+    deny: parsePermissionMaskString(body.deny, "deny"),
+  };
+}
+
+export function parsePermissionOverrideTargetType(value: string): PermissionOverrideTargetType {
+  if (value === "role" || value === "member") {
+    return value;
+  }
+
+  throw badRequest("Invalid permission override target type.", {
+    field: "targetType",
+  });
+}
+
+export function parseUuidPathParameter(value: string, field: string): string {
+  return parseUuidLikeString(value, field);
+}
+
 export function normalizeEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -95,12 +190,56 @@ function parseDisplayName(value: unknown, field: string): string {
   return text;
 }
 
+function parseChannelType(value: unknown): ChannelType {
+  if (!isChannelType(value)) {
+    throw badRequest("Invalid channel type.", {
+      field: "type",
+    });
+  }
+
+  return value;
+}
+
+function parseNonNegativeInteger(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
+    throw badRequest(`${field} must be a non-negative integer.`, {
+      field,
+    });
+  }
+
+  return value;
+}
+
 function parseNonEmptyString(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim().length === 0) {
     throw badRequest(`${field} is required.`, { field });
   }
 
   return value;
+}
+
+function parsePermissionMaskString(value: unknown, field: string): PermissionMask {
+  const text = parseNonEmptyString(value, field).trim();
+
+  try {
+    return parsePermissionMask(text);
+  } catch {
+    throw badRequest(`${field} must be a non-negative decimal permission mask.`, {
+      field,
+    });
+  }
+}
+
+function parseUuidLikeString(value: unknown, field: string): string {
+  const text = parseNonEmptyString(value, field).trim();
+
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) {
+    throw badRequest(`${field} must be a UUID.`, {
+      field,
+    });
+  }
+
+  return text;
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {

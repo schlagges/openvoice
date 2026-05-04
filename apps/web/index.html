@@ -4,6 +4,93 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>OpenVoice</title>
+    <style>
+      :root {
+        color: #151513;
+        background: #f7f7f2;
+        font-family:
+          Inter,
+          ui-sans-serif,
+          system-ui,
+          -apple-system,
+          BlinkMacSystemFont,
+          "Segoe UI",
+          sans-serif;
+      }
+
+      body {
+        margin: 0;
+      }
+
+      .app-shell {
+        display: grid;
+        grid-template-columns: minmax(240px, 300px) 1fr;
+        min-height: 100vh;
+      }
+
+      .channel-sidebar {
+        border-right: 1px solid #d8d8ce;
+        background: #ffffff;
+        padding: 16px;
+      }
+
+      .channel-sidebar h1 {
+        font-size: 1rem;
+        font-weight: 700;
+        margin: 0 0 16px;
+      }
+
+      .channel-tree__list {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .channel-tree__list--nested {
+        margin-top: 4px;
+        padding-left: 16px;
+      }
+
+      .channel-tree__item {
+        margin: 3px 0;
+      }
+
+      .channel-tree__label {
+        align-items: center;
+        border-radius: 6px;
+        display: flex;
+        gap: 8px;
+        min-height: 32px;
+        padding: 0 8px;
+      }
+
+      .channel-tree__kind {
+        color: #577067;
+        font-size: 0.7rem;
+        font-weight: 700;
+        min-width: 56px;
+      }
+
+      .channel-tree__empty {
+        color: #5d5d55;
+        margin: 0;
+      }
+
+      .workspace-panel {
+        background: #f7f7f2;
+      }
+
+      @media (max-width: 720px) {
+        .app-shell {
+          grid-template-columns: 1fr;
+        }
+
+        .channel-sidebar {
+          border-right: 0;
+          border-bottom: 1px solid #d8d8ce;
+        }
+      }
+    </style>
   </head>
   <body>
     <div id="app"></div>

@@ -5,20 +5,29 @@ import {
   parsePermissionMask,
   serializePermissionMask,
   type DefaultRoleKey,
+  type ChannelType,
 } from "@openvoice/shared";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import { DuplicateEmailError } from "./errors.js";
 import type {
   AuditLogEntry,
+  AuditMetadata,
+  ChannelNodeRecord,
+  CreateChannelInput,
   CreateSessionInput,
   CreateUserInput,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
+  PermissionOverrideRecord,
+  PermissionOverrideTargetType,
+  ReorderChannelInput,
   Role,
   Session,
+  UpsertPermissionOverrideInput,
   User,
   Workspace,
+  WorkspaceAccessContext,
   WorkspaceMember,
 } from "./models.js";
 import type { OpenVoiceRepository } from "./repository.js";
@@ -170,6 +179,337 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       client.release();
     }
   }
+
+  public async findWorkspaceAccessContext(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceAccessContext | null> {
+    const accessResult = await this.pool.query<WorkspaceAccessRow>(
+      `SELECT
+         w.id AS workspace_id,
+         w.name AS workspace_name,
+         w.owner_id,
+         w.created_at AS workspace_created_at,
+         w.updated_at AS workspace_updated_at,
+         wm.id AS member_id,
+         wm.user_id AS member_user_id,
+         wm.workspace_id AS member_workspace_id,
+         wm.created_at AS member_created_at
+       FROM workspaces w
+       JOIN workspace_members wm ON wm.workspace_id = w.id
+       WHERE w.id = $1
+         AND wm.user_id = $2`,
+      [workspaceId, userId],
+    );
+
+    const row = accessResult.rows[0];
+    if (!row) {
+      return null;
+    }
+
+    const rolesResult = await this.pool.query<RoleRow>(
+      `SELECT r.*
+       FROM roles r
+       JOIN member_roles mr ON mr.role_id = r.id
+       WHERE mr.workspace_member_id = $1
+       ORDER BY r.position ASC`,
+      [row.member_id],
+    );
+
+    return {
+      member: {
+        createdAt: row.member_created_at,
+        id: row.member_id,
+        userId: row.member_user_id,
+        workspaceId: row.member_workspace_id,
+      },
+      roles: rolesResult.rows.map(mapRole),
+      workspace: {
+        createdAt: row.workspace_created_at,
+        id: row.workspace_id,
+        name: row.workspace_name,
+        ownerId: row.owner_id,
+        updatedAt: row.workspace_updated_at,
+      },
+    };
+  }
+
+  public async findWorkspaceMember(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceMember | null> {
+    const result = await this.pool.query<WorkspaceMemberRow>(
+      "SELECT * FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+      [workspaceId, userId],
+    );
+
+    return result.rows[0] ? mapWorkspaceMember(result.rows[0]) : null;
+  }
+
+  public async findRoleById(roleId: string): Promise<Role | null> {
+    const result = await this.pool.query<RoleRow>("SELECT * FROM roles WHERE id = $1", [roleId]);
+
+    return result.rows[0] ? mapRole(result.rows[0]) : null;
+  }
+
+  public async createChannel(input: CreateChannelInput): Promise<ChannelNodeRecord> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query<ChannelNodeRow>(
+        `INSERT INTO channel_nodes (
+           id, workspace_id, parent_id, type, name, slug, position, depth, path,
+           inherits_permissions, settings, created_at, updated_at, deleted_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true, '{}', now(), now(), null)
+         RETURNING *`,
+        [
+          input.id,
+          input.workspaceId,
+          input.parentId,
+          input.type,
+          input.name,
+          input.slug,
+          input.position,
+          input.depth,
+          input.path,
+        ],
+      );
+      const channel = mapChannelNode(result.rows[0]);
+
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "CHANNEL_CREATE",
+        metadata: { channelName: input.name, type: input.type },
+        targetId: channel.id,
+        targetType: "channel",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return channel;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async findChannelById(channelId: string): Promise<ChannelNodeRecord | null> {
+    const result = await this.pool.query<ChannelNodeRow>(
+      "SELECT * FROM channel_nodes WHERE id = $1 AND deleted_at IS NULL",
+      [channelId],
+    );
+
+    return result.rows[0] ? mapChannelNode(result.rows[0]) : null;
+  }
+
+  public async listChannels(workspaceId: string): Promise<readonly ChannelNodeRecord[]> {
+    const result = await this.pool.query<ChannelNodeRow>(
+      `SELECT *
+       FROM channel_nodes
+       WHERE workspace_id = $1
+         AND deleted_at IS NULL
+       ORDER BY depth ASC, position ASC, name ASC`,
+      [workspaceId],
+    );
+
+    return result.rows.map(mapChannelNode);
+  }
+
+  public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const updated: ChannelNodeRecord[] = [];
+      for (const move of input.moves) {
+        const result = await client.query<ChannelNodeRow>(
+          `UPDATE channel_nodes
+           SET parent_id = $3,
+               position = $4,
+               depth = $5,
+               path = $6,
+               updated_at = now()
+           WHERE workspace_id = $1
+             AND id = $2
+             AND deleted_at IS NULL
+           RETURNING *`,
+          [input.workspaceId, move.channelId, move.parentId, move.position, move.depth, move.path],
+        );
+
+        if (result.rows[0]) {
+          updated.push(mapChannelNode(result.rows[0]));
+        }
+      }
+
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "CHANNEL_MOVE",
+        metadata: { movedCount: input.moves.length },
+        targetId: null,
+        targetType: "channel",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return updated;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async listPermissionOverrides(
+    channelId: string,
+  ): Promise<readonly PermissionOverrideRecord[]> {
+    const result = await this.pool.query<PermissionOverrideRow>(
+      `SELECT *
+       FROM permission_overrides
+       WHERE channel_id = $1
+       ORDER BY target_type ASC, target_id ASC`,
+      [channelId],
+    );
+
+    return result.rows.map(mapPermissionOverride);
+  }
+
+  public async listPermissionOverridesForChannels(
+    channelIds: readonly string[],
+  ): Promise<readonly PermissionOverrideRecord[]> {
+    if (channelIds.length === 0) {
+      return [];
+    }
+
+    const result = await this.pool.query<PermissionOverrideRow>(
+      `SELECT *
+       FROM permission_overrides
+       WHERE channel_id = ANY($1::uuid[])`,
+      [channelIds],
+    );
+
+    return result.rows.map(mapPermissionOverride);
+  }
+
+  public async upsertPermissionOverride(
+    input: UpsertPermissionOverrideInput,
+  ): Promise<PermissionOverrideRecord> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const channelResult = await client.query<ChannelNodeRow>(
+        "SELECT * FROM channel_nodes WHERE id = $1 AND deleted_at IS NULL",
+        [input.channelId],
+      );
+      const channel = mapChannelNode(channelResult.rows[0]);
+      const existingResult = await client.query<PermissionOverrideRow>(
+        `SELECT *
+         FROM permission_overrides
+         WHERE channel_id = $1
+           AND target_type = $2
+           AND target_id = $3`,
+        [input.channelId, input.targetType, input.targetId],
+      );
+      const event =
+        existingResult.rowCount && existingResult.rowCount > 0
+          ? "PERMISSION_OVERRIDE_UPDATE"
+          : "PERMISSION_OVERRIDE_CREATE";
+      const result = await client.query<PermissionOverrideRow>(
+        `INSERT INTO permission_overrides (
+           id, channel_id, target_type, target_id, allow, deny, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, now(), now())
+         ON CONFLICT (channel_id, target_type, target_id)
+         DO UPDATE SET allow = EXCLUDED.allow,
+                       deny = EXCLUDED.deny,
+                       updated_at = now()
+         RETURNING *`,
+        [
+          randomUUID(),
+          input.channelId,
+          input.targetType,
+          input.targetId,
+          serializePermissionMask(input.allow),
+          serializePermissionMask(input.deny),
+        ],
+      );
+
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event,
+        metadata: {
+          allow: serializePermissionMask(input.allow),
+          deny: serializePermissionMask(input.deny),
+          targetId: input.targetId,
+          targetType: input.targetType,
+        },
+        targetId: input.channelId,
+        targetType: "permission_override",
+        workspaceId: channel.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return mapPermissionOverride(result.rows[0]);
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async deletePermissionOverride(
+    channelId: string,
+    targetType: PermissionOverrideTargetType,
+    targetId: string,
+    actorId: string,
+  ): Promise<void> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const channelResult = await client.query<ChannelNodeRow>(
+        "SELECT * FROM channel_nodes WHERE id = $1 AND deleted_at IS NULL",
+        [channelId],
+      );
+      const channel = mapChannelNode(channelResult.rows[0]);
+      const deleteResult = await client.query<PermissionOverrideRow>(
+        `DELETE FROM permission_overrides
+         WHERE channel_id = $1
+           AND target_type = $2
+           AND target_id = $3
+         RETURNING *`,
+        [channelId, targetType, targetId],
+      );
+
+      if (deleteResult.rowCount && deleteResult.rowCount > 0) {
+        await insertAuditLog(client, {
+          actorId,
+          event: "PERMISSION_OVERRIDE_DELETE",
+          metadata: { targetId, targetType },
+          targetId: channelId,
+          targetType: "permission_override",
+          workspaceId: channel.workspaceId,
+        });
+      }
+
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 interface WorkspaceCreationAuditInput {
@@ -296,6 +636,77 @@ interface AuditLogRow extends QueryResultRow {
   readonly workspace_id: string;
 }
 
+interface WorkspaceAccessRow extends QueryResultRow {
+  readonly member_created_at: Date;
+  readonly member_id: string;
+  readonly member_user_id: string;
+  readonly member_workspace_id: string;
+  readonly owner_id: string;
+  readonly workspace_created_at: Date;
+  readonly workspace_id: string;
+  readonly workspace_name: string;
+  readonly workspace_updated_at: Date;
+}
+
+interface ChannelNodeRow extends QueryResultRow {
+  readonly created_at: Date;
+  readonly deleted_at: Date | null;
+  readonly depth: number;
+  readonly id: string;
+  readonly inherits_permissions: boolean;
+  readonly name: string;
+  readonly parent_id: string | null;
+  readonly path: string;
+  readonly position: number;
+  readonly settings: Record<string, never>;
+  readonly slug: string;
+  readonly type: ChannelType;
+  readonly updated_at: Date;
+  readonly workspace_id: string;
+}
+
+interface PermissionOverrideRow extends QueryResultRow {
+  readonly allow: string;
+  readonly channel_id: string;
+  readonly created_at: Date;
+  readonly deny: string;
+  readonly id: string;
+  readonly target_id: string;
+  readonly target_type: PermissionOverrideTargetType;
+  readonly updated_at: Date;
+}
+
+interface InsertAuditLogInput {
+  readonly actorId: string | null;
+  readonly event: string;
+  readonly metadata: AuditMetadata;
+  readonly targetId: string | null;
+  readonly targetType: string;
+  readonly workspaceId: string;
+}
+
+async function insertAuditLog(
+  client: PoolClient,
+  input: InsertAuditLogInput,
+): Promise<AuditLogEntry> {
+  const result = await client.query<AuditLogRow>(
+    `INSERT INTO audit_log (id, workspace_id, actor_id, event, target_type, target_id, reason, metadata, ip_hash, created_at)
+     VALUES ($1, $2, $3, $4, $5, $6, null, $7, null, now())
+     RETURNING *`,
+    [
+      randomUUID(),
+      input.workspaceId,
+      input.actorId,
+      input.event,
+      input.targetType,
+      input.targetId,
+      JSON.stringify(input.metadata),
+    ],
+  );
+
+  return mapAuditLogEntry(result.rows[0]);
+}
+
 function mapUser(row: UserRow | undefined): User {
   if (!row) {
     throw new Error("Expected user row.");
@@ -389,6 +800,46 @@ function mapAuditLogEntry(row: AuditLogRow | undefined): AuditLogEntry {
     targetId: row.target_id,
     targetType: row.target_type,
     workspaceId: row.workspace_id,
+  };
+}
+
+function mapChannelNode(row: ChannelNodeRow | undefined): ChannelNodeRecord {
+  if (!row) {
+    throw new Error("Expected channel node row.");
+  }
+
+  return {
+    createdAt: row.created_at,
+    deletedAt: row.deleted_at,
+    depth: row.depth,
+    id: row.id,
+    inheritsPermissions: row.inherits_permissions,
+    name: row.name,
+    parentId: row.parent_id,
+    path: row.path,
+    position: row.position,
+    settings: row.settings,
+    slug: row.slug,
+    type: row.type,
+    updatedAt: row.updated_at,
+    workspaceId: row.workspace_id,
+  };
+}
+
+function mapPermissionOverride(row: PermissionOverrideRow | undefined): PermissionOverrideRecord {
+  if (!row) {
+    throw new Error("Expected permission override row.");
+  }
+
+  return {
+    allow: parsePermissionMask(row.allow),
+    channelId: row.channel_id,
+    createdAt: row.created_at,
+    deny: parsePermissionMask(row.deny),
+    id: row.id,
+    targetId: row.target_id,
+    targetType: row.target_type,
+    updatedAt: row.updated_at,
   };
 }
 

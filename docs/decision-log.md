@@ -27,3 +27,11 @@ Direct Phase 0 dependencies are documented in `THIRD_PARTY_NOTICES.md`. They use
 ## Phase 1 Dependency License Check
 
 Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md`. `argon2`, `pg`, and `@types/pg` use MIT licenses, which are OSI-compatible.
+
+## 2026-05-05: Phase 2 Channel Tree
+
+- Channel depth: top-level channel nodes use `depth = 0`; `MAX_CHANNEL_DEPTH = 5` is the maximum stored node depth.
+- Member permission override target IDs use the global user ID. This matches the permission pseudocode in the specification, which looks up user-specific overrides by `user.id`.
+- Visible tree responses omit invisible nodes. If a visible child is explicitly allowed below an invisible parent, the response exposes the child as a top-level item to avoid leaking the hidden parent ID.
+- Docker runtime: a single multi-stage Dockerfile builds API and web targets. The API image runs migrations before starting the server so local Compose remains self-contained.
+- Compose scope: Phase 2 Compose includes API, web, PostgreSQL and Valkey only. coturn, SFU and media services remain out of scope until their planned phases.

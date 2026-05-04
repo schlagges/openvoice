@@ -4,8 +4,9 @@ OpenVoice ist ein vollständig self-hostbares, browserbasiertes Voice-/Chat-/Vid
 Die Umsetzung erfolgt phasenweise nach `PLANS.md`; das verbindliche Lastenheft liegt in
 `docs/lastenheft.md`.
 
-Phase 0 richtet ausschließlich das technische Monorepo-Fundament ein. Produktfeatures wie Auth,
-Chat, Voice, Video und Workspace-Logik sind noch nicht implementiert.
+Die Umsetzung ist aktuell bis Phase 2 vorbereitet: Monorepo-Fundament, Auth/Workspaces und der
+Channel-Baum mit Rechte-Overrides. Chat, Voice, Video und Screenshare sind noch nicht
+implementiert.
 
 ## Struktur
 
@@ -39,17 +40,20 @@ pnpm build
 
 ## Lokale Infrastruktur
 
-Die Phase-0-Compose-Datei startet PostgreSQL und Valkey:
+Die Compose-Datei baut API und Web-App und startet PostgreSQL sowie Valkey:
 
 ```bash
-docker compose --env-file .env.example -f infra/docker-compose.yml up -d
+docker compose --env-file .env.example -f infra/docker-compose.yml up --build
 ```
 
-Migrationen laufen gegen `DATABASE_URL`:
+Die API führt Migrationen beim Containerstart aus. Für lokale Migrationen ohne Container läuft:
 
 ```bash
 pnpm db:migrate
 ```
+
+Nach dem Compose-Start sind die Web-App unter `http://localhost:5173` und die API unter
+`http://localhost:3000` erreichbar.
 
 Die Beispielwerte in `.env.example` sind Platzhalter für lokale Entwicklung. Produktive Secrets
 dürfen nicht in Git gespeichert werden.
