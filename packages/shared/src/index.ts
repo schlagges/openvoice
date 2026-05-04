@@ -1,5 +1,6 @@
-export const OPENVOICE_PHASE = 1 as const;
+export const OPENVOICE_PHASE = 2 as const;
 
+export * from "./channels/index.js";
 export * from "./permissions/index.js";
 
 export interface OpenVoicePackageInfo {

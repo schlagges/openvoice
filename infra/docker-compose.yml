@@ -1,4 +1,37 @@
 services:
+  api:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: api
+    depends_on:
+      postgres:
+        condition: service_healthy
+      valkey:
+        condition: service_healthy
+    environment:
+      API_PORT: 3000
+      CSRF_SECRET: ${CSRF_SECRET:-replace-with-generated-csrf-secret}
+      DATABASE_URL: postgres://${POSTGRES_USER:-openvoice}:${POSTGRES_PASSWORD:-openvoice_dev_password}@postgres:5432/${POSTGRES_DB:-openvoice}
+      PASSWORD_PEPPER: ${PASSWORD_PEPPER:-replace-with-generated-password-pepper}
+      REDIS_URL: redis://valkey:6379
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-openvoice_session}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_SECRET: ${SESSION_SECRET:-replace-with-generated-session-secret}
+      SESSION_TTL_SECONDS: ${SESSION_TTL_SECONDS:-2592000}
+    ports:
+      - "${API_PORT:-3000}:3000"
+
+  web:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+      target: web
+    depends_on:
+      - api
+    ports:
+      - "${WEB_PORT:-5173}:80"
+
   postgres:
     image: postgres:16
     environment:

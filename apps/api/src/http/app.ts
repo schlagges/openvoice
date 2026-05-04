@@ -1,6 +1,7 @@
 import { type ApiConfig } from "../config/env.js";
 import type { Session } from "../db/models.js";
 import { AuthService, toPublicUser } from "../modules/auth/service.js";
+import { ChannelService } from "../modules/channels/service.js";
 import { WorkspaceService } from "../modules/workspaces/service.js";
 import { readRequestToken } from "../security/request-auth.js";
 import { clearSessionCookie, createSessionCookie } from "./cookies.js";
@@ -13,14 +14,20 @@ import {
   unauthorized,
 } from "./errors.js";
 import {
+  parseCreateChannelRequest,
   parseCreateWorkspaceRequest,
   parseLoginRequest,
+  parsePermissionOverrideRequest,
+  parsePermissionOverrideTargetType,
   parseRegisterRequest,
+  parseReorderChannelsRequest,
+  parseUuidPathParameter,
   readJsonObject,
 } from "./validation.js";
 
 export interface ApiHandlerOptions {
   readonly authService: AuthService;
+  readonly channelService: ChannelService;
   readonly config: Pick<
     ApiConfig,
     "sessionCookieName" | "sessionCookieSecure" | "sessionTtlSeconds"
@@ -143,6 +150,142 @@ async function routeRequest(
     return jsonResponse(result, 201, requestId);
   }
 
+  const workspaceChannelsMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/channels$/,
+  );
+  if (workspaceChannelsMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const body = parseCreateChannelRequest(await readJsonObject(request));
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(workspaceChannelsMatch, 0),
+      "workspaceId",
+    );
+    const channel = await options.channelService.createChannel({
+      ...body,
+      userId: authenticated.userId,
+      workspaceId,
+    });
+
+    return jsonResponse({ channel }, 201, requestId);
+  }
+
+  const workspaceTreeMatch = matchPath(url.pathname, /^\/api\/v1\/workspaces\/([^/]+)\/tree$/);
+  if (workspaceTreeMatch) {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(workspaceTreeMatch, 0),
+      "workspaceId",
+    );
+    const tree = await options.channelService.listVisibleTree(workspaceId, authenticated.userId);
+
+    return jsonResponse({ channels: tree }, 200, requestId);
+  }
+
+  const reorderChannelsMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/channels\/reorder$/,
+  );
+  if (reorderChannelsMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const body = parseReorderChannelsRequest(await readJsonObject(request));
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(reorderChannelsMatch, 0),
+      "workspaceId",
+    );
+    const channels = await options.channelService.reorderChannels({
+      ...body,
+      userId: authenticated.userId,
+      workspaceId,
+    });
+
+    return jsonResponse({ channels }, 200, requestId);
+  }
+
+  const permissionOverridesMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/channels\/([^/]+)\/permission-overrides$/,
+  );
+  if (permissionOverridesMatch) {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    const channelId = parseUuidPathParameter(
+      requirePathPart(permissionOverridesMatch, 0),
+      "channelId",
+    );
+    const overrides = await options.channelService.listPermissionOverrides(
+      channelId,
+      authenticated.userId,
+    );
+
+    return jsonResponse({ overrides }, 200, requestId);
+  }
+
+  const permissionOverrideMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/channels\/([^/]+)\/permission-overrides\/([^/]+)\/([^/]+)$/,
+  );
+  if (permissionOverrideMatch) {
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const channelIdValue = requirePathPart(permissionOverrideMatch, 0);
+    const targetTypeValue = requirePathPart(permissionOverrideMatch, 1);
+    const targetIdValue = requirePathPart(permissionOverrideMatch, 2);
+    const channelId = parseUuidPathParameter(channelIdValue, "channelId");
+    const targetId = parseUuidPathParameter(targetIdValue, "targetId");
+    const targetType = parsePermissionOverrideTargetType(targetTypeValue);
+
+    if (request.method === "PUT") {
+      const body = parsePermissionOverrideRequest(await readJsonObject(request));
+      const override = await options.channelService.upsertPermissionOverride({
+        ...body,
+        channelId,
+        targetId,
+        targetType,
+        userId: authenticated.userId,
+      });
+
+      return jsonResponse({ override }, 200, requestId);
+    }
+
+    if (request.method === "DELETE") {
+      await options.channelService.deletePermissionOverride({
+        channelId,
+        targetId,
+        targetType,
+        userId: authenticated.userId,
+      });
+
+      return jsonResponse({ ok: true }, 200, requestId);
+    }
+
+    throw methodNotAllowed();
+  }
+
+  const effectivePermissionsMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/channels\/([^/]+)\/effective-permissions\/me$/,
+  );
+  if (effectivePermissionsMatch) {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    const channelId = parseUuidPathParameter(
+      requirePathPart(effectivePermissionsMatch, 0),
+      "channelId",
+    );
+    const effectivePermissions = await options.channelService.getEffectivePermissions(
+      channelId,
+      authenticated.userId,
+    );
+
+    return jsonResponse(effectivePermissions, 200, requestId);
+  }
+
   throw notFound();
 }
 
@@ -194,4 +337,22 @@ function assertMethod(request: Request, expectedMethod: string): void {
   if (request.method !== expectedMethod) {
     throw methodNotAllowed();
   }
+}
+
+function matchPath(pathname: string, pattern: RegExp): string[] | null {
+  const match = pattern.exec(pathname);
+  if (!match) {
+    return null;
+  }
+
+  return match.slice(1).map(decodeURIComponent);
+}
+
+function requirePathPart(parts: readonly string[], index: number): string {
+  const value = parts[index];
+  if (value === undefined) {
+    throw notFound();
+  }
+
+  return value;
 }

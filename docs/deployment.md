@@ -24,6 +24,10 @@ Beispiel siehe:
 - `infra/turnserver.example.conf`
 - `infra/livekit.example.yaml`
 
+Der aktuelle Phase-2-Compose-Stand in `infra/docker-compose.yml` startet nur Web, API,
+PostgreSQL und Valkey. Medienkomponenten, TURN und Observability werden in späteren Phasen
+ergänzt.
+
 ---
 
 ## 2. Ports

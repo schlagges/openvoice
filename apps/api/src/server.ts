@@ -6,6 +6,7 @@ import { createPostgresPool } from "./db/pool.js";
 import { PostgresOpenVoiceRepository } from "./db/postgres-repository.js";
 import { createApiHandler } from "./http/app.js";
 import { AuthService } from "./modules/auth/service.js";
+import { ChannelService } from "./modules/channels/service.js";
 import { WorkspaceService } from "./modules/workspaces/service.js";
 import { Argon2idPasswordHasher } from "./security/password.js";
 
@@ -20,8 +21,9 @@ export function createOpenVoiceApiServer() {
     sessionSecret: config.sessionSecret,
     sessionTtlSeconds: config.sessionTtlSeconds,
   });
+  const channelService = new ChannelService({ repository });
   const workspaceService = new WorkspaceService({ repository });
-  const handler = createApiHandler({ authService, config, workspaceService });
+  const handler = createApiHandler({ authService, channelService, config, workspaceService });
 
   return createServer(async (incoming, outgoing) => {
     const request = new Request(
