@@ -7,9 +7,17 @@ import { PostgresOpenVoiceRepository } from "./db/postgres-repository.js";
 import { createApiHandler } from "./http/app.js";
 import { AuthService } from "./modules/auth/service.js";
 import { ChannelService } from "./modules/channels/service.js";
+import {
+  CompositeMessageEventPublisher,
+  GatewayMessageEventPublisher,
+} from "./modules/gateway/events.js";
+import { RedisPresenceStore } from "./modules/gateway/presence.js";
+import { RedisGatewayPubSub } from "./modules/gateway/pubsub.js";
+import { GatewayService } from "./modules/gateway/service.js";
+import { createGatewayWebSocketUpgradeHandler } from "./modules/gateway/websocket.js";
 import { InMemoryMessageEventHub } from "./modules/messages/events.js";
 import { MessageService } from "./modules/messages/service.js";
-import { installMessageWebSocketServer } from "./modules/messages/websocket.js";
+import { createMessageWebSocketUpgradeHandler } from "./modules/messages/websocket.js";
 import { WorkspaceService } from "./modules/workspaces/service.js";
 import { Argon2idPasswordHasher } from "./security/password.js";
 
@@ -24,14 +32,33 @@ export function createOpenVoiceApiServer() {
     sessionSecret: config.sessionSecret,
     sessionTtlSeconds: config.sessionTtlSeconds,
   });
-  const channelService = new ChannelService({ repository });
   const messageEventHub = new InMemoryMessageEventHub();
-  const messageService = new MessageService({
-    channelService,
-    eventPublisher: messageEventHub,
+  const gatewayPubSub = new RedisGatewayPubSub(config.redisUrl);
+  const gatewayEventPublisher = gatewayPubSub;
+  const channelService = new ChannelService({
+    eventPublisher: gatewayEventPublisher,
     repository,
   });
-  const workspaceService = new WorkspaceService({ repository });
+  const workspaceService = new WorkspaceService({
+    eventPublisher: gatewayEventPublisher,
+    repository,
+  });
+  const messageService = new MessageService({
+    channelService,
+    eventPublisher: new CompositeMessageEventPublisher([
+      messageEventHub,
+      new GatewayMessageEventPublisher(gatewayEventPublisher),
+    ]),
+    repository,
+  });
+  const gatewayService = new GatewayService({
+    authService,
+    channelService,
+    config,
+    presenceStore: new RedisPresenceStore(config.redisUrl),
+    pubSub: gatewayPubSub,
+    workspaceService,
+  });
   const handler = createApiHandler({
     authService,
     channelService,
@@ -59,11 +86,26 @@ export function createOpenVoiceApiServer() {
     const body = await response.arrayBuffer();
     outgoing.end(Buffer.from(body));
   });
-  installMessageWebSocketServer(server, {
+  const gatewayUpgradeHandler = createGatewayWebSocketUpgradeHandler(gatewayService);
+  const messageUpgradeHandler = createMessageWebSocketUpgradeHandler({
     authService,
     config,
     eventHub: messageEventHub,
     messageService,
+  });
+  server.on("upgrade", (incoming, socket, head) => {
+    if (gatewayUpgradeHandler.canHandle(incoming)) {
+      gatewayUpgradeHandler.handle(incoming, socket, head);
+      return;
+    }
+
+    if (messageUpgradeHandler.canHandle(incoming)) {
+      messageUpgradeHandler.handle(incoming, socket, head);
+      return;
+    }
+
+    socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
+    socket.destroy();
   });
 
   return server;

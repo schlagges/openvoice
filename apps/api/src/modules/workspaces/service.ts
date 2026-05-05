@@ -1,9 +1,15 @@
-import { DEFAULT_ROLE_DEFINITIONS, serializePermissionMask } from "@openvoice/shared";
+import {
+  DEFAULT_ROLE_DEFINITIONS,
+  ServerGatewayEventType,
+  serializePermissionMask,
+} from "@openvoice/shared";
 
 import type { CreateWorkspaceResult, Role, Workspace } from "../../db/models.js";
 import type { OpenVoiceRepository } from "../../db/repository.js";
+import type { GatewayEventPublisher } from "../gateway/events.js";
 
 export interface WorkspaceServiceOptions {
+  readonly eventPublisher?: GatewayEventPublisher;
   readonly repository: OpenVoiceRepository;
 }
 
@@ -30,9 +36,11 @@ export interface PublicWorkspace {
 }
 
 export class WorkspaceService {
+  private readonly eventPublisher: GatewayEventPublisher | null;
   private readonly repository: OpenVoiceRepository;
 
   public constructor(options: WorkspaceServiceOptions) {
+    this.eventPublisher = options.eventPublisher ?? null;
     this.repository = options.repository;
   }
 
@@ -41,8 +49,19 @@ export class WorkspaceService {
     readonly ownerId: string;
   }): Promise<WorkspaceCreationResponse> {
     const result = await this.repository.createWorkspaceWithDefaults(input);
+    const response = toWorkspaceCreationResponse(result);
+    await this.eventPublisher?.publish({
+      payload: { workspace: response.workspace },
+      type: ServerGatewayEventType.WORKSPACE_UPDATE,
+      workspaceId: response.workspace.id,
+    });
 
-    return toWorkspaceCreationResponse(result);
+    return response;
+  }
+
+  public async listWorkspacesForUser(userId: string): Promise<readonly PublicWorkspace[]> {
+    const workspaces = await this.repository.listWorkspacesForUser(userId);
+    return workspaces.map(toPublicWorkspace);
   }
 }
 

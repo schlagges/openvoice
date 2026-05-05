@@ -18,6 +18,7 @@ import type {
   UpdateMessageInput,
   UpsertPermissionOverrideInput,
   User,
+  Workspace,
   WorkspaceMember,
   WorkspaceAccessContext,
 } from "./models.js";
@@ -51,6 +52,7 @@ export interface OpenVoiceRepository {
   listPermissionOverridesForChannels(
     channelIds: readonly string[],
   ): Promise<readonly PermissionOverrideRecord[]>;
+  listWorkspacesForUser(userId: string): Promise<readonly Workspace[]>;
   reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]>;
   revokeSession(tokenHash: string, revokedAt: Date): Promise<void>;
   softDeleteMessage(input: SoftDeleteMessageInput): Promise<MessageRecord>;

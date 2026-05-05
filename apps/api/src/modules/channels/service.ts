@@ -12,6 +12,7 @@ import {
   isChannelDepthAllowed,
   MAX_CHANNEL_DEPTH,
   Permission,
+  ServerGatewayEventType,
   serializePermissionMask,
   type ChannelNode,
   type ChannelTreeNode,
@@ -26,8 +27,10 @@ import type {
 } from "../../db/models.js";
 import type { OpenVoiceRepository } from "../../db/repository.js";
 import { badRequest, conflict, forbidden, notFound } from "../../http/errors.js";
+import type { GatewayEventPublisher } from "../gateway/events.js";
 
 export interface ChannelServiceOptions {
+  readonly eventPublisher?: GatewayEventPublisher;
   readonly repository: OpenVoiceRepository;
 }
 
@@ -85,9 +88,11 @@ export interface EffectivePermissionsResponse {
 }
 
 export class ChannelService {
+  private readonly eventPublisher: GatewayEventPublisher | null;
   private readonly repository: OpenVoiceRepository;
 
   public constructor(options: ChannelServiceOptions) {
+    this.eventPublisher = options.eventPublisher ?? null;
     this.repository = options.repository;
   }
 
@@ -161,8 +166,15 @@ export class ChannelService {
       type: command.type,
       workspaceId: command.workspaceId,
     });
+    const publicChannel = toPublicChannelNode(channel);
+    await this.eventPublisher?.publish({
+      channelId: channel.id,
+      payload: { channel: publicChannel },
+      type: ServerGatewayEventType.CHANNEL_CREATE,
+      workspaceId: channel.workspaceId,
+    });
 
-    return toPublicChannelNode(channel);
+    return publicChannel;
   }
 
   public async listVisibleTree(
@@ -275,6 +287,12 @@ export class ChannelService {
       workspaceId: command.workspaceId,
     });
 
+    await this.eventPublisher?.publish({
+      payload: { channels: [], workspaceId: command.workspaceId },
+      type: ServerGatewayEventType.CHANNEL_REORDER,
+      workspaceId: command.workspaceId,
+    });
+
     return updated.map(toPublicChannelNode);
   }
 
@@ -315,11 +333,17 @@ export class ChannelService {
       targetType: command.targetType,
     });
 
+    await this.eventPublisher?.publish({
+      payload: { workspaceId: channel.workspaceId },
+      type: ServerGatewayEventType.PERMISSION_UPDATE,
+      workspaceId: channel.workspaceId,
+    });
+
     return toPublicPermissionOverride(override);
   }
 
   public async deletePermissionOverride(command: DeletePermissionOverrideCommand): Promise<void> {
-    await this.requireChannelPermission(
+    const { channel } = await this.requireChannelPermission(
       command.channelId,
       command.userId,
       Permission.MANAGE_CHANNEL_PERMS,
@@ -330,6 +354,11 @@ export class ChannelService {
       command.targetId,
       command.userId,
     );
+    await this.eventPublisher?.publish({
+      payload: { workspaceId: channel.workspaceId },
+      type: ServerGatewayEventType.PERMISSION_UPDATE,
+      workspaceId: channel.workspaceId,
+    });
   }
 
   public async getEffectivePermissions(

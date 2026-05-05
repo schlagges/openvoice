@@ -327,6 +327,19 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows.map(mapChannelNode);
   }
 
+  public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
+    const result = await this.pool.query<WorkspaceRow>(
+      `SELECT w.*
+       FROM workspaces w
+       JOIN workspace_members wm ON wm.workspace_id = w.id
+       WHERE wm.user_id = $1
+       ORDER BY w.created_at ASC`,
+      [userId],
+    );
+
+    return result.rows.map(mapWorkspace);
+  }
+
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {
     const client = await this.pool.connect();
 

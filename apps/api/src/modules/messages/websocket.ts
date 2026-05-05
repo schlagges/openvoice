@@ -16,40 +16,71 @@ export interface MessageWebSocketOptions {
   readonly messageService: MessageService;
 }
 
+export interface MessageWebSocketUpgradeHandler {
+  canHandle(incoming: IncomingMessage): boolean;
+  handle(incoming: IncomingMessage, socket: Duplex, head: Buffer): void;
+}
+
 export function installMessageWebSocketServer(
   server: Server,
   options: MessageWebSocketOptions,
 ): void {
-  const webSocketServer = new WebSocketServer({ noServer: true });
-
-  server.on("upgrade", async (incoming, socket, head) => {
-    const url = new URL(incoming.url ?? "/", `http://${incoming.headers.host ?? "localhost"}`);
-    const channelId = matchMessageSocketPath(url.pathname);
-    if (!channelId) {
+  const handler = createMessageWebSocketUpgradeHandler(options);
+  server.on("upgrade", (incoming, socket, head) => {
+    if (!handler.canHandle(incoming)) {
       rejectUpgrade(socket, 404);
       return;
     }
 
-    const userId = await authenticateUpgrade(incoming, options).catch(() => null);
-    if (!userId || !(await options.messageService.canReceiveMessageEvents(channelId, userId))) {
-      rejectUpgrade(socket, 401);
-      return;
-    }
+    handler.handle(incoming, socket, head);
+  });
+}
 
-    webSocketServer.handleUpgrade(incoming, socket, head, (webSocket) => {
-      const unsubscribe = options.eventHub.subscribe({
-        canReceive: () => options.messageService.canReceiveMessageEvents(channelId, userId),
-        channelId,
-        send: (envelope) => {
-          if (webSocket.readyState === WebSocket.OPEN) {
-            webSocket.send(JSON.stringify(envelope));
-          }
-        },
-      });
+export function createMessageWebSocketUpgradeHandler(
+  options: MessageWebSocketOptions,
+): MessageWebSocketUpgradeHandler {
+  const webSocketServer = new WebSocketServer({ noServer: true });
 
-      webSocket.on("close", unsubscribe);
-      webSocket.on("error", unsubscribe);
+  return {
+    canHandle: (incoming) => matchMessageSocketPath(readPathname(incoming)) !== null,
+    handle: (incoming, socket, head) => {
+      void handleMessageSocketUpgrade(webSocketServer, options, incoming, socket, head);
+    },
+  };
+}
+
+async function handleMessageSocketUpgrade(
+  webSocketServer: WebSocketServer,
+  options: MessageWebSocketOptions,
+  incoming: IncomingMessage,
+  socket: Duplex,
+  head: Buffer,
+): Promise<void> {
+  const channelId = matchMessageSocketPath(readPathname(incoming));
+  if (!channelId) {
+    rejectUpgrade(socket, 404);
+    return;
+  }
+
+  const userId = await authenticateUpgrade(incoming, options).catch(() => null);
+  if (!userId || !(await options.messageService.canReceiveMessageEvents(channelId, userId))) {
+    rejectUpgrade(socket, 401);
+    return;
+  }
+
+  webSocketServer.handleUpgrade(incoming, socket, head, (webSocket) => {
+    const unsubscribe = options.eventHub.subscribe({
+      canReceive: () => options.messageService.canReceiveMessageEvents(channelId, userId),
+      channelId,
+      send: (envelope) => {
+        if (webSocket.readyState === WebSocket.OPEN) {
+          webSocket.send(JSON.stringify(envelope));
+        }
+      },
     });
+
+    webSocket.on("close", unsubscribe);
+    webSocket.on("error", unsubscribe);
   });
 }
 
@@ -81,6 +112,11 @@ function matchMessageSocketPath(pathname: string): string | null {
   }
 
   return channelId;
+}
+
+function readPathname(incoming: IncomingMessage): string {
+  const url = new URL(incoming.url ?? "/", `http://${incoming.headers.host ?? "localhost"}`);
+  return url.pathname;
 }
 
 function rejectUpgrade(socket: Duplex, statusCode: 401 | 404): void {
