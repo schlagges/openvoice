@@ -12,6 +12,9 @@ Die verbindliche API-Spezifikation steht in `docs/lastenheft.md`. Diese Datei is
 - Fehler: einheitliches Fehlerformat
 - Zeiten: ISO 8601 UTC
 - IDs: UUID oder ULID
+- CORS: Allowlist-basiert ueber `CORS_ALLOWED_ORIGINS`
+- CSRF: Cookie-authentifizierte unsafe Requests brauchen `x-openvoice-csrf-token`; vorhandene
+  `Origin`/`Referer` muessen zur Allowlist passen
 
 ---
 

@@ -38,6 +38,8 @@ Pflicht:
 - Phase 7: Kick/Ban/Unban/Timeout, Voice-Move/Disconnect, Role-Hierarchy und Audit-Log-Zugriff.
 - Phase 8: Health/Readiness, Prometheus-Metrics, Message-/Voice-Zähler und RTC-Stats-Ingest mit
   serverseitiger Channel-Sichtbarkeitsprüfung.
+- Phase 9: Security Headers, CORS-Preflight-Allowlist, CSRF-Origin-Pruefung und requestweite
+  Rate Limits.
 
 ---
 
@@ -54,6 +56,8 @@ Mit Playwright:
 - Mute Button.
 - Channel Reorder.
 - Role Editor.
+
+Die vollstaendige Phase-9-Matrix steht in `docs/e2e-test-matrix.md`.
 
 ---
 

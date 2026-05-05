@@ -84,8 +84,34 @@ export function jsonResponse(
     status,
     headers: {
       "content-type": "application/json; charset=utf-8",
+      ...(isRateLimitBody(body)
+        ? { "retry-after": String(body.error.details.retryAfterSeconds) }
+        : {}),
       "x-request-id": requestId,
       ...headers,
     },
   });
+}
+
+function isRateLimitBody(body: unknown): body is {
+  readonly error: {
+    readonly code: "RATE_LIMITED";
+    readonly details: { readonly retryAfterSeconds: number };
+  };
+} {
+  if (!body || typeof body !== "object" || !("error" in body)) {
+    return false;
+  }
+
+  const error = (body as { readonly error: unknown }).error;
+  if (!error || typeof error !== "object" || !("code" in error) || !("details" in error)) {
+    return false;
+  }
+
+  const details = (error as { readonly details: unknown }).details;
+  return (
+    (error as { readonly code: unknown }).code === "RATE_LIMITED" &&
+    Boolean(details && typeof details === "object") &&
+    typeof (details as { readonly retryAfterSeconds?: unknown }).retryAfterSeconds === "number"
+  );
 }

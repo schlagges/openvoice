@@ -46,14 +46,18 @@ MVP:
 
 Pflicht:
 
-- CSP.
-- HSTS.
-- X-Content-Type-Options.
-- Referrer-Policy.
-- Frame-Ancestors restriktiv.
-- CORS restriktiv.
+- CSP. Phase 9 setzt `default-src 'self'`, `object-src 'none'` und `frame-ancestors 'none'`.
+- HSTS. Phase 9 aktiviert HSTS ueber `ENABLE_HSTS=true` fuer HTTPS-Deployments.
+- X-Content-Type-Options. Phase 9 setzt `nosniff`.
+- Referrer-Policy. Phase 9 setzt `no-referrer`.
+- Frame-Ancestors restriktiv. Phase 9 setzt zusaetzlich `X-Frame-Options: DENY`.
+- CORS restriktiv. Phase 9 erlaubt nur `CORS_ALLOWED_ORIGINS` und Credentials nur fuer diese
+  Origins.
 - HTML immer escapen/sanitizen.
 - Markdown nur als sicheres Subset.
+
+Cookie-authentifizierte unsafe Requests brauchen den CSRF-Token und werden bei vorhandenem
+`Origin`/`Referer` gegen dieselbe Origin-Allowlist geprueft.
 
 ---
 
@@ -106,3 +110,7 @@ Pflichtfälle:
 - Keine statischen TURN Secrets im Frontend Bundle.
 - Rate Limits greifen.
 - CSRF-Schutz greift.
+
+Phase 9 ergaenzt requestweite API-Rate-Limits fuer Auth, TURN Credentials, RTC Stats, Voice Actions
+und allgemeine API-Reads/Writes. Chat-spezifische Message-Limits bleiben serverseitig in der
+Message-Domaene.

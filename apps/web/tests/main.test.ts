@@ -21,7 +21,7 @@ import { toRtcStatsRequestBody } from "../src/voice/voice-client";
 
 describe("web foundation", () => {
   it("formats the phase title", () => {
-    expect(formatWebTitle(8)).toBe("OpenVoice Phase 8");
+    expect(formatWebTitle(9)).toBe("OpenVoice Phase 9");
   });
 
   it("renders an escaped channel tree", () => {

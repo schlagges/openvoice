@@ -1,23 +1,34 @@
 # Third Party Notices
 
-This file records direct third-party dependencies used by OpenVoice.
+OpenVoice is licensed as `AGPL-3.0-or-later`. This file lists the direct third-party runtime and
+tooling dependencies intentionally used by the monorepo. Transitive dependency licenses are checked
+locally with:
 
-| Package              | Purpose                                           | License    |
-| -------------------- | ------------------------------------------------- | ---------- |
-| `@eslint/js`         | JavaScript linting rules                          | MIT        |
-| `@types/node`        | Node.js TypeScript type declarations              | MIT        |
-| `@types/pg`          | PostgreSQL TypeScript declarations                | MIT        |
-| `@types/ws`          | WebSocket TypeScript declarations                 | MIT        |
-| `argon2`             | Argon2id password hashing                         | MIT        |
-| `eslint`             | Linting                                           | MIT        |
-| `livekit-client`     | Browser WebRTC client for self-hosted LiveKit SFU | Apache-2.0 |
-| `livekit-server-sdk` | Server-side LiveKit token and room control SDK    | Apache-2.0 |
-| `pg`                 | PostgreSQL client                                 | MIT        |
-| `prettier`           | Formatting                                        | MIT        |
-| `typescript`         | TypeScript compiler                               | Apache-2.0 |
-| `typescript-eslint`  | TypeScript ESLint parser and rules                | MIT        |
-| `vite`               | Web build tooling                                 | MIT        |
-| `vitest`             | Unit test runner                                  | MIT        |
-| `ws`                 | Gateway and message WebSocket transport           | MIT        |
+```bash
+pnpm license:check
+```
 
-All listed licenses are OSI-compatible.
+## Runtime Dependencies
+
+| Package              | License    | Purpose                                        |
+| -------------------- | ---------- | ---------------------------------------------- |
+| `argon2`             | MIT        | Argon2id password hashing                      |
+| `livekit-client`     | Apache-2.0 | Browser client for the self-hosted LiveKit SFU |
+| `livekit-server-sdk` | Apache-2.0 | API-side LiveKit room/token integration        |
+| `pg`                 | MIT        | PostgreSQL client                              |
+| `ws`                 | MIT        | WebSocket server/client primitives             |
+
+## Development Dependencies
+
+| Package             | License    | Purpose                            |
+| ------------------- | ---------- | ---------------------------------- |
+| `@eslint/js`        | MIT        | ESLint JavaScript rules            |
+| `@types/node`       | MIT        | Node.js TypeScript types           |
+| `@types/pg`         | MIT        | PostgreSQL client TypeScript types |
+| `@types/ws`         | MIT        | WebSocket TypeScript types         |
+| `eslint`            | MIT        | Linting                            |
+| `prettier`          | MIT        | Formatting                         |
+| `typescript`        | Apache-2.0 | TypeScript compiler                |
+| `typescript-eslint` | MIT        | TypeScript ESLint integration      |
+| `vite`              | MIT        | Web build tooling                  |
+| `vitest`            | MIT        | Unit and integration test runner   |
