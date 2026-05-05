@@ -4,6 +4,8 @@ import type {
   DefaultRoleKey,
   MessageContentFormat,
   PermissionMask,
+  VideoContentMode,
+  VideoQualityProfile,
 } from "@openvoice/shared";
 
 export type AuditMetadata = Record<string, string | number | boolean | null>;
@@ -116,9 +118,12 @@ export interface MessageRecord {
 export interface VoiceStateRecord {
   readonly audioMode: AudioMode;
   readonly cameraEnabled: boolean;
+  readonly cameraQuality: VideoQualityProfile;
   readonly channelId: string;
   readonly connectedAt: Date;
+  readonly screenShareContentMode: VideoContentMode;
   readonly screenShareEnabled: boolean;
+  readonly screenShareQuality: VideoQualityProfile;
   readonly selfDeafened: boolean;
   readonly selfMuted: boolean;
   readonly serverDeafened: boolean;
@@ -249,6 +254,11 @@ export interface UpsertVoiceStateInput {
 
 export interface UpdateVoiceSelfStateInput {
   readonly audioMode?: AudioMode;
+  readonly cameraEnabled?: boolean;
+  readonly cameraQuality?: VideoQualityProfile;
+  readonly screenShareContentMode?: VideoContentMode;
+  readonly screenShareEnabled?: boolean;
+  readonly screenShareQuality?: VideoQualityProfile;
   readonly selfDeafened?: boolean;
   readonly selfMuted?: boolean;
   readonly speaking?: boolean;

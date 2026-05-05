@@ -41,7 +41,7 @@ export class LiveKitMediaProvider implements MediaProvider {
       name: input.displayName,
       ttl: this.tokenTtlSeconds,
     });
-    token.addGrant(createVoiceGrant(input.roomName, input.canPublishAudio));
+    token.addGrant(createVoiceGrant(input));
 
     return { token: await token.toJwt() };
   }
@@ -49,17 +49,15 @@ export class LiveKitMediaProvider implements MediaProvider {
   public async enforceVoicePublishPermission(input: EnforceVoicePublishInput): Promise<void> {
     await this.roomService
       .updateParticipant(input.roomName, input.userId, {
-        permission: createParticipantPermission(input.canPublishAudio),
+        permission: createParticipantPermission(input),
       })
       .catch(ignoreParticipantNotFound);
 
-    if (!input.canPublishAudio) {
-      const participant = await this.roomService
-        .getParticipant(input.roomName, input.userId)
-        .catch(ignoreParticipantNotFound);
-      if (participant) {
-        await this.muteMicrophoneTracks(input.roomName, input.userId, participant);
-      }
+    const participant = await this.roomService
+      .getParticipant(input.roomName, input.userId)
+      .catch(ignoreParticipantNotFound);
+    if (participant) {
+      await this.muteDisallowedTracks(input, participant);
     }
   }
 
@@ -67,41 +65,63 @@ export class LiveKitMediaProvider implements MediaProvider {
     return this.serverUrl;
   }
 
-  private async muteMicrophoneTracks(
-    roomName: string,
-    userId: string,
+  private async muteDisallowedTracks(
+    input: EnforceVoicePublishInput,
     participant: ParticipantInfo,
   ): Promise<void> {
-    const microphoneTracks = participant.tracks.filter(
-      (track) => track.source === TrackSource.MICROPHONE && !track.muted,
+    const allowedSources = new Set(createPublishSources(input));
+    const tracks = participant.tracks.filter(
+      (track) => !allowedSources.has(track.source) && !track.muted,
     );
 
     await Promise.all(
-      microphoneTracks.map((track) =>
-        this.roomService.mutePublishedTrack(roomName, userId, track.sid, true),
+      tracks.map((track) =>
+        this.roomService.mutePublishedTrack(input.roomName, input.userId, track.sid, true),
       ),
     );
   }
 }
 
-function createVoiceGrant(roomName: string, canPublishAudio: boolean): VideoGrant {
+function createVoiceGrant(input: CreateVoiceTokenInput): VideoGrant {
+  const sources = createPublishSources(input);
   return {
-    canPublish: canPublishAudio,
+    canPublish: sources.length > 0,
     canPublishData: false,
-    canPublishSources: canPublishAudio ? [TrackSource.MICROPHONE] : [],
+    canPublishSources: sources,
     canSubscribe: true,
-    room: roomName,
+    room: input.roomName,
     roomJoin: true,
   };
 }
 
-function createParticipantPermission(canPublishAudio: boolean) {
+function createParticipantPermission(input: EnforceVoicePublishInput) {
+  const sources = createPublishSources(input);
   return {
-    canPublish: canPublishAudio,
+    canPublish: sources.length > 0,
     canPublishData: false,
-    canPublishSources: canPublishAudio ? [TrackSource.MICROPHONE] : [],
+    canPublishSources: sources,
     canSubscribe: true,
   };
+}
+
+function createPublishSources(input: {
+  readonly canPublishAudio: boolean;
+  readonly canPublishCamera: boolean;
+  readonly canPublishScreen: boolean;
+}): TrackSource[] {
+  const sources: TrackSource[] = [];
+
+  if (input.canPublishAudio) {
+    sources.push(TrackSource.MICROPHONE);
+  }
+  if (input.canPublishCamera) {
+    sources.push(TrackSource.CAMERA);
+  }
+  if (input.canPublishScreen) {
+    sources.push(TrackSource.SCREEN_SHARE, TrackSource.SCREEN_SHARE_AUDIO);
+  }
+
+  return sources;
 }
 
 function ignoreParticipantNotFound(error: unknown): null {

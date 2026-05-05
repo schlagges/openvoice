@@ -31,6 +31,8 @@ Die Applikation muss ein internes `MediaProvider` Interface verwenden.
 
 Phase 5 nutzt `LiveKitMediaProvider` für Join-Tokens und serverseitige Teilnehmersteuerung. Das
 Interface bleibt schmal, damit LiveKit später durch eine andere Open-Source-SFU ersetzt werden kann.
+Phase 6 erweitert die LiveKit-Rechte auf Kamera- und Screenshare-Quellen. Die API gibt 4K nur als
+OpenVoice-Profil frei, wenn `SHARE_SCREEN_4K` serverseitig erlaubt ist.
 
 ---
 
@@ -121,6 +123,20 @@ const screenShare4kConstraints = {
 
 4K muss angefragt und ermöglicht werden. Es darf nicht als garantiert dargestellt werden.
 
+Phase 6 nutzt diese Profile:
+
+| Profil | Kamera | Screenshare |
+| --- | --- | --- |
+| `720p` | 1280x720 bei 30 FPS | 1280x720 bei 30 FPS |
+| `1080p` | 1920x1080 bei 30 FPS | 1920x1080 bei 30 FPS |
+| `1440p` | 2560x1440 bei 30 FPS | 2560x1440 bei 30 FPS |
+| `4k` | 3840x2160 bei 30 FPS | 3840x2160 bei 30 FPS |
+
+Screenshare nutzt `getDisplayMedia()` über LiveKit, setzt `contentHint = "detail"` für
+Detailmodus und fragt System-/Tab-Audio an, wenn der Browser es anbietet. Im Detailmodus wird
+`degradationPreference = "maintain-resolution"` gesetzt, damit der Client eher FPS reduziert,
+bevor Auflösung verloren geht.
+
 ---
 
 ## 5. Adaptive Strategie
@@ -189,8 +205,9 @@ Der Client muss WebRTC Stats sammeln und aggregiert melden:
 - Transportprotokoll
 - Relay ja/nein
 
-Der Phase-5-Webclient sammelt zunächst lokale Audio-Sender-Stats, Teilnehmerzahl und aktive
-Speaker-Anzahl. Aggregierte Uploads und Dashboards bleiben Observability-Folgearbeit.
+Der Phase-6-Webclient sammelt zunächst lokale Audio-Sender-Stats, Teilnehmerzahl, aktive
+Speaker-Anzahl sowie lokale und entfernte Video-Track-Zähler. Aggregierte Uploads und Dashboards
+bleiben Observability-Folgearbeit.
 
 Diese Daten dienen:
 

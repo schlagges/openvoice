@@ -5,10 +5,14 @@ import {
   type AudioMode,
   type IceServersResponse,
   type SpeakingUpdatePayload,
+  VideoQualityProfile,
   type VoiceJoinResponse,
   type VoiceLeaveResponse,
+  type VoicePermissions,
   type VoiceState,
   type VoiceStateUpdatePayload,
+  type VideoContentMode,
+  type VideoQualityProfile as QualityProfile,
 } from "@openvoice/shared";
 
 import type { VoiceStateRecord } from "../../db/models.js";
@@ -39,6 +43,11 @@ export interface JoinVoiceCommand {
 
 export interface UpdateVoiceSelfStateCommand {
   readonly audioMode?: AudioMode;
+  readonly cameraEnabled?: boolean;
+  readonly cameraQuality?: QualityProfile;
+  readonly screenShareContentMode?: VideoContentMode;
+  readonly screenShareEnabled?: boolean;
+  readonly screenShareQuality?: QualityProfile;
   readonly selfDeafened?: boolean;
   readonly selfMuted?: boolean;
   readonly speaking?: boolean;
@@ -93,11 +102,7 @@ export class VoiceService {
       throw forbidden("Workspace access required.");
     }
 
-    const canSpeak = await this.canUsePermission(
-      command.channelId,
-      command.userId,
-      Permission.SPEAK,
-    );
+    const permissions = await this.resolvePublishPermissions(command.channelId, command.userId);
     const state = await this.repository.upsertVoiceState({
       audioMode: command.audioMode,
       channelId: command.channelId,
@@ -108,10 +113,15 @@ export class VoiceService {
       workspaceId: channel.workspaceId,
     });
     const canPublishAudio =
-      canSpeak && !state.serverMuted && !state.serverDeafened && !state.selfDeafened;
+      permissions.canPublishAudio &&
+      !state.serverMuted &&
+      !state.serverDeafened &&
+      !state.selfDeafened;
     const roomName = createLiveKitRoomName(channel.workspaceId, command.channelId);
     const token = await this.mediaProvider.createVoiceJoinToken({
       canPublishAudio,
+      canPublishCamera: permissions.canPublishCamera,
+      canPublishScreen: permissions.canPublishScreen,
       displayName: user.displayName,
       roomName,
       userId: command.userId,
@@ -120,6 +130,8 @@ export class VoiceService {
 
     await this.mediaProvider.enforceVoicePublishPermission({
       canPublishAudio,
+      canPublishCamera: permissions.canPublishCamera,
+      canPublishScreen: permissions.canPublishScreen,
       roomName,
       userId: command.userId,
     });
@@ -131,6 +143,9 @@ export class VoiceService {
       permissions: {
         canConnect: true,
         canPublishAudio,
+        canPublishCamera: permissions.canPublishCamera,
+        canPublishScreen: permissions.canPublishScreen,
+        canPublishScreen4k: permissions.canPublishScreen4k,
         canSelfDeafen: true,
         canSelfMute: true,
       },
@@ -160,17 +175,25 @@ export class VoiceService {
       command.userId,
       Permission.VIEW_CHANNEL,
     );
-    const canSpeak = await this.canUsePermission(
-      existing.channelId,
-      command.userId,
-      Permission.SPEAK,
-    );
+    const permissions = await this.resolvePublishPermissions(existing.channelId, command.userId);
+    this.assertMediaStateAllowed(command, existing, permissions);
     const state = await this.repository.updateVoiceSelfState({
       ...(command.audioMode !== undefined ? { audioMode: command.audioMode } : {}),
+      ...(command.cameraEnabled !== undefined ? { cameraEnabled: command.cameraEnabled } : {}),
+      ...(command.cameraQuality !== undefined ? { cameraQuality: command.cameraQuality } : {}),
+      ...(command.screenShareContentMode !== undefined
+        ? { screenShareContentMode: command.screenShareContentMode }
+        : {}),
+      ...(command.screenShareEnabled !== undefined
+        ? { screenShareEnabled: command.screenShareEnabled }
+        : {}),
+      ...(command.screenShareQuality !== undefined
+        ? { screenShareQuality: command.screenShareQuality }
+        : {}),
       ...(command.selfDeafened !== undefined ? { selfDeafened: command.selfDeafened } : {}),
       ...(command.selfMuted !== undefined ? { selfMuted: command.selfMuted } : {}),
       ...(command.speaking !== undefined
-        ? { speaking: command.speaking && canSpeak && !existing.serverMuted }
+        ? { speaking: command.speaking && permissions.canPublishAudio && !existing.serverMuted }
         : {}),
       userId: command.userId,
       workspaceId: command.workspaceId,
@@ -181,9 +204,14 @@ export class VoiceService {
     }
 
     const canPublishAudio =
-      canSpeak && !state.serverMuted && !state.serverDeafened && !state.selfDeafened;
+      permissions.canPublishAudio &&
+      !state.serverMuted &&
+      !state.serverDeafened &&
+      !state.selfDeafened;
     await this.mediaProvider.enforceVoicePublishPermission({
       canPublishAudio,
+      canPublishCamera: permissions.canPublishCamera,
+      canPublishScreen: permissions.canPublishScreen,
       roomName: createLiveKitRoomName(state.workspaceId, state.channelId),
       userId: command.userId,
     });
@@ -242,8 +270,21 @@ export class VoiceService {
     }
 
     const canSpeak = await this.canUsePermission(state.channelId, state.userId, Permission.SPEAK);
+    const canPublishCamera = await this.canUsePermission(
+      state.channelId,
+      state.userId,
+      Permission.STREAM_CAMERA,
+    );
+    const canPublishScreen = await this.canUsePermission(
+      state.channelId,
+      state.userId,
+      Permission.SHARE_SCREEN,
+    );
     await this.mediaProvider.enforceVoicePublishPermission({
-      canPublishAudio: canSpeak && !state.serverMuted && !state.serverDeafened,
+      canPublishAudio:
+        canSpeak && !state.serverMuted && !state.serverDeafened && !state.selfDeafened,
+      canPublishCamera,
+      canPublishScreen,
       roomName: createLiveKitRoomName(state.workspaceId, state.channelId),
       userId: state.userId,
     });
@@ -262,6 +303,73 @@ export class VoiceService {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  private async resolvePublishPermissions(
+    channelId: string,
+    userId: string,
+  ): Promise<
+    Pick<
+      VoicePermissions,
+      "canPublishAudio" | "canPublishCamera" | "canPublishScreen" | "canPublishScreen4k"
+    >
+  > {
+    const canPublishAudio = await this.canUsePermission(channelId, userId, Permission.SPEAK);
+    const canPublishCamera = await this.canUsePermission(
+      channelId,
+      userId,
+      Permission.STREAM_CAMERA,
+    );
+    const canPublishScreen = await this.canUsePermission(
+      channelId,
+      userId,
+      Permission.SHARE_SCREEN,
+    );
+    const canPublishScreen4k =
+      canPublishScreen &&
+      (await this.canUsePermission(channelId, userId, Permission.SHARE_SCREEN_4K));
+
+    return {
+      canPublishAudio,
+      canPublishCamera,
+      canPublishScreen,
+      canPublishScreen4k,
+    };
+  }
+
+  private assertMediaStateAllowed(
+    command: UpdateVoiceSelfStateCommand,
+    existing: VoiceStateRecord,
+    permissions: Pick<
+      VoicePermissions,
+      "canPublishCamera" | "canPublishScreen" | "canPublishScreen4k"
+    >,
+  ): void {
+    const cameraEnabled = command.cameraEnabled ?? existing.cameraEnabled;
+    const screenShareEnabled = command.screenShareEnabled ?? existing.screenShareEnabled;
+    const screenShareQuality = command.screenShareQuality ?? existing.screenShareQuality;
+
+    if (cameraEnabled && !permissions.canPublishCamera) {
+      throw forbidden("STREAM_CAMERA permission required.", {
+        permission: "STREAM_CAMERA",
+      });
+    }
+
+    if (screenShareEnabled && !permissions.canPublishScreen) {
+      throw forbidden("SHARE_SCREEN permission required.", {
+        permission: "SHARE_SCREEN",
+      });
+    }
+
+    if (
+      screenShareQuality === VideoQualityProfile.P4K &&
+      (screenShareEnabled || command.screenShareQuality !== undefined) &&
+      !permissions.canPublishScreen4k
+    ) {
+      throw forbidden("SHARE_SCREEN_4K permission required for 4K screenshare.", {
+        permission: "SHARE_SCREEN_4K",
+      });
     }
   }
 
@@ -309,10 +417,13 @@ function createLiveKitRoomName(workspaceId: string, channelId: string): string {
 export function toPublicVoiceState(state: VoiceStateRecord): VoiceState {
   return {
     audioMode: state.audioMode,
-    cameraEnabled: false,
+    cameraEnabled: state.cameraEnabled,
+    cameraQuality: state.cameraQuality,
     channelId: state.channelId,
     connectedAt: state.connectedAt.toISOString(),
-    screenShareEnabled: false,
+    screenShareContentMode: state.screenShareContentMode,
+    screenShareEnabled: state.screenShareEnabled,
+    screenShareQuality: state.screenShareQuality,
     selfDeafened: state.selfDeafened,
     selfMuted: state.selfMuted,
     serverDeafened: state.serverDeafened,

@@ -1,6 +1,11 @@
 import { randomUUID } from "node:crypto";
 
-import { DEFAULT_ROLE_DEFINITIONS, serializePermissionMask } from "@openvoice/shared";
+import {
+  DEFAULT_ROLE_DEFINITIONS,
+  serializePermissionMask,
+  VideoContentMode,
+  VideoQualityProfile,
+} from "@openvoice/shared";
 
 import type { OpenVoiceRepository } from "./repository.js";
 import type {
@@ -546,8 +551,11 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         ...existing,
         audioMode: input.audioMode,
         cameraEnabled: false,
+        cameraQuality: VideoQualityProfile.P720,
         channelId: input.channelId,
+        screenShareContentMode: VideoContentMode.DETAIL,
         screenShareEnabled: false,
+        screenShareQuality: VideoQualityProfile.P1080,
         selfDeafened: input.selfDeafened,
         selfMuted: input.selfMuted,
         sessionId: input.sessionId,
@@ -561,9 +569,12 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     const state: VoiceStateRecord = {
       audioMode: input.audioMode,
       cameraEnabled: false,
+      cameraQuality: VideoQualityProfile.P720,
       channelId: input.channelId,
       connectedAt: now,
+      screenShareContentMode: VideoContentMode.DETAIL,
       screenShareEnabled: false,
+      screenShareQuality: VideoQualityProfile.P1080,
       selfDeafened: input.selfDeafened,
       selfMuted: input.selfMuted,
       serverDeafened: false,
@@ -611,6 +622,17 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     const replacement: VoiceStateRecord = {
       ...existing,
       ...(input.audioMode !== undefined ? { audioMode: input.audioMode } : {}),
+      ...(input.cameraEnabled !== undefined ? { cameraEnabled: input.cameraEnabled } : {}),
+      ...(input.cameraQuality !== undefined ? { cameraQuality: input.cameraQuality } : {}),
+      ...(input.screenShareContentMode !== undefined
+        ? { screenShareContentMode: input.screenShareContentMode }
+        : {}),
+      ...(input.screenShareEnabled !== undefined
+        ? { screenShareEnabled: input.screenShareEnabled }
+        : {}),
+      ...(input.screenShareQuality !== undefined
+        ? { screenShareQuality: input.screenShareQuality }
+        : {}),
       selfDeafened,
       selfMuted: selfDeafened ? true : (input.selfMuted ?? existing.selfMuted),
       speaking,

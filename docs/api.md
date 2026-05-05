@@ -144,6 +144,18 @@ POST   /api/v1/workspaces/:workspaceId/voice/server-deafen
 GET    /api/v1/turn/credentials
 ```
 
-Phase-5-Voice ist Audio-only. Join prüft `VIEW_CHANNEL` und `CONNECT_VOICE`; Audio-Publish wird
-über `SPEAK`, Self-Deafen und Server-Mute/Deafen im LiveKit-Token eingeschränkt. Der TURN-Endpunkt
-liefert kurzlebige REST-Credentials und niemals das gemeinsame TURN-Secret.
+Voice Join prüft `VIEW_CHANNEL` und `CONNECT_VOICE`. Audio-Publish wird über `SPEAK`,
+Self-Deafen und Server-Mute/Deafen im LiveKit-Token eingeschränkt. Kamera-Publish nutzt
+`STREAM_CAMERA`; Screenshare nutzt `SHARE_SCREEN`; das 4K-Screenshare-Profil nutzt zusätzlich
+`SHARE_SCREEN_4K`.
+
+`PATCH /voice/state` akzeptiert neben Audio-Flags auch:
+
+- `cameraEnabled`
+- `cameraQuality`: `auto`, `720p`, `1080p`, `1440p`, `4k`
+- `screenShareEnabled`
+- `screenShareQuality`: `auto`, `720p`, `1080p`, `1440p`, `4k`
+- `screenShareContentMode`: `detail` oder `motion`
+
+Die API lehnt Kamera-, Screenshare- und 4K-Statusänderungen ohne passende Rechte mit `403` ab.
+Der TURN-Endpunkt liefert kurzlebige REST-Credentials und niemals das gemeinsame TURN-Secret.

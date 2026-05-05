@@ -6,6 +6,23 @@ export const AudioMode = {
 
 export type AudioMode = (typeof AudioMode)[keyof typeof AudioMode];
 
+export const VideoContentMode = {
+  DETAIL: "detail",
+  MOTION: "motion",
+} as const;
+
+export type VideoContentMode = (typeof VideoContentMode)[keyof typeof VideoContentMode];
+
+export const VideoQualityProfile = {
+  AUTO: "auto",
+  P720: "720p",
+  P1080: "1080p",
+  P1440: "1440p",
+  P4K: "4k",
+} as const;
+
+export type VideoQualityProfile = (typeof VideoQualityProfile)[keyof typeof VideoQualityProfile];
+
 export interface IceServerDefinition {
   readonly credential?: string;
   readonly urls: readonly string[];
@@ -15,16 +32,22 @@ export interface IceServerDefinition {
 export interface VoicePermissions {
   readonly canConnect: boolean;
   readonly canPublishAudio: boolean;
+  readonly canPublishCamera: boolean;
+  readonly canPublishScreen: boolean;
+  readonly canPublishScreen4k: boolean;
   readonly canSelfDeafen: boolean;
   readonly canSelfMute: boolean;
 }
 
 export interface VoiceState {
   readonly audioMode: AudioMode;
-  readonly cameraEnabled: false;
+  readonly cameraEnabled: boolean;
+  readonly cameraQuality: VideoQualityProfile;
   readonly channelId: string;
   readonly connectedAt: string;
-  readonly screenShareEnabled: false;
+  readonly screenShareContentMode: VideoContentMode;
+  readonly screenShareEnabled: boolean;
+  readonly screenShareQuality: VideoQualityProfile;
   readonly selfDeafened: boolean;
   readonly selfMuted: boolean;
   readonly serverDeafened: boolean;
@@ -68,4 +91,18 @@ export interface IceServersResponse {
 
 export function isAudioMode(value: unknown): value is AudioMode {
   return value === AudioMode.LOW_LATENCY || value === AudioMode.MUSIC || value === AudioMode.VOICE;
+}
+
+export function isVideoContentMode(value: unknown): value is VideoContentMode {
+  return value === VideoContentMode.DETAIL || value === VideoContentMode.MOTION;
+}
+
+export function isVideoQualityProfile(value: unknown): value is VideoQualityProfile {
+  return (
+    value === VideoQualityProfile.AUTO ||
+    value === VideoQualityProfile.P720 ||
+    value === VideoQualityProfile.P1080 ||
+    value === VideoQualityProfile.P1440 ||
+    value === VideoQualityProfile.P4K
+  );
 }

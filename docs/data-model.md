@@ -32,6 +32,17 @@ Die verbindliche Datenmodellbeschreibung steht in `docs/lastenheft.md`.
 - Channelbaum muss Zyklen verhindern.
 - Message Pagination ist cursorbasiert.
 - Reordering muss atomar erfolgen.
+- `voice_states` speichert nur aktuelle Voice-/Media-Zustände, keine Medieninhalte.
+
+## `voice_states`
+
+Phase 6 ergänzt die laufenden Voice-Zustände um Kamera- und Screenshare-Status:
+
+- `camera_enabled`
+- `camera_quality`: `auto`, `720p`, `1080p`, `1440p`, `4k`
+- `screen_share_enabled`
+- `screen_share_quality`: `auto`, `720p`, `1080p`, `1440p`, `4k`
+- `screen_share_content_mode`: `detail`, `motion`
 
 ---
 
