@@ -1,5 +1,29 @@
-import { Room, RoomEvent, type AudioSenderStats, type LocalAudioTrack } from "livekit-client";
-import type { VoiceJoinResponse, VoiceState } from "@openvoice/shared";
+import {
+  Room,
+  RoomEvent,
+  Track,
+  type AudioSenderStats,
+  type LocalAudioTrack,
+  type LocalTrackPublication,
+  type RemoteParticipant,
+  type RemoteTrackPublication,
+} from "livekit-client";
+import { VideoContentMode, VideoQualityProfile } from "@openvoice/shared";
+import type {
+  VideoContentMode as ContentMode,
+  VideoQualityProfile as QualityProfile,
+  VoiceJoinResponse,
+  VoiceState,
+} from "@openvoice/shared";
+
+import {
+  createCameraCaptureOptions,
+  createCameraPublishOptions,
+  createScreenShareCaptureOptions,
+  createScreenSharePublishOptions,
+} from "./media-profiles.js";
+
+const videoGridTracks = new WeakMap<HTMLElement, VideoTile["track"][]>();
 
 export interface VoiceClientOptions {
   readonly apiBaseUrl?: string;
@@ -13,11 +37,16 @@ export interface VoiceStatsSnapshot {
   readonly localAudio?: AudioSenderStats;
   readonly participantCount: number;
   readonly publishedAudioTracks: number;
+  readonly publishedVideoTracks: number;
+  readonly remoteVideoTracks: number;
 }
 
 export class OpenVoiceVoiceClient {
   private readonly apiBaseUrl: string;
   private canPublishAudio = false;
+  private canPublishCamera = false;
+  private canPublishScreen = false;
+  private canPublishScreen4k = false;
   private csrfToken: string | null;
   private lastSpeaking = false;
   private readonly room: Room;
@@ -38,6 +67,9 @@ export class OpenVoiceVoiceClient {
       autoSubscribe: true,
     });
     this.canPublishAudio = response.permissions.canPublishAudio;
+    this.canPublishCamera = response.permissions.canPublishCamera;
+    this.canPublishScreen = response.permissions.canPublishScreen;
+    this.canPublishScreen4k = response.permissions.canPublishScreen4k;
     this.state = response.state;
     this.attachSpeakingListener(response.state.workspaceId);
 
@@ -55,6 +87,9 @@ export class OpenVoiceVoiceClient {
     }
     await this.room.disconnect(true);
     this.canPublishAudio = false;
+    this.canPublishCamera = false;
+    this.canPublishScreen = false;
+    this.canPublishScreen4k = false;
     this.state = null;
     this.lastSpeaking = false;
   }
@@ -64,6 +99,67 @@ export class OpenVoiceVoiceClient {
     await this.room.localParticipant.setMicrophoneEnabled(
       this.canPublishAudio && !state.selfMuted && !state.serverMuted && !state.serverDeafened,
     );
+    return state;
+  }
+
+  public async setCameraEnabled(
+    enabled: boolean,
+    quality: QualityProfile = VideoQualityProfile.P720,
+  ): Promise<VoiceState> {
+    if (enabled && !this.canPublishCamera) {
+      throw new Error("STREAM_CAMERA permission required.");
+    }
+
+    const state = await this.updateSelfState({ cameraEnabled: enabled, cameraQuality: quality });
+    try {
+      await this.room.localParticipant.setCameraEnabled(
+        enabled,
+        enabled ? createCameraCaptureOptions(quality) : undefined,
+        enabled ? createCameraPublishOptions(quality) : undefined,
+      );
+    } catch (error) {
+      if (enabled) {
+        await this.updateSelfState({ cameraEnabled: false }).catch(() => undefined);
+      }
+      throw error;
+    }
+
+    return state;
+  }
+
+  public async setScreenShareEnabled(
+    enabled: boolean,
+    quality: QualityProfile = VideoQualityProfile.P1080,
+    contentMode: ContentMode = VideoContentMode.DETAIL,
+  ): Promise<VoiceState> {
+    if (enabled && !this.canPublishScreen) {
+      throw new Error("SHARE_SCREEN permission required.");
+    }
+    if (enabled && quality === VideoQualityProfile.P4K && !this.canPublishScreen4k) {
+      throw new Error("SHARE_SCREEN_4K permission required.");
+    }
+
+    const state = await this.updateSelfState({
+      screenShareContentMode: contentMode,
+      screenShareEnabled: enabled,
+      screenShareQuality: quality,
+    });
+    try {
+      const publication = await this.room.localParticipant.setScreenShareEnabled(
+        enabled,
+        enabled ? createScreenShareCaptureOptions(quality, contentMode) : undefined,
+        enabled ? createScreenSharePublishOptions(quality, contentMode) : undefined,
+      );
+      if (enabled) {
+        this.attachScreenStopHandler(publication);
+      }
+    } catch (error) {
+      if (enabled) {
+        await this.updateSelfState({ screenShareEnabled: false }).catch(() => undefined);
+      }
+      throw error;
+    }
+
     return state;
   }
 
@@ -85,11 +181,17 @@ export class OpenVoiceVoiceClient {
       ...(localAudio ? { localAudio } : {}),
       participantCount: this.room.numParticipants,
       publishedAudioTracks: this.room.localParticipant.audioTrackPublications.size,
+      publishedVideoTracks: this.room.localParticipant.videoTrackPublications.size,
+      remoteVideoTracks: countRemoteVideoTracks(this.room),
     };
   }
 
   public get currentState(): VoiceState | null {
     return this.state;
+  }
+
+  public get liveKitRoom(): Room {
+    return this.room;
   }
 
   private attachSpeakingListener(workspaceId: string): void {
@@ -111,7 +213,31 @@ export class OpenVoiceVoiceClient {
     void this.updateSelfState({ speaking });
   };
 
+  private attachScreenStopHandler(publication: LocalTrackPublication | undefined): void {
+    const track = publication?.videoTrack?.mediaStreamTrack;
+    track?.addEventListener(
+      "ended",
+      () => {
+        void this.handleScreenShareEnded();
+      },
+      { once: true },
+    );
+  }
+
+  private async handleScreenShareEnded(): Promise<void> {
+    if (!this.state?.screenShareEnabled) {
+      return;
+    }
+
+    await this.updateSelfState({ screenShareEnabled: false }).catch(() => undefined);
+  }
+
   private async updateSelfState(input: {
+    readonly cameraEnabled?: boolean;
+    readonly cameraQuality?: QualityProfile;
+    readonly screenShareContentMode?: ContentMode;
+    readonly screenShareEnabled?: boolean;
+    readonly screenShareQuality?: QualityProfile;
     readonly selfDeafened?: boolean;
     readonly selfMuted?: boolean;
     readonly speaking?: boolean;
@@ -164,13 +290,50 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
           <button id="voice-leave" type="button">Leave</button>
           <button id="voice-mute" type="button">Mute</button>
           <button id="voice-deafen" type="button">Deafen</button>
+          <button id="voice-camera" type="button">Camera</button>
+          <button id="voice-screen" type="button">Share</button>
         </div>
+        <div class="voice-panel__media">
+          <label class="voice-panel__field">
+            <span>Camera quality</span>
+            <select id="voice-camera-quality" class="voice-panel__input">
+              <option value="720p">720p</option>
+              <option value="1080p">1080p</option>
+              <option value="1440p">1440p</option>
+              <option value="4k">4K</option>
+            </select>
+          </label>
+          <label class="voice-panel__field">
+            <span>Screen quality</span>
+            <select id="voice-screen-quality" class="voice-panel__input">
+              <option value="1080p">1080p</option>
+              <option value="1440p">1440p</option>
+              <option value="4k">4K</option>
+              <option value="720p">720p</option>
+            </select>
+          </label>
+          <label class="voice-panel__field">
+            <span>Screen mode</span>
+            <select id="voice-screen-mode" class="voice-panel__input">
+              <option value="detail">Detail</option>
+              <option value="motion">Motion</option>
+            </select>
+          </label>
+        </div>
+        <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
         <output id="voice-status" class="voice-panel__status"></output>
       </section>
     `,
   );
   const input = root.querySelector<HTMLInputElement>("#voice-channel-id");
+  const cameraQuality = root.querySelector<HTMLSelectElement>("#voice-camera-quality");
+  const screenQuality = root.querySelector<HTMLSelectElement>("#voice-screen-quality");
+  const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
   const status = root.querySelector<HTMLOutputElement>("#voice-status");
+  const videoGrid = root.querySelector<HTMLElement>("#voice-video-grid");
+  if (videoGrid) {
+    mountVideoGrid(videoGrid, client.liveKitRoom);
+  }
   const setStatus = (text: string): void => {
     if (status) {
       status.value = text;
@@ -206,6 +369,202 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       .setSelfDeafened(nextDeafened)
       .then((state) => setStatus(state.selfDeafened ? "Taub" : "Audio an"));
   });
+  root.querySelector<HTMLButtonElement>("#voice-camera")?.addEventListener("click", () => {
+    const nextEnabled = !client.currentState?.cameraEnabled;
+    void client
+      .setCameraEnabled(nextEnabled, parseQualitySelection(cameraQuality, VideoQualityProfile.P720))
+      .then((state) => setStatus(state.cameraEnabled ? "Kamera an" : "Kamera aus"))
+      .catch((error: unknown) =>
+        setStatus(error instanceof Error ? error.message : "Camera failed"),
+      );
+  });
+  root.querySelector<HTMLButtonElement>("#voice-screen")?.addEventListener("click", () => {
+    const nextEnabled = !client.currentState?.screenShareEnabled;
+    void client
+      .setScreenShareEnabled(
+        nextEnabled,
+        parseQualitySelection(screenQuality, VideoQualityProfile.P1080),
+        parseContentModeSelection(screenMode),
+      )
+      .then((state) => setStatus(state.screenShareEnabled ? "Screen an" : "Screen aus"))
+      .catch((error: unknown) =>
+        setStatus(error instanceof Error ? error.message : "Screenshare failed"),
+      );
+  });
+}
+
+export function mountVideoGrid(root: HTMLElement, room: Room): () => void {
+  const render = (): void => renderVideoGrid(root, room);
+
+  room.on(RoomEvent.TrackSubscribed, render);
+  room.on(RoomEvent.TrackUnsubscribed, render);
+  room.on(RoomEvent.TrackPublished, render);
+  room.on(RoomEvent.TrackUnpublished, render);
+  room.on(RoomEvent.LocalTrackPublished, render);
+  room.on(RoomEvent.LocalTrackUnpublished, render);
+  room.on(RoomEvent.ParticipantConnected, render);
+  room.on(RoomEvent.ParticipantDisconnected, render);
+  render();
+
+  return () => {
+    room.off(RoomEvent.TrackSubscribed, render);
+    room.off(RoomEvent.TrackUnsubscribed, render);
+    room.off(RoomEvent.TrackPublished, render);
+    room.off(RoomEvent.TrackUnpublished, render);
+    room.off(RoomEvent.LocalTrackPublished, render);
+    room.off(RoomEvent.LocalTrackUnpublished, render);
+    room.off(RoomEvent.ParticipantConnected, render);
+    room.off(RoomEvent.ParticipantDisconnected, render);
+    clearAttachedVideos(root);
+  };
+}
+
+function renderVideoGrid(root: HTMLElement, room: Room): void {
+  const focusedKey = root.dataset.focusedTrack;
+  clearAttachedVideos(root);
+
+  const tiles = collectVideoTiles(room);
+  if (tiles.length === 0) {
+    root.replaceChildren();
+    return;
+  }
+
+  const fragment = document.createDocumentFragment();
+  const attachedTracks: VideoTile["track"][] = [];
+  for (const tile of tiles) {
+    const element = document.createElement("button");
+    element.className = "voice-video-grid__tile";
+    element.dataset.trackKey = tile.key;
+    element.type = "button";
+    element.setAttribute("aria-label", tile.label);
+    if (focusedKey === tile.key) {
+      element.classList.add("is-focused");
+    }
+
+    const video = document.createElement("video");
+    video.autoplay = true;
+    video.muted = tile.isLocal;
+    video.playsInline = true;
+    tile.track.attach(video);
+    attachedTracks.push(tile.track);
+
+    const caption = document.createElement("span");
+    caption.className = "voice-video-grid__caption";
+    caption.textContent = tile.label;
+
+    element.append(video, caption);
+    element.addEventListener("click", () => {
+      if (root.dataset.focusedTrack === tile.key) {
+        delete root.dataset.focusedTrack;
+      } else {
+        root.dataset.focusedTrack = tile.key;
+      }
+      renderVideoGrid(root, room);
+    });
+    fragment.append(element);
+  }
+
+  videoGridTracks.set(root, attachedTracks);
+  root.replaceChildren(fragment);
+}
+
+interface VideoTile {
+  readonly isLocal: boolean;
+  readonly key: string;
+  readonly label: string;
+  readonly track:
+    | NonNullable<LocalTrackPublication["videoTrack"]>
+    | NonNullable<RemoteTrackPublication["videoTrack"]>;
+}
+
+function collectVideoTiles(room: Room): VideoTile[] {
+  const tiles: VideoTile[] = [];
+
+  for (const publication of room.localParticipant.videoTrackPublications.values()) {
+    const track = publication.videoTrack;
+    if (!track) {
+      continue;
+    }
+
+    tiles.push({
+      isLocal: true,
+      key: `local:${publication.trackSid}`,
+      label: publication.source === Track.Source.ScreenShare ? "Eigener Screen" : "Eigene Kamera",
+      track,
+    });
+  }
+
+  for (const participant of room.remoteParticipants.values()) {
+    collectRemoteVideoTiles(participant, tiles);
+  }
+
+  return tiles;
+}
+
+function collectRemoteVideoTiles(participant: RemoteParticipant, tiles: VideoTile[]): void {
+  const participantName = participant.name ?? participant.identity;
+
+  for (const publication of participant.videoTrackPublications.values()) {
+    const track = publication.videoTrack;
+    if (!track) {
+      continue;
+    }
+
+    tiles.push({
+      isLocal: false,
+      key: `remote:${participant.sid}:${publication.trackSid}`,
+      label:
+        publication.source === Track.Source.ScreenShare
+          ? `${participantName} Screen`
+          : `${participantName} Kamera`,
+      track,
+    });
+  }
+}
+
+function clearAttachedVideos(root: HTMLElement): void {
+  const attachedTracks = videoGridTracks.get(root) ?? [];
+  for (const track of attachedTracks) {
+    track.detach();
+  }
+  videoGridTracks.delete(root);
+  root.querySelectorAll<HTMLVideoElement>("video").forEach((video) => {
+    video.srcObject = null;
+  });
+}
+
+function countRemoteVideoTracks(room: Room): number {
+  let count = 0;
+  for (const participant of room.remoteParticipants.values()) {
+    count += participant.videoTrackPublications.size;
+  }
+  return count;
+}
+
+function parseQualitySelection(
+  select: HTMLSelectElement | null,
+  fallback: QualityProfile,
+): QualityProfile {
+  switch (select?.value) {
+    case VideoQualityProfile.AUTO:
+    case VideoQualityProfile.P720:
+    case VideoQualityProfile.P1080:
+    case VideoQualityProfile.P1440:
+    case VideoQualityProfile.P4K:
+      return select.value;
+    default:
+      return fallback;
+  }
+}
+
+function parseContentModeSelection(select: HTMLSelectElement | null): ContentMode {
+  switch (select?.value) {
+    case VideoContentMode.MOTION:
+      return VideoContentMode.MOTION;
+    case VideoContentMode.DETAIL:
+    default:
+      return VideoContentMode.DETAIL;
+  }
 }
 
 function defaultApiBaseUrl(): string {

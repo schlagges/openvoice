@@ -57,6 +57,7 @@ Mit Playwright:
 ## Manuelle RTC Tests
 
 Phase-5-spezifische Schritte stehen in `docs/manual-voice-tests.md`.
+Phase-6-spezifische Kamera- und Screenshare-Schritte stehen in `docs/manual-video-tests.md`.
 
 - 2 Nutzer Audio.
 - 5 Nutzer Audio.

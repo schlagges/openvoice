@@ -1,5 +1,7 @@
 export interface CreateVoiceTokenInput {
   readonly canPublishAudio: boolean;
+  readonly canPublishCamera: boolean;
+  readonly canPublishScreen: boolean;
   readonly displayName: string;
   readonly roomName: string;
   readonly userId: string;
@@ -11,6 +13,8 @@ export interface CreateVoiceTokenResult {
 
 export interface EnforceVoicePublishInput {
   readonly canPublishAudio: boolean;
+  readonly canPublishCamera: boolean;
+  readonly canPublishScreen: boolean;
   readonly roomName: string;
   readonly userId: string;
 }
@@ -30,6 +34,8 @@ export class InMemoryMediaProvider implements MediaProvider {
       token: Buffer.from(
         JSON.stringify({
           canPublishAudio: input.canPublishAudio,
+          canPublishCamera: input.canPublishCamera,
+          canPublishScreen: input.canPublishScreen,
           roomName: input.roomName,
           userId: input.userId,
         }),

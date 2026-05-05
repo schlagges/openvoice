@@ -65,3 +65,18 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 ## Phase 5 Dependency License Check
 
 `livekit-client` and `livekit-server-sdk` are Apache-2.0 licensed. The license is OSI-compatible and documented in `THIRD_PARTY_NOTICES.md`.
+
+## 2026-05-05: Phase 6 Camera and Screenshare
+
+- Media permissions: LiveKit publish grants are source-based. Phase 6 issues microphone, camera,
+  screen share and screen share audio source permissions from server-side OpenVoice permission
+  checks. The 4K profile is enforced at the OpenVoice API state boundary through
+  `SHARE_SCREEN_4K`; LiveKit does not provide a token-level maximum-resolution grant.
+- Video profiles: the client requests 720p, 1080p, 1440p or 4K profiles and relies on LiveKit
+  adaptive stream, dynacast and simulcast layers for degradation. Audio remains prioritized by
+  keeping video encodings low priority and by using detail-mode degradation that preserves
+  resolution before FPS.
+- Screenshare stop handling: browser-level screen stop is handled by observing the local
+  screenshare track ending and then clearing the server-side voice state.
+- Dependencies: no new direct dependencies were introduced in Phase 6, so the Phase 5 LiveKit
+  license assessment remains unchanged.

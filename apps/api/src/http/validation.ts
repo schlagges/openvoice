@@ -2,8 +2,12 @@ import {
   isChannelType,
   isAudioMode,
   isMessageContentFormat,
+  isVideoContentMode,
+  isVideoQualityProfile,
   AudioMode,
   MessageContentFormat,
+  VideoContentMode,
+  VideoQualityProfile,
   parseMessageCursor,
   parsePermissionMask,
   type ChannelType,
@@ -71,6 +75,11 @@ export interface VoiceJoinRequestBody {
 
 export interface VoiceSelfStateRequestBody {
   readonly audioMode?: AudioMode;
+  readonly cameraEnabled?: boolean;
+  readonly cameraQuality?: VideoQualityProfile;
+  readonly screenShareContentMode?: VideoContentMode;
+  readonly screenShareEnabled?: boolean;
+  readonly screenShareQuality?: VideoQualityProfile;
   readonly selfDeafened?: boolean;
   readonly selfMuted?: boolean;
   readonly speaking?: boolean;
@@ -231,6 +240,31 @@ export function parseVoiceSelfStateRequest(
     ...(body.audioMode !== undefined
       ? { audioMode: parseAudioMode(body.audioMode, "audioMode") }
       : {}),
+    ...(body.cameraEnabled !== undefined
+      ? { cameraEnabled: parseBoolean(body.cameraEnabled, "cameraEnabled") }
+      : {}),
+    ...(body.cameraQuality !== undefined
+      ? { cameraQuality: parseVideoQualityProfile(body.cameraQuality, "cameraQuality") }
+      : {}),
+    ...(body.screenShareContentMode !== undefined
+      ? {
+          screenShareContentMode: parseVideoContentMode(
+            body.screenShareContentMode,
+            "screenShareContentMode",
+          ),
+        }
+      : {}),
+    ...(body.screenShareEnabled !== undefined
+      ? { screenShareEnabled: parseBoolean(body.screenShareEnabled, "screenShareEnabled") }
+      : {}),
+    ...(body.screenShareQuality !== undefined
+      ? {
+          screenShareQuality: parseVideoQualityProfile(
+            body.screenShareQuality,
+            "screenShareQuality",
+          ),
+        }
+      : {}),
     ...(body.selfDeafened !== undefined
       ? { selfDeafened: parseBoolean(body.selfDeafened, "selfDeafened") }
       : {}),
@@ -342,6 +376,22 @@ function parseMessageContentFormat(value: unknown): ContentFormat {
 function parseAudioMode(value: unknown, field: string): AudioMode {
   if (!isAudioMode(value)) {
     throw badRequest("Invalid audio mode.", { field });
+  }
+
+  return value;
+}
+
+function parseVideoContentMode(value: unknown, field: string): VideoContentMode {
+  if (!isVideoContentMode(value)) {
+    throw badRequest("Invalid video content mode.", { field });
+  }
+
+  return value;
+}
+
+function parseVideoQualityProfile(value: unknown, field: string): VideoQualityProfile {
+  if (!isVideoQualityProfile(value)) {
+    throw badRequest("Invalid video quality profile.", { field });
   }
 
   return value;

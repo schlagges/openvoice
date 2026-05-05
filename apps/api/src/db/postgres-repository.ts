@@ -679,7 +679,10 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
                      self_deafened = EXCLUDED.self_deafened,
                      speaking = false,
                      camera_enabled = false,
+                     camera_quality = '720p',
                      screen_share_enabled = false,
+                     screen_share_quality = '1080p',
+                     screen_share_content_mode = 'detail',
                      audio_mode = EXCLUDED.audio_mode,
                      updated_at = now()
        RETURNING *`,
@@ -741,8 +744,11 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
            self_deafened = $4,
            speaking = $5,
            audio_mode = $6,
-           camera_enabled = false,
-           screen_share_enabled = false,
+           camera_enabled = $7,
+           camera_quality = $8,
+           screen_share_enabled = $9,
+           screen_share_quality = $10,
+           screen_share_content_mode = $11,
            updated_at = now()
        WHERE workspace_id = $1
          AND user_id = $2
@@ -754,6 +760,11 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
         selfDeafened,
         speaking,
         input.audioMode ?? existing.audioMode,
+        input.cameraEnabled ?? existing.cameraEnabled,
+        input.cameraQuality ?? existing.cameraQuality,
+        input.screenShareEnabled ?? existing.screenShareEnabled,
+        input.screenShareQuality ?? existing.screenShareQuality,
+        input.screenShareContentMode ?? existing.screenShareContentMode,
       ],
     );
 
@@ -1014,9 +1025,12 @@ interface MessageRow extends QueryResultRow {
 interface VoiceStateRow extends QueryResultRow {
   readonly audio_mode: VoiceStateRecord["audioMode"];
   readonly camera_enabled: boolean;
+  readonly camera_quality: VoiceStateRecord["cameraQuality"];
   readonly channel_id: string;
   readonly connected_at: Date;
+  readonly screen_share_content_mode: VoiceStateRecord["screenShareContentMode"];
   readonly screen_share_enabled: boolean;
+  readonly screen_share_quality: VoiceStateRecord["screenShareQuality"];
   readonly self_deafened: boolean;
   readonly self_muted: boolean;
   readonly server_deafened: boolean;
@@ -1224,9 +1238,12 @@ function mapVoiceState(row: VoiceStateRow | undefined): VoiceStateRecord {
   return {
     audioMode: row.audio_mode,
     cameraEnabled: row.camera_enabled,
+    cameraQuality: row.camera_quality,
     channelId: row.channel_id,
     connectedAt: row.connected_at,
+    screenShareContentMode: row.screen_share_content_mode,
     screenShareEnabled: row.screen_share_enabled,
+    screenShareQuality: row.screen_share_quality,
     selfDeafened: row.self_deafened,
     selfMuted: row.self_muted,
     serverDeafened: row.server_deafened,

@@ -200,6 +200,53 @@
         padding: 0 12px;
       }
 
+      .voice-panel__media {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      }
+
+      .voice-video-grid {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+        min-height: 0;
+      }
+
+      .voice-video-grid__tile {
+        aspect-ratio: 16 / 9;
+        background: #151513;
+        border: 1px solid #2a302d;
+        border-radius: 6px;
+        color: #ffffff;
+        min-width: 0;
+        overflow: hidden;
+        padding: 0;
+        position: relative;
+      }
+
+      .voice-video-grid__tile.is-focused {
+        grid-column: 1 / -1;
+      }
+
+      .voice-video-grid__tile video {
+        display: block;
+        height: 100%;
+        object-fit: cover;
+        width: 100%;
+      }
+
+      .voice-video-grid__caption {
+        background: rgb(21 21 19 / 72%);
+        bottom: 0;
+        font-size: 0.78rem;
+        left: 0;
+        max-width: 100%;
+        overflow-wrap: anywhere;
+        padding: 4px 7px;
+        position: absolute;
+      }
+
       .voice-panel__status {
         color: #5d5d55;
         font-size: 0.85rem;
