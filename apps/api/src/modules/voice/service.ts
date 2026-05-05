@@ -22,6 +22,7 @@ import type { ChannelService } from "../channels/service.js";
 import type { GatewayEventPublisher } from "../gateway/events.js";
 import type { MediaProvider } from "../media/provider.js";
 import { assertCanModerateMember } from "../moderation/hierarchy.js";
+import type { OpenVoiceMetrics } from "../observability/metrics.js";
 import type { TurnCredentialService } from "../turn/credentials.js";
 
 export interface VoiceServiceOptions {
@@ -29,6 +30,7 @@ export interface VoiceServiceOptions {
   readonly eventPublisher?: GatewayEventPublisher;
   readonly livekitUrl: string;
   readonly mediaProvider: MediaProvider;
+  readonly metrics?: OpenVoiceMetrics;
   readonly repository: OpenVoiceRepository;
   readonly turnCredentialService: TurnCredentialService;
 }
@@ -84,6 +86,7 @@ export class VoiceService {
   private readonly eventPublisher: GatewayEventPublisher | null;
   private readonly livekitUrl: string;
   private readonly mediaProvider: MediaProvider;
+  private readonly metrics: OpenVoiceMetrics | null;
   private readonly repository: OpenVoiceRepository;
   private readonly turnCredentialService: TurnCredentialService;
 
@@ -92,11 +95,23 @@ export class VoiceService {
     this.eventPublisher = options.eventPublisher ?? null;
     this.livekitUrl = options.livekitUrl;
     this.mediaProvider = options.mediaProvider;
+    this.metrics = options.metrics ?? null;
     this.repository = options.repository;
     this.turnCredentialService = options.turnCredentialService;
   }
 
   public async join(command: JoinVoiceCommand): Promise<VoiceJoinResponse> {
+    try {
+      const response = await this.performJoin(command);
+      this.metrics?.recordVoiceJoinSuccess();
+      return response;
+    } catch (error) {
+      this.metrics?.recordVoiceJoinFailure();
+      throw error;
+    }
+  }
+
+  private async performJoin(command: JoinVoiceCommand): Promise<VoiceJoinResponse> {
     await this.channelService.requireChannelPermission(
       command.channelId,
       command.userId,
@@ -148,6 +163,7 @@ export class VoiceService {
       userId: command.userId,
     });
     const ice = this.turnCredentialService.createIceServers({ userId: command.userId });
+    this.metrics?.recordTurnCredentialsIssued();
 
     await this.mediaProvider.enforceVoicePublishPermission({
       canPublishAudio,
@@ -382,6 +398,7 @@ export class VoiceService {
   }
 
   public createIceServers(userId: string): IceServersResponse {
+    this.metrics?.recordTurnCredentialsIssued();
     return this.turnCredentialService.createIceServers({ userId });
   }
 

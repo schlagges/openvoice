@@ -20,6 +20,7 @@ import type { ApiConfig } from "../../config/env.js";
 import { readRequestToken } from "../../security/request-auth.js";
 import { AuthService, toPublicUser } from "../auth/service.js";
 import type { ChannelService } from "../channels/service.js";
+import type { OpenVoiceMetrics } from "../observability/metrics.js";
 import type { WorkspaceService } from "../workspaces/service.js";
 import type { GatewayEvent, GatewayEventPubSub } from "./events.js";
 import type { PresenceStore } from "./presence.js";
@@ -29,6 +30,7 @@ export interface GatewayServiceOptions {
   readonly channelService: ChannelService;
   readonly config: Pick<ApiConfig, "sessionCookieName">;
   readonly heartbeatIntervalMs?: number;
+  readonly metrics?: OpenVoiceMetrics;
   readonly presenceStore: PresenceStore;
   readonly pubSub: GatewayEventPubSub;
   readonly resumeTimeoutMs?: number;
@@ -64,6 +66,7 @@ export class GatewayService {
   private readonly config: Pick<ApiConfig, "sessionCookieName">;
   private readonly connections = new Map<string, GatewayConnection>();
   private readonly heartbeatIntervalMs: number;
+  private readonly metrics: OpenVoiceMetrics | null;
   private readonly presenceStore: PresenceStore;
   private readonly pubSub: GatewayEventPubSub;
   private readonly resumeSessions = new Map<string, ResumeSession>();
@@ -75,6 +78,7 @@ export class GatewayService {
     this.channelService = options.channelService;
     this.config = options.config;
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 25_000;
+    this.metrics = options.metrics ?? null;
     this.presenceStore = options.presenceStore;
     this.pubSub = options.pubSub;
     this.resumeTimeoutMs = options.resumeTimeoutMs ?? 60_000;
@@ -97,6 +101,7 @@ export class GatewayService {
       workspaceIds: [],
     };
     this.connections.set(connection.connectionId, connection);
+    this.metrics?.recordGatewayConnectionCount(this.connections.size);
 
     this.send(connection, {
       d: {
@@ -276,6 +281,8 @@ export class GatewayService {
     }
 
     this.connections.delete(connection.connectionId);
+    this.metrics?.recordGatewayConnectionCount(this.connections.size);
+    this.metrics?.recordGatewayDisconnect();
     if (connection.heartbeatTimer) {
       clearInterval(connection.heartbeatTimer);
     }

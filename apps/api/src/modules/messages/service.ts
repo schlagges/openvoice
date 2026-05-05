@@ -15,12 +15,14 @@ import type { ChannelNodeRecord, MessageCursorInput, MessageRecord } from "../..
 import type { OpenVoiceRepository } from "../../db/repository.js";
 import { badRequest, forbidden, notFound } from "../../http/errors.js";
 import type { ChannelService } from "../channels/service.js";
+import type { OpenVoiceMetrics } from "../observability/metrics.js";
 import type { MessageEventPublisher } from "./events.js";
 import { InMemoryRateLimiter, MESSAGE_RATE_LIMITS } from "./rate-limit.js";
 
 export interface MessageServiceOptions {
   readonly channelService: ChannelService;
   readonly eventPublisher: MessageEventPublisher;
+  readonly metrics?: OpenVoiceMetrics;
   readonly rateLimiter?: InMemoryRateLimiter;
   readonly repository: OpenVoiceRepository;
 }
@@ -68,12 +70,14 @@ export interface ListMessagesResponse {
 export class MessageService {
   private readonly channelService: ChannelService;
   private readonly eventPublisher: MessageEventPublisher;
+  private readonly metrics: OpenVoiceMetrics | null;
   private readonly rateLimiter: InMemoryRateLimiter;
   private readonly repository: OpenVoiceRepository;
 
   public constructor(options: MessageServiceOptions) {
     this.channelService = options.channelService;
     this.eventPublisher = options.eventPublisher;
+    this.metrics = options.metrics ?? null;
     this.rateLimiter = options.rateLimiter ?? new InMemoryRateLimiter();
     this.repository = options.repository;
   }
@@ -116,6 +120,7 @@ export class MessageService {
     const message = toPublicMessage(result.message);
 
     if (result.created) {
+      this.metrics?.recordMessageSent();
       await this.eventPublisher.publish({
         channelId: message.channelId,
         message,

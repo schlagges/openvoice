@@ -1,0 +1,47 @@
+groups:
+  - name: openvoice
+    rules:
+      - alert: OpenVoiceHighTurnRelayRatio
+        expr: rtc_relay_ratio > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenVoice TURN relay ratio is above 50%.
+
+      - alert: OpenVoiceAudioPacketLoss
+        expr: rtc_packet_loss_avg > 0.05
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenVoice recent RTC packet loss is above 5%.
+
+      - alert: OpenVoiceVoiceJoinFailures
+        expr: |
+          (
+            increase(voice_join_failures_total[5m])
+            /
+            clamp_min(increase(voice_joins_total[5m]) + increase(voice_join_failures_total[5m]), 1)
+          ) > 0.02
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenVoice voice join failure ratio is above 2%.
+
+      - alert: OpenVoiceGatewayDisconnectSpike
+        expr: increase(gateway_disconnects_total[5m]) > 20
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenVoice Gateway disconnects spiked.
+
+      - alert: OpenVoiceApiDown
+        expr: up{job="openvoice-api"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: OpenVoice API metrics endpoint is down.

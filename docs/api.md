@@ -43,6 +43,19 @@ POST /api/v1/auth/password-reset/confirm
 GET  /api/v1/me
 ```
 
+## Observability
+
+```http
+GET  /healthz
+GET  /readyz
+GET  /metrics
+POST /api/v1/rtc/stats
+```
+
+`/metrics` liefert Prometheus-Textformat. `POST /rtc/stats` benötigt Auth und CSRF, prüft
+`VIEW_CHANNEL` serverseitig und akzeptiert aggregierte WebRTC-Quality-Samples ohne
+clientseitig vertrauenswürdige User-ID.
+
 ---
 
 ## Workspaces

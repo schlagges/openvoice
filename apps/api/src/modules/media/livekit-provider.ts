@@ -11,6 +11,7 @@ import type {
   CreateVoiceTokenResult,
   EnforceVoicePublishInput,
   MediaProvider,
+  MediaProviderStats,
 } from "./provider.js";
 
 export interface LiveKitMediaProviderOptions {
@@ -78,6 +79,18 @@ export class LiveKitMediaProvider implements MediaProvider {
     await this.roomService
       .moveParticipant(input.fromRoomName, input.userId, input.toRoomName)
       .catch(ignoreParticipantNotFound);
+  }
+
+  public async getStats(): Promise<MediaProviderStats> {
+    const rooms = await this.roomService.listRooms();
+    const participants = await Promise.all(
+      rooms.map((room) => this.roomService.listParticipants(room.name)),
+    );
+
+    return {
+      participantsActive: participants.reduce((count, room) => count + room.length, 0),
+      roomsActive: rooms.length,
+    };
   }
 
   public get url(): string {

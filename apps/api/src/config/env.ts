@@ -15,8 +15,10 @@ export interface ApiConfig {
   readonly sessionSecret: string;
   readonly sessionTtlSeconds: number;
   readonly turnRealm: string;
+  readonly turnPort: number;
   readonly turnSharedSecret: string;
   readonly turnTtlSeconds: number;
+  readonly turnsPort: number;
   readonly turnUrl: string;
 }
 
@@ -38,8 +40,10 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     sessionSecret: readRequired(env.SESSION_SECRET, "SESSION_SECRET"),
     sessionTtlSeconds: readInteger(env.SESSION_TTL_SECONDS, 60 * 60 * 24 * 30),
     turnRealm: readRequired(env.TURN_REALM, "TURN_REALM"),
+    turnPort: readInteger(env.TURN_PORT, 3478),
     turnSharedSecret: readRequired(env.TURN_SHARED_SECRET, "TURN_SHARED_SECRET"),
     turnTtlSeconds: readInteger(env.TURN_TTL_SECONDS, 60 * 20),
+    turnsPort: readInteger(env.TURNS_PORT, 5349),
     turnUrl: readRequired(env.TURN_URL, "TURN_URL"),
   };
 }

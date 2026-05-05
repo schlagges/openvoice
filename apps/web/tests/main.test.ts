@@ -5,6 +5,7 @@ import {
   MessageContentFormat,
   VideoContentMode,
   VideoQualityProfile,
+  type ClientRtcQualitySample,
   type ChannelTreeNode,
 } from "@openvoice/shared";
 import { renderChatPanel } from "../src/chat/chat-panel";
@@ -16,10 +17,11 @@ import {
   createScreenShareCaptureOptions,
   createScreenSharePublishOptions,
 } from "../src/voice/media-profiles";
+import { toRtcStatsRequestBody } from "../src/voice/voice-client";
 
 describe("web foundation", () => {
   it("formats the phase title", () => {
-    expect(formatWebTitle(7)).toBe("OpenVoice Phase 7");
+    expect(formatWebTitle(8)).toBe("OpenVoice Phase 8");
   });
 
   it("renders an escaped channel tree", () => {
@@ -133,6 +135,43 @@ describe("web foundation", () => {
     ).toMatchObject({
       degradationPreference: "maintain-resolution",
       simulcast: true,
+    });
+  });
+
+  it("omits user identity from RTC stats upload payloads", () => {
+    const sample: ClientRtcQualitySample = {
+      audio: {
+        bitrateBps: null,
+        concealedSamples: null,
+        jitterMs: 5,
+        packetsLost: 1,
+        packetsReceived: 100,
+        rttMs: 30,
+      },
+      channelId: "channel",
+      connection: {
+        iceState: "connected",
+        selectedCandidateType: "relay",
+        transport: "udp",
+      },
+      sessionId: "session",
+      timestamp: new Date(0).toISOString(),
+      userId: "user",
+      video: {
+        bitrateBps: 250_000,
+        framesDropped: null,
+        framesPerSecond: 30,
+        height: 720,
+        packetsLost: 0,
+        width: 1280,
+      },
+      workspaceId: "workspace",
+    };
+
+    expect(toRtcStatsRequestBody(sample)).not.toHaveProperty("userId");
+    expect(toRtcStatsRequestBody(sample)).toMatchObject({
+      channelId: "channel",
+      connection: { selectedCandidateType: "relay" },
     });
   });
 });
