@@ -144,3 +144,21 @@ Wichtige Voice-Variablen:
 Für produktive TURNS-Nutzung müssen gültige TLS-Zertifikate in coturn konfiguriert werden.
 Für produktive Grafana-Nutzung muss `GRAFANA_ADMIN_PASSWORD` durch ein echtes Secret ersetzt und
 außerhalb des Repositories verwaltet werden.
+
+## 8. Phase-9-Hardening
+
+Die API setzt Security Headers inklusive CSP, `X-Content-Type-Options`, restriktiver
+Frame-Einbettung, `Referrer-Policy`, `Permissions-Policy` und optional HSTS. HSTS wird ueber
+`ENABLE_HSTS=true` aktiviert und ist fuer produktive HTTPS-Deployments Pflicht.
+
+CORS ist Allowlist-basiert. `CORS_ALLOWED_ORIGINS` enthaelt kommaseparierte Origins, zum Beispiel:
+
+```text
+CORS_ALLOWED_ORIGINS=https://voice.example.com
+```
+
+Cookie-authentifizierte schreibende Requests muessen weiterhin den CSRF-Header
+`x-openvoice-csrf-token` senden. Wenn `Origin` oder `Referer` vorhanden sind, muessen sie zur
+CORS-Allowlist passen.
+
+Backup- und Restore-Schritte stehen in `docs/backup-restore.md`.

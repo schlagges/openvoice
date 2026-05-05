@@ -4,10 +4,11 @@ OpenVoice ist ein vollständig self-hostbares, browserbasiertes Voice-/Chat-/Vid
 Die Umsetzung erfolgt phasenweise nach `PLANS.md`; das verbindliche Lastenheft liegt in
 `docs/lastenheft.md`.
 
-Die Umsetzung ist aktuell bis Phase 8 vorbereitet: Monorepo-Fundament, Auth/Workspaces,
+Die Umsetzung ist aktuell bis Phase 9 vorbereitet: Monorepo-Fundament, Auth/Workspaces,
 Channel-Baum mit Rechte-Overrides, persistenter Chat, WebSocket Gateway/Presence, Voice/Video mit
 LiveKit-SFU und coturn, Moderationsaktionen inklusive Audit-Log-Grundansicht sowie
-Observability-Grundlagen mit Prometheus, Grafana, Health Checks und RTC-Quality-Metriken.
+Observability-Grundlagen mit Prometheus, Grafana, Health Checks und RTC-Quality-Metriken plus
+Basis-Hardening fuer Security Headers, CORS/CSRF, Rate Limits und License Checks.
 
 ## Struktur
 
@@ -37,6 +38,7 @@ pnpm install
 pnpm lint
 pnpm test
 pnpm build
+pnpm license:check
 ```
 
 ## Lokale Infrastruktur
@@ -77,3 +79,6 @@ dürfen nicht in Git gespeichert werden.
 - `docs/manual-voice-tests.md`: manuelle Phase-5-Voice-Prüfschritte
 - `docs/manual-video-tests.md`: manuelle Phase-6-Kamera- und Screenshare-Prüfschritte
 - `docs/observability.md`: Phase-8-Metriken, Dashboards und Alert-Regeln
+- `docs/backup-restore.md`: Backup-/Restore-Mindeststandard
+- `docs/data-retention.md`: Datenschutz- und Retention-Regeln
+- `docs/e2e-test-matrix.md`: E2E-Basis-Testmatrix

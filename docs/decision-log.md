@@ -116,3 +116,18 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
   open-source/self-hosting goal.
 - Dependencies: no new npm dependencies were introduced in Phase 8. The new Compose images are
   open-source Prometheus and Grafana OSS images; no proprietary observability SaaS is used.
+
+## 2026-05-05: Phase 9 Hardening
+
+- Security headers: Phase 9 implements CSP/CORS/HSTS headers in the local API layer instead of
+  adding a middleware dependency, because the API currently uses the platform `Request`/`Response`
+  primitives directly.
+- CORS and CSRF origin policy: `CORS_ALLOWED_ORIGINS` is the shared allowlist for credentialed CORS
+  and for cookie-authenticated unsafe request origin checks. Requests without browser origin
+  metadata still require the existing CSRF token.
+- Rate limits: Phase 9 adds request-wide in-process limits for Auth, TURN Credentials, RTC Stats,
+  Voice Actions and generic API reads/writes. Distributed Redis-backed limits remain a production
+  scaling improvement because this phase focuses on single-node hardening without new dependencies.
+- License check: Phase 9 adds a local `scripts/check-licenses.mjs` scanner over installed
+  `node_modules` manifests instead of a new license-check package to avoid broadening the supply
+  chain during hardening.

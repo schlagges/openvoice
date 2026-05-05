@@ -240,6 +240,8 @@ function createTestApp(): TestApp {
     authService,
     channelService,
     config: {
+      corsAllowedOrigins: ["http://local.test"],
+      enableHsts: false,
       sessionCookieName: "openvoice_session",
       sessionCookieSecure: false,
       sessionTtlSeconds: 3600,

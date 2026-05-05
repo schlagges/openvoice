@@ -16,8 +16,9 @@ import type { OpenVoiceRepository } from "../../db/repository.js";
 import { badRequest, forbidden, notFound } from "../../http/errors.js";
 import type { ChannelService } from "../channels/service.js";
 import type { OpenVoiceMetrics } from "../observability/metrics.js";
+import { InMemoryRateLimiter } from "../../security/rate-limit.js";
 import type { MessageEventPublisher } from "./events.js";
-import { InMemoryRateLimiter, MESSAGE_RATE_LIMITS } from "./rate-limit.js";
+import { MESSAGE_RATE_LIMITS } from "./rate-limit.js";
 
 export interface MessageServiceOptions {
   readonly channelService: ChannelService;

@@ -15,8 +15,10 @@ services:
         condition: service_started
     environment:
       API_PORT: 3000
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://localhost:3000}
       CSRF_SECRET: ${CSRF_SECRET:-replace-with-generated-csrf-secret}
       DATABASE_URL: postgres://${POSTGRES_USER:-openvoice}:${POSTGRES_PASSWORD:-openvoice_dev_password}@postgres:5432/${POSTGRES_DB:-openvoice}
+      ENABLE_HSTS: ${ENABLE_HSTS:-false}
       LIVEKIT_API_KEY: ${LIVEKIT_API_KEY:-devkey}
       LIVEKIT_API_SECRET: ${LIVEKIT_API_SECRET:-replace-with-livekit-api-secret-32chars}
       LIVEKIT_INTERNAL_URL: http://livekit:7880

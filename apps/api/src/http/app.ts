@@ -17,6 +17,12 @@ import {
   toErrorResponse,
   unauthorized,
 } from "./errors.js";
+import { ApiRequestRateLimiter } from "./request-rate-limit.js";
+import {
+  applyHttpSecurityHeaders,
+  assertTrustedCsrfOrigin,
+  createCorsPreflightResponse,
+} from "./security.js";
 import {
   parseCreateChannelRequest,
   parseCreateMessageRequest,
@@ -46,11 +52,16 @@ export interface ApiHandlerOptions {
   readonly channelService: ChannelService;
   readonly config: Pick<
     ApiConfig,
-    "sessionCookieName" | "sessionCookieSecure" | "sessionTtlSeconds"
+    | "corsAllowedOrigins"
+    | "enableHsts"
+    | "sessionCookieName"
+    | "sessionCookieSecure"
+    | "sessionTtlSeconds"
   >;
   readonly messageService: MessageService;
   readonly moderationService?: ModerationService;
   readonly observabilityService?: ObservabilityService;
+  readonly rateLimiter?: ApiRequestRateLimiter;
   readonly voiceService?: VoiceService;
   readonly workspaceService: WorkspaceService;
 }
@@ -66,18 +77,23 @@ interface AuthenticatedRequest {
 export function createApiHandler(
   options: ApiHandlerOptions,
 ): (request: Request) => Promise<Response> {
+  const rateLimiter = options.rateLimiter ?? new ApiRequestRateLimiter();
+
   return async (request) => {
     const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
     const url = new URL(request.url);
 
     try {
-      const response = await routeRequest(request, url, requestId, options);
+      const response =
+        request.method === "OPTIONS"
+          ? createCorsPreflightResponse(request, options.config, requestId)
+          : await routeRequest(request, url, requestId, options, rateLimiter);
       response.headers.set("x-request-id", requestId);
       options.observabilityService?.metrics.recordHttpRequest({
         method: request.method,
         status: response.status,
       });
-      return response;
+      return applyHttpSecurityHeaders(response, request, options.config);
     } catch (error) {
       const apiError =
         error instanceof ApiError
@@ -97,7 +113,7 @@ export function createApiHandler(
         method: request.method,
         status: apiError.status,
       });
-      return toErrorResponse(error, requestId);
+      return applyHttpSecurityHeaders(toErrorResponse(error, requestId), request, options.config);
     }
   };
 }
@@ -107,7 +123,10 @@ async function routeRequest(
   url: URL,
   requestId: string,
   options: ApiHandlerOptions,
+  rateLimiter: ApiRequestRateLimiter,
 ): Promise<Response> {
+  rateLimiter.assertAllowed(request, url);
+
   if (url.pathname === "/healthz") {
     assertMethod(request, "GET");
     return jsonResponse(requireObservabilityService(options).liveness(), 200, requestId);
@@ -687,6 +706,8 @@ function assertCsrf(
   if (!authenticated.csrfRequired) {
     return;
   }
+
+  assertTrustedCsrfOrigin(request, options.config);
 
   const csrfToken = request.headers.get("x-openvoice-csrf-token");
   if (!csrfToken) {

@@ -1,7 +1,9 @@
 export interface ApiConfig {
   readonly apiPort: number;
+  readonly corsAllowedOrigins: readonly string[];
   readonly csrfSecret: string;
   readonly databaseUrl: string;
+  readonly enableHsts: boolean;
   readonly livekitApiKey: string;
   readonly livekitApiSecret: string;
   readonly livekitInternalUrl: string;
@@ -25,8 +27,10 @@ export interface ApiConfig {
 export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     apiPort: readInteger(env.API_PORT, 3000),
+    corsAllowedOrigins: readAllowedOrigins(env),
     csrfSecret: readRequired(env.CSRF_SECRET, "CSRF_SECRET"),
     databaseUrl: readRequired(env.DATABASE_URL, "DATABASE_URL"),
+    enableHsts: readBoolean(env.ENABLE_HSTS, env.NODE_ENV === "production"),
     livekitApiKey: readRequired(env.LIVEKIT_API_KEY, "LIVEKIT_API_KEY"),
     livekitApiSecret: readRequired(env.LIVEKIT_API_SECRET, "LIVEKIT_API_SECRET"),
     livekitInternalUrl: env.LIVEKIT_INTERNAL_URL ?? readRequired(env.LIVEKIT_URL, "LIVEKIT_URL"),
@@ -46,6 +50,36 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     turnsPort: readInteger(env.TURNS_PORT, 5349),
     turnUrl: readRequired(env.TURN_URL, "TURN_URL"),
   };
+}
+
+function readAllowedOrigins(env: NodeJS.ProcessEnv): readonly string[] {
+  const explicit = env.CORS_ALLOWED_ORIGINS;
+  const values =
+    explicit && explicit.trim().length > 0
+      ? explicit.split(",")
+      : [env.APP_PUBLIC_URL, env.API_PUBLIC_URL].filter((value): value is string => Boolean(value));
+  const origins = new Set<string>();
+
+  for (const value of values) {
+    const origin = readOrigin(value.trim());
+    if (origin) {
+      origins.add(origin);
+    }
+  }
+
+  return [...origins].sort();
+}
+
+function readOrigin(value: string): string | null {
+  if (value.length === 0) {
+    return null;
+  }
+
+  try {
+    return new URL(value).origin;
+  } catch {
+    throw new Error(`Expected origin URL but received ${value}.`);
+  }
 }
 
 function readRequired(value: string | undefined, key: string): string {
