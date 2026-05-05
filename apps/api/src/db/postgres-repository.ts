@@ -4,8 +4,9 @@ import {
   DEFAULT_ROLE_DEFINITIONS,
   parsePermissionMask,
   serializePermissionMask,
-  type DefaultRoleKey,
   type ChannelType,
+  type DefaultRoleKey,
+  type MessageContentFormat,
 } from "@openvoice/shared";
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 
@@ -15,15 +16,21 @@ import type {
   AuditMetadata,
   ChannelNodeRecord,
   CreateChannelInput,
+  CreateMessageInput,
+  CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
+  ListMessagesInput,
+  MessageRecord,
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
   Role,
   Session,
+  SoftDeleteMessageInput,
+  UpdateMessageInput,
   UpsertPermissionOverrideInput,
   User,
   Workspace,
@@ -510,6 +517,135 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       client.release();
     }
   }
+
+  public async createMessage(input: CreateMessageInput): Promise<CreateMessageResult> {
+    const result = await this.pool.query<MessageRow>(
+      `INSERT INTO messages (
+         id, workspace_id, channel_id, author_id, client_message_id, content,
+         content_format, edited_at, deleted_at, deleted_by, created_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, $7, null, null, null, now(), now())
+       ON CONFLICT (channel_id, author_id, client_message_id)
+       DO NOTHING
+       RETURNING *`,
+      [
+        input.id,
+        input.workspaceId,
+        input.channelId,
+        input.authorId,
+        input.clientMessageId,
+        input.content,
+        input.contentFormat,
+      ],
+    );
+
+    if (result.rows[0]) {
+      return {
+        created: true,
+        message: mapMessage(result.rows[0]),
+      };
+    }
+
+    const existing = await this.pool.query<MessageRow>(
+      `SELECT *
+       FROM messages
+       WHERE channel_id = $1
+         AND author_id = $2
+         AND client_message_id = $3`,
+      [input.channelId, input.authorId, input.clientMessageId],
+    );
+
+    return {
+      created: false,
+      message: mapMessage(existing.rows[0]),
+    };
+  }
+
+  public async findMessageById(messageId: string): Promise<MessageRecord | null> {
+    const result = await this.pool.query<MessageRow>("SELECT * FROM messages WHERE id = $1", [
+      messageId,
+    ]);
+
+    return result.rows[0] ? mapMessage(result.rows[0]) : null;
+  }
+
+  public async listMessages(input: ListMessagesInput): Promise<readonly MessageRecord[]> {
+    const cursorClause = input.before
+      ? "AND (created_at, id) < ($3, $4)"
+      : input.after
+        ? "AND (created_at, id) > ($3, $4)"
+        : "";
+    const params: Array<Date | number | string> = [input.channelId, input.limit];
+
+    if (input.before) {
+      params.push(input.before.createdAt, input.before.id);
+    } else if (input.after) {
+      params.push(input.after.createdAt, input.after.id);
+    }
+
+    const result = await this.pool.query<MessageRow>(
+      `SELECT *
+       FROM messages
+       WHERE channel_id = $1
+       ${cursorClause}
+       ORDER BY created_at DESC, id DESC
+       LIMIT $2`,
+      params,
+    );
+
+    return result.rows.map(mapMessage);
+  }
+
+  public async updateMessage(input: UpdateMessageInput): Promise<MessageRecord> {
+    const result = await this.pool.query<MessageRow>(
+      `UPDATE messages
+       SET content = $2,
+           content_format = $3,
+           edited_at = now(),
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [input.messageId, input.content, input.contentFormat],
+    );
+
+    return mapMessage(result.rows[0]);
+  }
+
+  public async softDeleteMessage(input: SoftDeleteMessageInput): Promise<MessageRecord> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query<MessageRow>(
+        `UPDATE messages
+         SET deleted_at = COALESCE(deleted_at, now()),
+             deleted_by = COALESCE(deleted_by, $2),
+             updated_at = now()
+         WHERE id = $1
+         RETURNING *`,
+        [input.messageId, input.deletedBy],
+      );
+      const message = mapMessage(result.rows[0]);
+
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "MESSAGE_DELETE",
+        metadata: { channelId: message.channelId },
+        targetId: message.id,
+        targetType: "message",
+        workspaceId: message.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return message;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
 }
 
 interface WorkspaceCreationAuditInput {
@@ -676,6 +812,21 @@ interface PermissionOverrideRow extends QueryResultRow {
   readonly updated_at: Date;
 }
 
+interface MessageRow extends QueryResultRow {
+  readonly author_id: string;
+  readonly channel_id: string;
+  readonly client_message_id: string;
+  readonly content: string;
+  readonly content_format: MessageContentFormat;
+  readonly created_at: Date;
+  readonly deleted_at: Date | null;
+  readonly deleted_by: string | null;
+  readonly edited_at: Date | null;
+  readonly id: string;
+  readonly updated_at: Date;
+  readonly workspace_id: string;
+}
+
 interface InsertAuditLogInput {
   readonly actorId: string | null;
   readonly event: string;
@@ -840,6 +991,27 @@ function mapPermissionOverride(row: PermissionOverrideRow | undefined): Permissi
     targetId: row.target_id,
     targetType: row.target_type,
     updatedAt: row.updated_at,
+  };
+}
+
+function mapMessage(row: MessageRow | undefined): MessageRecord {
+  if (!row) {
+    throw new Error("Expected message row.");
+  }
+
+  return {
+    authorId: row.author_id,
+    channelId: row.channel_id,
+    clientMessageId: row.client_message_id,
+    content: row.content,
+    contentFormat: row.content_format,
+    createdAt: row.created_at,
+    deletedAt: row.deleted_at,
+    deletedBy: row.deleted_by,
+    editedAt: row.edited_at,
+    id: row.id,
+    updatedAt: row.updated_at,
+    workspaceId: row.workspace_id,
   };
 }
 

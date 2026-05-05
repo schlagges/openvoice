@@ -2,6 +2,7 @@ import { type ApiConfig } from "../config/env.js";
 import type { Session } from "../db/models.js";
 import { AuthService, toPublicUser } from "../modules/auth/service.js";
 import { ChannelService } from "../modules/channels/service.js";
+import { MessageService } from "../modules/messages/service.js";
 import { WorkspaceService } from "../modules/workspaces/service.js";
 import { readRequestToken } from "../security/request-auth.js";
 import { clearSessionCookie, createSessionCookie } from "./cookies.js";
@@ -15,12 +16,15 @@ import {
 } from "./errors.js";
 import {
   parseCreateChannelRequest,
+  parseCreateMessageRequest,
   parseCreateWorkspaceRequest,
+  parseListMessagesQuery,
   parseLoginRequest,
   parsePermissionOverrideRequest,
   parsePermissionOverrideTargetType,
   parseRegisterRequest,
   parseReorderChannelsRequest,
+  parseUpdateMessageRequest,
   parseUuidPathParameter,
   readJsonObject,
 } from "./validation.js";
@@ -32,6 +36,7 @@ export interface ApiHandlerOptions {
     ApiConfig,
     "sessionCookieName" | "sessionCookieSecure" | "sessionTtlSeconds"
   >;
+  readonly messageService: MessageService;
   readonly workspaceService: WorkspaceService;
 }
 
@@ -284,6 +289,72 @@ async function routeRequest(
     );
 
     return jsonResponse(effectivePermissions, 200, requestId);
+  }
+
+  const channelMessagesMatch = matchPath(url.pathname, /^\/api\/v1\/channels\/([^/]+)\/messages$/);
+  if (channelMessagesMatch) {
+    const authenticated = await authenticateRequest(request, options);
+    const channelId = parseUuidPathParameter(requirePathPart(channelMessagesMatch, 0), "channelId");
+
+    if (request.method === "GET") {
+      const query = parseListMessagesQuery(url.searchParams);
+      const result = await options.messageService.listMessages({
+        ...(query.after
+          ? { after: { createdAt: new Date(query.after.createdAt), id: query.after.id } }
+          : {}),
+        ...(query.before
+          ? { before: { createdAt: new Date(query.before.createdAt), id: query.before.id } }
+          : {}),
+        channelId,
+        limit: query.limit,
+        userId: authenticated.userId,
+      });
+
+      return jsonResponse(result, 200, requestId);
+    }
+
+    if (request.method === "POST") {
+      assertCsrf(request, authenticated, options);
+      const body = parseCreateMessageRequest(await readJsonObject(request));
+      const result = await options.messageService.createMessage({
+        ...body,
+        channelId,
+        userId: authenticated.userId,
+      });
+
+      return jsonResponse(result, result.duplicate ? 200 : 201, requestId);
+    }
+
+    throw methodNotAllowed();
+  }
+
+  const messageMatch = matchPath(url.pathname, /^\/api\/v1\/messages\/([^/]+)$/);
+  if (messageMatch) {
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const messageId = parseUuidPathParameter(requirePathPart(messageMatch, 0), "messageId");
+
+    if (request.method === "PATCH") {
+      const body = parseUpdateMessageRequest(await readJsonObject(request));
+      const message = await options.messageService.updateMessage({
+        ...body,
+        messageId,
+        userId: authenticated.userId,
+      });
+
+      return jsonResponse({ message }, 200, requestId);
+    }
+
+    if (request.method === "DELETE") {
+      const message = await options.messageService.deleteMessage({
+        messageId,
+        userId: authenticated.userId,
+      });
+
+      return jsonResponse({ message }, 200, requestId);
+    }
+
+    throw methodNotAllowed();
   }
 
   throw notFound();

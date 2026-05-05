@@ -1,4 +1,9 @@
-import type { ChannelType, DefaultRoleKey, PermissionMask } from "@openvoice/shared";
+import type {
+  ChannelType,
+  DefaultRoleKey,
+  MessageContentFormat,
+  PermissionMask,
+} from "@openvoice/shared";
 
 export type AuditMetadata = Record<string, string | number | boolean | null>;
 
@@ -92,6 +97,21 @@ export interface PermissionOverrideRecord {
   readonly updatedAt: Date;
 }
 
+export interface MessageRecord {
+  readonly authorId: string;
+  readonly channelId: string;
+  readonly clientMessageId: string;
+  readonly content: string;
+  readonly contentFormat: MessageContentFormat;
+  readonly createdAt: Date;
+  readonly deletedAt: Date | null;
+  readonly deletedBy: string | null;
+  readonly editedAt: Date | null;
+  readonly id: string;
+  readonly updatedAt: Date;
+  readonly workspaceId: string;
+}
+
 export interface WorkspaceAccessContext {
   readonly member: WorkspaceMember;
   readonly roles: readonly Role[];
@@ -158,4 +178,43 @@ export interface UpsertPermissionOverrideInput {
   readonly deny: PermissionMask;
   readonly targetId: string;
   readonly targetType: PermissionOverrideTargetType;
+}
+
+export interface CreateMessageInput {
+  readonly authorId: string;
+  readonly channelId: string;
+  readonly clientMessageId: string;
+  readonly content: string;
+  readonly contentFormat: MessageContentFormat;
+  readonly id: string;
+  readonly workspaceId: string;
+}
+
+export interface CreateMessageResult {
+  readonly created: boolean;
+  readonly message: MessageRecord;
+}
+
+export interface MessageCursorInput {
+  readonly createdAt: Date;
+  readonly id: string;
+}
+
+export interface ListMessagesInput {
+  readonly after?: MessageCursorInput;
+  readonly before?: MessageCursorInput;
+  readonly channelId: string;
+  readonly limit: number;
+}
+
+export interface UpdateMessageInput {
+  readonly content: string;
+  readonly contentFormat: MessageContentFormat;
+  readonly messageId: string;
+}
+
+export interface SoftDeleteMessageInput {
+  readonly actorId: string;
+  readonly deletedBy: string;
+  readonly messageId: string;
 }

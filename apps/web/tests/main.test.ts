@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { ChannelType, type ChannelTreeNode } from "@openvoice/shared";
+import { ChannelType, MessageContentFormat, type ChannelTreeNode } from "@openvoice/shared";
+import { renderChatPanel } from "../src/chat/chat-panel";
 import { renderChannelTree } from "../src/channels/channel-tree";
 import { formatWebTitle } from "../src/main";
 
 describe("web foundation", () => {
   it("formats the phase title", () => {
-    expect(formatWebTitle(2)).toBe("OpenVoice Phase 2");
+    expect(formatWebTitle(3)).toBe("OpenVoice Phase 3");
   });
 
   it("renders an escaped channel tree", () => {
@@ -48,5 +49,28 @@ describe("web foundation", () => {
     ];
 
     expect(renderChannelTree(channels)).toContain("&lt;general&gt;");
+  });
+
+  it("renders escaped chat messages", () => {
+    const now = new Date().toISOString();
+    const html = renderChatPanel([
+      {
+        authorId: "author",
+        channelId: "channel",
+        clientMessageId: "client",
+        content: "<script>alert(1)</script>",
+        contentFormat: MessageContentFormat.MARKDOWN,
+        createdAt: now,
+        deletedAt: null,
+        deletedBy: null,
+        editedAt: now,
+        id: "message",
+        updatedAt: now,
+        workspaceId: "workspace",
+      },
+    ]);
+
+    expect(html).toContain("&lt;script&gt;");
+    expect(html).toContain("bearbeitet");
   });
 });

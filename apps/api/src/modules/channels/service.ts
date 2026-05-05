@@ -383,7 +383,7 @@ export class ChannelService {
     return access;
   }
 
-  private async requireChannelPermission(
+  public async requireChannelPermission(
     channelId: string,
     userId: string,
     permission: Permission,

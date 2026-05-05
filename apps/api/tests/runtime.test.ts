@@ -6,7 +6,7 @@ describe("api runtime foundation", () => {
   it("exposes phase runtime metadata", () => {
     expect(getApiRuntimeInfo()).toEqual({
       app: "api",
-      phase: 2,
+      phase: 3,
     });
   });
 });

@@ -7,6 +7,9 @@ import { PostgresOpenVoiceRepository } from "./db/postgres-repository.js";
 import { createApiHandler } from "./http/app.js";
 import { AuthService } from "./modules/auth/service.js";
 import { ChannelService } from "./modules/channels/service.js";
+import { InMemoryMessageEventHub } from "./modules/messages/events.js";
+import { MessageService } from "./modules/messages/service.js";
+import { installMessageWebSocketServer } from "./modules/messages/websocket.js";
 import { WorkspaceService } from "./modules/workspaces/service.js";
 import { Argon2idPasswordHasher } from "./security/password.js";
 
@@ -22,10 +25,22 @@ export function createOpenVoiceApiServer() {
     sessionTtlSeconds: config.sessionTtlSeconds,
   });
   const channelService = new ChannelService({ repository });
+  const messageEventHub = new InMemoryMessageEventHub();
+  const messageService = new MessageService({
+    channelService,
+    eventPublisher: messageEventHub,
+    repository,
+  });
   const workspaceService = new WorkspaceService({ repository });
-  const handler = createApiHandler({ authService, channelService, config, workspaceService });
+  const handler = createApiHandler({
+    authService,
+    channelService,
+    config,
+    messageService,
+    workspaceService,
+  });
 
-  return createServer(async (incoming, outgoing) => {
+  const server = createServer(async (incoming, outgoing) => {
     const request = new Request(
       `http://${incoming.headers.host ?? "localhost"}${incoming.url ?? "/"}`,
       {
@@ -44,6 +59,14 @@ export function createOpenVoiceApiServer() {
     const body = await response.arrayBuffer();
     outgoing.end(Buffer.from(body));
   });
+  installMessageWebSocketServer(server, {
+    authService,
+    config,
+    eventHub: messageEventHub,
+    messageService,
+  });
+
+  return server;
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

@@ -7,6 +7,8 @@ import { InMemoryOpenVoiceRepository } from "../src/db/in-memory-repository.js";
 import { createApiHandler } from "../src/http/app.js";
 import { AuthService, type PublicUser } from "../src/modules/auth/service.js";
 import { ChannelService } from "../src/modules/channels/service.js";
+import { InMemoryMessageEventHub } from "../src/modules/messages/events.js";
+import { MessageService } from "../src/modules/messages/service.js";
 import { WorkspaceService } from "../src/modules/workspaces/service.js";
 import type { PasswordHasher } from "../src/security/password.js";
 
@@ -211,6 +213,11 @@ function createTestApp(): TestApp {
     sessionTtlSeconds: 3600,
   });
   const channelService = new ChannelService({ repository });
+  const messageService = new MessageService({
+    channelService,
+    eventPublisher: new InMemoryMessageEventHub(),
+    repository,
+  });
   const workspaceService = new WorkspaceService({ repository });
   const handler = createApiHandler({
     authService,
@@ -220,6 +227,7 @@ function createTestApp(): TestApp {
       sessionCookieSecure: false,
       sessionTtlSeconds: 3600,
     },
+    messageService,
     workspaceService,
   });
 

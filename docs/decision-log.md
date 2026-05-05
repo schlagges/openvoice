@@ -35,3 +35,11 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - Visible tree responses omit invisible nodes. If a visible child is explicitly allowed below an invisible parent, the response exposes the child as a top-level item to avoid leaking the hidden parent ID.
 - Docker runtime: a single multi-stage Dockerfile builds API and web targets. The API image runs migrations before starting the server so local Compose remains self-contained.
 - Compose scope: Phase 2 Compose includes API, web, PostgreSQL and Valkey only. coturn, SFU and media services remain out of scope until their planned phases.
+
+## 2026-05-05: Phase 3 Persistent Chat
+
+- Message transport: Phase 3 adds a narrow channel-scoped WebSocket endpoint at `/api/v1/channels/:channelId/messages/ws` for `MESSAGE_CREATE`, `MESSAGE_UPDATE` and `MESSAGE_DELETE`. The full Gateway protocol with `HELLO`/`IDENTIFY`/`READY`, heartbeat, resume, presence and Redis/Valkey PubSub remains Phase 4 scope.
+- WebSocket dependency: `ws` is used because Node.js does not provide a production WebSocket server, while Phase 3 explicitly requires live WebSocket message events. `ws` and `@types/ws` are MIT licensed and documented in `THIRD_PARTY_NOTICES.md`.
+- Message content: message HTML is never stored as raw HTML. The server stores escaped text with a constrained Markdown subset and strips unsafe links/images. Link previews, embeds, GIFs, stickers and reactions remain out of scope.
+- Message length: Phase 3 uses a default maximum message length of 4000 characters until channel-specific text settings are implemented.
+- Rate limits: Phase 3 rate limits are in-process token buckets. Distributed Redis/Valkey-backed limits are deferred to the Gateway/operations phases where horizontal coordination is introduced.

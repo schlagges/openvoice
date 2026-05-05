@@ -5,6 +5,7 @@ export type ApiErrorCode =
   | "INTERNAL_ERROR"
   | "METHOD_NOT_ALLOWED"
   | "NOT_FOUND"
+  | "RATE_LIMITED"
   | "UNAUTHORIZED";
 
 export type ErrorDetails = Record<string, string | number | boolean | null>;
@@ -43,6 +44,10 @@ export function methodNotAllowed(message = "Method not allowed."): ApiError {
 
 export function notFound(message = "Route not found."): ApiError {
   return new ApiError(404, "NOT_FOUND", message);
+}
+
+export function rateLimited(message: string, details?: ErrorDetails): ApiError {
+  return new ApiError(429, "RATE_LIMITED", message, details);
 }
 
 export function unauthorized(message = "Authentication required."): ApiError {
