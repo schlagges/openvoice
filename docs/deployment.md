@@ -24,9 +24,9 @@ Beispiel siehe:
 - `infra/turnserver.example.conf`
 - `infra/livekit.example.yaml`
 
-Der aktuelle Phase-2-Compose-Stand in `infra/docker-compose.yml` startet nur Web, API,
-PostgreSQL und Valkey. Medienkomponenten, TURN und Observability werden in späteren Phasen
-ergänzt.
+Der aktuelle Phase-5-Compose-Stand in `infra/docker-compose.yml` startet Web, API, PostgreSQL,
+Valkey, LiveKit und coturn. Prometheus/Grafana bleiben in der Beispiel-Compose-Datei vorbereitet
+und werden in einer späteren Phase produktionsnah eingebunden.
 
 ---
 
@@ -42,7 +42,8 @@ ergänzt.
 | 49152-65535 | UDP | TURN Relay Range, oder eigene Range |
 | 7880 | TCP | LiveKit API/WebSocket, falls direkt exponiert |
 | 7881 | TCP | LiveKit RTC TCP, falls genutzt |
-| 50000-60000 | UDP | LiveKit RTC UDP Range, Beispiel |
+| 50000-50100 | UDP | LiveKit RTC UDP Range, lokaler Phase-5-Compose-Default |
+| 49152-49200 | UDP | coturn Relay Range, lokaler Phase-5-Compose-Default |
 
 ---
 
@@ -59,6 +60,9 @@ Pflicht-Secrets:
 - `LIVEKIT_API_KEY`
 - `LIVEKIT_API_SECRET`
 - Datenbankpasswort
+
+Für lokale Entwicklung enthält `.env.example` nur Platzhalterwerte. Diese Werte dürfen nicht für
+öffentlich erreichbare Deployments verwendet werden.
 
 ---
 
@@ -104,3 +108,23 @@ MVP-Pflicht:
 8. Prometheus/Grafana starten.
 9. Health Checks prüfen.
 10. Test-Voice-Join durchführen.
+
+---
+
+## 7. Phase-5-Compose
+
+Lokaler Start:
+
+```bash
+docker compose --env-file .env.example -f infra/docker-compose.yml up --build
+```
+
+Wichtige Voice-Variablen:
+
+- `LIVEKIT_URL`: Browser-facing WebSocket URL, lokal `ws://localhost:7880`.
+- `LIVEKIT_INTERNAL_URL`: API-to-LiveKit URL, in Compose `http://livekit:7880`.
+- `TURN_URL`: Hostname, den Browser als ICE-Server verwenden.
+- `TURN_SHARED_SECRET`: gemeinsames coturn REST-Secret, nur serverseitig verwenden.
+- `TURN_TTL_SECONDS`: TTL der temporären TURN Credentials.
+
+Für produktive TURNS-Nutzung müssen gültige TLS-Zertifikate in coturn konfiguriert werden.

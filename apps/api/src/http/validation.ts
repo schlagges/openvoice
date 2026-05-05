@@ -1,6 +1,8 @@
 import {
   isChannelType,
+  isAudioMode,
   isMessageContentFormat,
+  AudioMode,
   MessageContentFormat,
   parseMessageCursor,
   parsePermissionMask,
@@ -59,6 +61,24 @@ export interface CreateMessageRequestBody {
 export interface UpdateMessageRequestBody {
   readonly content: string;
   readonly contentFormat: ContentFormat;
+}
+
+export interface VoiceJoinRequestBody {
+  readonly audioMode: AudioMode;
+  readonly selfDeafened: boolean;
+  readonly selfMuted: boolean;
+}
+
+export interface VoiceSelfStateRequestBody {
+  readonly audioMode?: AudioMode;
+  readonly selfDeafened?: boolean;
+  readonly selfMuted?: boolean;
+  readonly speaking?: boolean;
+}
+
+export interface VoiceModerationRequestBody {
+  readonly enabled: boolean;
+  readonly targetUserId: string;
 }
 
 export interface ListMessagesRequestQuery {
@@ -188,6 +208,48 @@ export function parseUpdateMessageRequest(body: Record<string, unknown>): Update
   };
 }
 
+export function parseVoiceJoinRequest(body: Record<string, unknown>): VoiceJoinRequestBody {
+  const selfDeafened =
+    body.selfDeafened === undefined ? false : parseBoolean(body.selfDeafened, "selfDeafened");
+
+  return {
+    audioMode:
+      body.audioMode === undefined ? AudioMode.VOICE : parseAudioMode(body.audioMode, "audioMode"),
+    selfDeafened,
+    selfMuted: selfDeafened
+      ? true
+      : body.selfMuted === undefined
+        ? false
+        : parseBoolean(body.selfMuted, "selfMuted"),
+  };
+}
+
+export function parseVoiceSelfStateRequest(
+  body: Record<string, unknown>,
+): VoiceSelfStateRequestBody {
+  return {
+    ...(body.audioMode !== undefined
+      ? { audioMode: parseAudioMode(body.audioMode, "audioMode") }
+      : {}),
+    ...(body.selfDeafened !== undefined
+      ? { selfDeafened: parseBoolean(body.selfDeafened, "selfDeafened") }
+      : {}),
+    ...(body.selfMuted !== undefined
+      ? { selfMuted: parseBoolean(body.selfMuted, "selfMuted") }
+      : {}),
+    ...(body.speaking !== undefined ? { speaking: parseBoolean(body.speaking, "speaking") } : {}),
+  };
+}
+
+export function parseVoiceModerationRequest(
+  body: Record<string, unknown>,
+): VoiceModerationRequestBody {
+  return {
+    enabled: parseBoolean(body.enabled, "enabled"),
+    targetUserId: parseUuidLikeString(body.targetUserId, "targetUserId"),
+  };
+}
+
 export function parseListMessagesQuery(params: URLSearchParams): ListMessagesRequestQuery {
   const before = params.get("before");
   const after = params.get("after");
@@ -272,6 +334,22 @@ function parseMessageContentFormat(value: unknown): ContentFormat {
     throw badRequest("Invalid message content format.", {
       field: "contentFormat",
     });
+  }
+
+  return value;
+}
+
+function parseAudioMode(value: unknown, field: string): AudioMode {
+  if (!isAudioMode(value)) {
+    throw badRequest("Invalid audio mode.", { field });
+  }
+
+  return value;
+}
+
+function parseBoolean(value: unknown, field: string): boolean {
+  if (typeof value !== "boolean") {
+    throw badRequest(`${field} must be a boolean.`, { field });
   }
 
   return value;

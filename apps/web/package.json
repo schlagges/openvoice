@@ -10,7 +10,8 @@
     "test": "vitest run --root ../.."
   },
   "dependencies": {
-    "@openvoice/shared": "workspace:*"
+    "@openvoice/shared": "workspace:*",
+    "livekit-client": "2.18.9"
   },
   "devDependencies": {
     "typescript": "5.9.3",

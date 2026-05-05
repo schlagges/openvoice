@@ -1,0 +1,24 @@
+# Development LiveKit config for Docker Compose.
+# Replace the placeholder key/secret before any production deployment.
+
+port: 7880
+bind_addresses:
+  - "0.0.0.0"
+
+rtc:
+  tcp_port: 7881
+  port_range_start: 50000
+  port_range_end: 50100
+  use_external_ip: false
+
+keys:
+  devkey: replace-with-livekit-api-secret-32chars
+
+logging:
+  level: info
+
+turn:
+  enabled: false
+
+room:
+  auto_create: true

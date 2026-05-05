@@ -1,4 +1,5 @@
 import type {
+  AudioMode,
   ChannelType,
   DefaultRoleKey,
   MessageContentFormat,
@@ -112,6 +113,23 @@ export interface MessageRecord {
   readonly workspaceId: string;
 }
 
+export interface VoiceStateRecord {
+  readonly audioMode: AudioMode;
+  readonly cameraEnabled: boolean;
+  readonly channelId: string;
+  readonly connectedAt: Date;
+  readonly screenShareEnabled: boolean;
+  readonly selfDeafened: boolean;
+  readonly selfMuted: boolean;
+  readonly serverDeafened: boolean;
+  readonly serverMuted: boolean;
+  readonly sessionId: string;
+  readonly speaking: boolean;
+  readonly updatedAt: Date;
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
 export interface WorkspaceAccessContext {
   readonly member: WorkspaceMember;
   readonly roles: readonly Role[];
@@ -217,4 +235,31 @@ export interface SoftDeleteMessageInput {
   readonly actorId: string;
   readonly deletedBy: string;
   readonly messageId: string;
+}
+
+export interface UpsertVoiceStateInput {
+  readonly audioMode: AudioMode;
+  readonly channelId: string;
+  readonly selfDeafened: boolean;
+  readonly selfMuted: boolean;
+  readonly sessionId: string;
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
+export interface UpdateVoiceSelfStateInput {
+  readonly audioMode?: AudioMode;
+  readonly selfDeafened?: boolean;
+  readonly selfMuted?: boolean;
+  readonly speaking?: boolean;
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
+export interface SetVoiceModerationInput {
+  readonly actorId: string;
+  readonly serverDeafened?: boolean;
+  readonly serverMuted?: boolean;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
 }

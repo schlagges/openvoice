@@ -15,8 +15,11 @@ import { RedisPresenceStore } from "./modules/gateway/presence.js";
 import { RedisGatewayPubSub } from "./modules/gateway/pubsub.js";
 import { GatewayService } from "./modules/gateway/service.js";
 import { createGatewayWebSocketUpgradeHandler } from "./modules/gateway/websocket.js";
+import { LiveKitMediaProvider } from "./modules/media/livekit-provider.js";
 import { InMemoryMessageEventHub } from "./modules/messages/events.js";
 import { MessageService } from "./modules/messages/service.js";
+import { TurnCredentialService } from "./modules/turn/credentials.js";
+import { VoiceService } from "./modules/voice/service.js";
 import { createMessageWebSocketUpgradeHandler } from "./modules/messages/websocket.js";
 import { WorkspaceService } from "./modules/workspaces/service.js";
 import { Argon2idPasswordHasher } from "./security/password.js";
@@ -35,6 +38,18 @@ export function createOpenVoiceApiServer() {
   const messageEventHub = new InMemoryMessageEventHub();
   const gatewayPubSub = new RedisGatewayPubSub(config.redisUrl);
   const gatewayEventPublisher = gatewayPubSub;
+  const mediaProvider = new LiveKitMediaProvider({
+    apiKey: config.livekitApiKey,
+    apiSecret: config.livekitApiSecret,
+    serverUrl: config.livekitInternalUrl,
+    tokenTtlSeconds: config.livekitTokenTtlSeconds,
+  });
+  const turnCredentialService = new TurnCredentialService({
+    realm: config.turnRealm,
+    sharedSecret: config.turnSharedSecret,
+    ttlSeconds: config.turnTtlSeconds,
+    turnHost: config.turnUrl,
+  });
   const channelService = new ChannelService({
     eventPublisher: gatewayEventPublisher,
     repository,
@@ -51,6 +66,14 @@ export function createOpenVoiceApiServer() {
     ]),
     repository,
   });
+  const voiceService = new VoiceService({
+    channelService,
+    eventPublisher: gatewayEventPublisher,
+    livekitUrl: config.livekitUrl,
+    mediaProvider,
+    repository,
+    turnCredentialService,
+  });
   const gatewayService = new GatewayService({
     authService,
     channelService,
@@ -64,6 +87,7 @@ export function createOpenVoiceApiServer() {
     channelService,
     config,
     messageService,
+    voiceService,
     workspaceService,
   });
 

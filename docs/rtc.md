@@ -29,6 +29,9 @@ Alternative:
 
 Die Applikation muss ein internes `MediaProvider` Interface verwenden.
 
+Phase 5 nutzt `LiveKitMediaProvider` für Join-Tokens und serverseitige Teilnehmersteuerung. Das
+Interface bleibt schmal, damit LiveKit später durch eine andere Open-Source-SFU ersetzt werden kann.
+
 ---
 
 ## 3. Audio
@@ -166,6 +169,9 @@ TURN Credential Beispiel:
 }
 ```
 
+Phase 5 erzeugt diese Credentials ausschließlich serverseitig über `/api/v1/turn/credentials` und
+die Voice-Join-Response. Das gemeinsame `TURN_SHARED_SECRET` wird nie an den Browser gesendet.
+
 ---
 
 ## 7. RTC Stats
@@ -182,6 +188,9 @@ Der Client muss WebRTC Stats sammeln und aggregiert melden:
 - ICE Candidate Type
 - Transportprotokoll
 - Relay ja/nein
+
+Der Phase-5-Webclient sammelt zunächst lokale Audio-Sender-Stats, Teilnehmerzahl und aktive
+Speaker-Anzahl. Aggregierte Uploads und Dashboards bleiben Observability-Folgearbeit.
 
 Diese Daten dienen:
 

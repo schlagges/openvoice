@@ -103,6 +103,8 @@ Gateway-Konventionen:
 - Client-Presence läuft über `DISPATCH` mit `t: "PRESENCE_UPDATE"` und `d.status`.
 - Server-Events nutzen ein einheitliches Envelope mit `op`, `t`, `s` und `d`.
 - Channel- und Message-Events werden serverseitig pro Empfänger gegen `VIEW_CHANNEL` gefiltert.
+- Voice-Events `VOICE_STATE_UPDATE` und `SPEAKING_UPDATE` werden ebenfalls channel-scoped
+  ausgeliefert und serverseitig gegen `VIEW_CHANNEL` gefiltert.
 
 ---
 
@@ -134,12 +136,14 @@ GET    /api/v1/channels/:channelId/effective-permissions/me
 ## Voice / Media
 
 ```http
-POST   /api/v1/voice/channels/:channelId/join
-POST   /api/v1/voice/leave
-PATCH  /api/v1/voice/state
-POST   /api/v1/voice/channels/:channelId/move-member
-POST   /api/v1/voice/mute-member
-POST   /api/v1/voice/deafen-member
-POST   /api/v1/voice/disconnect-member
+POST   /api/v1/channels/:channelId/voice/join
+POST   /api/v1/workspaces/:workspaceId/voice/leave
+PATCH  /api/v1/workspaces/:workspaceId/voice/state
+POST   /api/v1/workspaces/:workspaceId/voice/server-mute
+POST   /api/v1/workspaces/:workspaceId/voice/server-deafen
 GET    /api/v1/turn/credentials
 ```
+
+Phase-5-Voice ist Audio-only. Join prüft `VIEW_CHANNEL` und `CONNECT_VOICE`; Audio-Publish wird
+über `SPEAK`, Self-Deafen und Server-Mute/Deafen im LiveKit-Token eingeschränkt. Der TURN-Endpunkt
+liefert kurzlebige REST-Credentials und niemals das gemeinsame TURN-Secret.

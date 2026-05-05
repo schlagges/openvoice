@@ -13,11 +13,15 @@ import type {
   PermissionOverrideTargetType,
   ReorderChannelInput,
   Role,
+  SetVoiceModerationInput,
   Session,
   SoftDeleteMessageInput,
   UpdateMessageInput,
+  UpdateVoiceSelfStateInput,
   UpsertPermissionOverrideInput,
+  UpsertVoiceStateInput,
   User,
+  VoiceStateRecord,
   Workspace,
   WorkspaceMember,
   WorkspaceAccessContext,
@@ -52,10 +56,16 @@ export interface OpenVoiceRepository {
   listPermissionOverridesForChannels(
     channelIds: readonly string[],
   ): Promise<readonly PermissionOverrideRecord[]>;
+  findVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
+  listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]>;
   listWorkspacesForUser(userId: string): Promise<readonly Workspace[]>;
   reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]>;
   revokeSession(tokenHash: string, revokedAt: Date): Promise<void>;
+  setVoiceModerationState(input: SetVoiceModerationInput): Promise<VoiceStateRecord | null>;
   softDeleteMessage(input: SoftDeleteMessageInput): Promise<MessageRecord>;
   updateMessage(input: UpdateMessageInput): Promise<MessageRecord>;
+  updateVoiceSelfState(input: UpdateVoiceSelfStateInput): Promise<VoiceStateRecord | null>;
   upsertPermissionOverride(input: UpsertPermissionOverrideInput): Promise<PermissionOverrideRecord>;
+  upsertVoiceState(input: UpsertVoiceStateInput): Promise<VoiceStateRecord>;
+  deleteVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
 }
