@@ -120,6 +120,10 @@ Lokaler Start:
 docker compose --env-file .env.example -f infra/docker-compose.yml up --build
 ```
 
+Der lokale PostgreSQL-Host-Port ist standardmäßig `55436`, damit Compose nicht mit häufig bereits
+laufenden lokalen PostgreSQL-Instanzen auf `5432` kollidiert. Container-intern bleibt PostgreSQL
+weiterhin auf `postgres:5432` erreichbar.
+
 Wichtige Voice-Variablen:
 
 - `LIVEKIT_URL`: Browser-facing WebSocket URL, lokal `ws://localhost:7880`.

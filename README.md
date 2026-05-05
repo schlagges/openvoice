@@ -54,8 +54,8 @@ pnpm db:migrate
 ```
 
 Nach dem Compose-Start sind die Web-App unter `http://localhost:5173`, die API unter
-`http://localhost:3000`, LiveKit unter `ws://localhost:7880` und coturn auf `localhost:3478` /
-`localhost:5349` erreichbar.
+`http://localhost:3000`, PostgreSQL unter `localhost:55436`, LiveKit unter
+`ws://localhost:7880` und coturn auf `localhost:3478` / `localhost:5349` erreichbar.
 
 Die Beispielwerte in `.env.example` sind Platzhalter für lokale Entwicklung. Produktive Secrets
 dürfen nicht in Git gespeichert werden.
