@@ -1,4 +1,5 @@
 import type {
+  AuditEvent,
   AudioMode,
   ChannelType,
   DefaultRoleKey,
@@ -60,13 +61,34 @@ export interface Role {
 export interface AuditLogEntry {
   readonly actorId: string | null;
   readonly createdAt: Date;
-  readonly event: string;
+  readonly event: AuditEvent | string;
   readonly id: string;
   readonly ipHash: string | null;
   readonly metadata: AuditMetadata;
   readonly reason: string | null;
   readonly targetId: string | null;
   readonly targetType: string;
+  readonly workspaceId: string;
+}
+
+export interface WorkspaceBanRecord {
+  readonly bannedBy: string;
+  readonly createdAt: Date;
+  readonly id: string;
+  readonly reason: string | null;
+  readonly revokedAt: Date | null;
+  readonly revokedBy: string | null;
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
+export interface WorkspaceTimeoutRecord {
+  readonly createdAt: Date;
+  readonly createdBy: string;
+  readonly reason: string | null;
+  readonly timedOutUntil: Date;
+  readonly updatedAt: Date;
+  readonly userId: string;
   readonly workspaceId: string;
 }
 
@@ -268,8 +290,78 @@ export interface UpdateVoiceSelfStateInput {
 
 export interface SetVoiceModerationInput {
   readonly actorId: string;
+  readonly reason?: string | null;
   readonly serverDeafened?: boolean;
   readonly serverMuted?: boolean;
   readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface KickWorkspaceMemberInput {
+  readonly actorId: string;
+  readonly reason?: string | null;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface KickWorkspaceMemberResult {
+  readonly member: WorkspaceMember;
+  readonly voiceState: VoiceStateRecord | null;
+}
+
+export interface BanWorkspaceMemberInput {
+  readonly actorId: string;
+  readonly reason?: string | null;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface BanWorkspaceMemberResult {
+  readonly ban: WorkspaceBanRecord;
+  readonly member: WorkspaceMember | null;
+  readonly voiceState: VoiceStateRecord | null;
+}
+
+export interface UnbanWorkspaceMemberInput {
+  readonly actorId: string;
+  readonly reason?: string | null;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface TimeoutWorkspaceMemberInput {
+  readonly actorId: string;
+  readonly reason?: string | null;
+  readonly targetUserId: string;
+  readonly timedOutUntil: Date;
+  readonly workspaceId: string;
+}
+
+export interface MoveVoiceMemberInput {
+  readonly actorId: string;
+  readonly reason?: string | null;
+  readonly targetChannelId: string;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface MoveVoiceMemberResult {
+  readonly previousChannelId: string;
+  readonly state: VoiceStateRecord;
+}
+
+export interface DisconnectVoiceMemberInput {
+  readonly actorId: string;
+  readonly reason?: string | null;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface DisconnectVoiceMemberResult {
+  readonly state: VoiceStateRecord;
+}
+
+export interface ListAuditLogInput {
+  readonly limit: number;
   readonly workspaceId: string;
 }

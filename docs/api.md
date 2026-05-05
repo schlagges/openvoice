@@ -58,6 +58,8 @@ GET    /api/v1/workspaces/:workspaceId/tree
 GET    /api/v1/workspaces/:workspaceId/audit-log
 ```
 
+`GET /audit-log` benötigt `VIEW_AUDIT_LOG` und liefert die neuesten Einträge mit `limit` 1-100.
+
 ---
 
 ## Channels
@@ -120,6 +122,20 @@ PUT    /api/v1/workspaces/:workspaceId/members/:userId/roles/:roleId
 DELETE /api/v1/workspaces/:workspaceId/members/:userId/roles/:roleId
 ```
 
+## Moderation
+
+```http
+POST   /api/v1/workspaces/:workspaceId/members/:userId/kick
+POST   /api/v1/workspaces/:workspaceId/members/:userId/ban
+POST   /api/v1/workspaces/:workspaceId/members/:userId/unban
+POST   /api/v1/workspaces/:workspaceId/members/:userId/timeout
+```
+
+Kick benötigt `KICK_MEMBERS`, Ban/Unban benötigt `BAN_MEMBERS`, Timeout benötigt
+`TIMEOUT_MEMBERS`. Alle Aktionen prüfen die Rollen-Hierarchie serverseitig; der Owner ist vor
+Moderationsaktionen geschützt. Bodies können optional `reason` enthalten. Timeout akzeptiert
+zusätzlich `durationSeconds` zwischen 60 Sekunden und 28 Tagen.
+
 ---
 
 ## Permissions
@@ -141,6 +157,8 @@ POST   /api/v1/workspaces/:workspaceId/voice/leave
 PATCH  /api/v1/workspaces/:workspaceId/voice/state
 POST   /api/v1/workspaces/:workspaceId/voice/server-mute
 POST   /api/v1/workspaces/:workspaceId/voice/server-deafen
+POST   /api/v1/workspaces/:workspaceId/voice/move
+POST   /api/v1/workspaces/:workspaceId/voice/disconnect
 GET    /api/v1/turn/credentials
 ```
 
@@ -159,3 +177,5 @@ Self-Deafen und Server-Mute/Deafen im LiveKit-Token eingeschränkt. Kamera-Publi
 
 Die API lehnt Kamera-, Screenshare- und 4K-Statusänderungen ohne passende Rechte mit `403` ab.
 Der TURN-Endpunkt liefert kurzlebige REST-Credentials und niemals das gemeinsame TURN-Secret.
+Server-Mute, Server-Deafen, Voice-Move und Voice-Disconnect prüfen zusätzlich die Rollen-Hierarchie
+und schreiben Audit-Log-Einträge.

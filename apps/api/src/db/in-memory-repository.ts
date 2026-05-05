@@ -10,6 +10,9 @@ import {
 import type { OpenVoiceRepository } from "./repository.js";
 import type {
   AuditLogEntry,
+  AuditMetadata,
+  BanWorkspaceMemberInput,
+  BanWorkspaceMemberResult,
   ChannelNodeRecord,
   CreateChannelInput,
   CreateMessageInput,
@@ -18,8 +21,15 @@ import type {
   CreateUserInput,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
+  DisconnectVoiceMemberInput,
+  DisconnectVoiceMemberResult,
+  KickWorkspaceMemberInput,
+  KickWorkspaceMemberResult,
+  ListAuditLogInput,
   ListMessagesInput,
   MessageRecord,
+  MoveVoiceMemberInput,
+  MoveVoiceMemberResult,
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
@@ -27,6 +37,8 @@ import type {
   SetVoiceModerationInput,
   Session,
   SoftDeleteMessageInput,
+  TimeoutWorkspaceMemberInput,
+  UnbanWorkspaceMemberInput,
   UpdateMessageInput,
   UpdateVoiceSelfStateInput,
   UpsertPermissionOverrideInput,
@@ -35,7 +47,9 @@ import type {
   VoiceStateRecord,
   Workspace,
   WorkspaceAccessContext,
+  WorkspaceBanRecord,
   WorkspaceMember,
+  WorkspaceTimeoutRecord,
 } from "./models.js";
 import { DuplicateEmailError } from "./errors.js";
 
@@ -47,10 +61,12 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     readonly workspaceMemberId: string;
   }> = [];
   public readonly messages: MessageRecord[] = [];
+  public readonly memberTimeouts: WorkspaceTimeoutRecord[] = [];
   public readonly permissionOverrides: PermissionOverrideRecord[] = [];
   public readonly roles: Role[] = [];
   public readonly sessions: Session[] = [];
   public readonly users: User[] = [];
+  public readonly workspaceBans: WorkspaceBanRecord[] = [];
   public readonly voiceStates: VoiceStateRecord[] = [];
   public readonly workspaceMembers: WorkspaceMember[] = [];
   public readonly workspaces: Workspace[] = [];
@@ -246,6 +262,32 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     );
   }
 
+  public async findActiveWorkspaceBan(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceBanRecord | null> {
+    return (
+      this.workspaceBans.find(
+        (ban) => ban.workspaceId === workspaceId && ban.userId === userId && ban.revokedAt === null,
+      ) ?? null
+    );
+  }
+
+  public async findActiveWorkspaceTimeout(
+    workspaceId: string,
+    userId: string,
+    now: Date,
+  ): Promise<WorkspaceTimeoutRecord | null> {
+    return (
+      this.memberTimeouts.find(
+        (timeout) =>
+          timeout.workspaceId === workspaceId &&
+          timeout.userId === userId &&
+          timeout.timedOutUntil.getTime() > now.getTime(),
+      ) ?? null
+    );
+  }
+
   public async findRoleById(roleId: string): Promise<Role | null> {
     return this.roles.find((role) => role.id === roleId) ?? null;
   }
@@ -297,6 +339,13 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     return this.channels.filter(
       (channel) => channel.workspaceId === workspaceId && channel.deletedAt === null,
     );
+  }
+
+  public async listAuditLog(input: ListAuditLogInput): Promise<readonly AuditLogEntry[]> {
+    return this.auditLogEntries
+      .filter((entry) => entry.workspaceId === input.workspaceId)
+      .sort((left, right) => right.createdAt.getTime() - left.createdAt.getTime())
+      .slice(0, input.limit);
   }
 
   public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
@@ -540,6 +589,138 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     return replacement;
   }
 
+  public async kickWorkspaceMember(
+    input: KickWorkspaceMemberInput,
+  ): Promise<KickWorkspaceMemberResult | null> {
+    const member = this.removeWorkspaceMember(input.workspaceId, input.targetUserId);
+    if (!member) {
+      return null;
+    }
+
+    const voiceState = await this.deleteVoiceState(input.workspaceId, input.targetUserId);
+    this.writeAuditLog({
+      actorId: input.actorId,
+      event: "MEMBER_KICK",
+      metadata: {},
+      reason: input.reason ?? null,
+      targetId: input.targetUserId,
+      targetType: "workspace_member",
+      workspaceId: input.workspaceId,
+    });
+
+    return { member, voiceState };
+  }
+
+  public async banWorkspaceMember(
+    input: BanWorkspaceMemberInput,
+  ): Promise<BanWorkspaceMemberResult> {
+    const now = new Date();
+    const existingBan = await this.findActiveWorkspaceBan(input.workspaceId, input.targetUserId);
+    const ban: WorkspaceBanRecord = existingBan ?? {
+      bannedBy: input.actorId,
+      createdAt: now,
+      id: randomUUID(),
+      reason: input.reason ?? null,
+      revokedAt: null,
+      revokedBy: null,
+      userId: input.targetUserId,
+      workspaceId: input.workspaceId,
+    };
+
+    if (!existingBan) {
+      this.workspaceBans.push(ban);
+    }
+
+    const member = this.removeWorkspaceMember(input.workspaceId, input.targetUserId);
+    const voiceState = await this.deleteVoiceState(input.workspaceId, input.targetUserId);
+    this.writeAuditLog({
+      actorId: input.actorId,
+      event: "MEMBER_BAN",
+      metadata: { alreadyBanned: existingBan !== null },
+      reason: input.reason ?? null,
+      targetId: input.targetUserId,
+      targetType: "workspace_member",
+      workspaceId: input.workspaceId,
+    });
+
+    return { ban, member, voiceState };
+  }
+
+  public async unbanWorkspaceMember(
+    input: UnbanWorkspaceMemberInput,
+  ): Promise<WorkspaceBanRecord | null> {
+    const existing = await this.findActiveWorkspaceBan(input.workspaceId, input.targetUserId);
+    if (!existing) {
+      return null;
+    }
+
+    const replacement: WorkspaceBanRecord = {
+      ...existing,
+      revokedAt: new Date(),
+      revokedBy: input.actorId,
+    };
+    this.workspaceBans[this.workspaceBans.indexOf(existing)] = replacement;
+    this.writeAuditLog({
+      actorId: input.actorId,
+      event: "MEMBER_UNBAN",
+      metadata: {},
+      reason: input.reason ?? null,
+      targetId: input.targetUserId,
+      targetType: "workspace_member",
+      workspaceId: input.workspaceId,
+    });
+
+    return replacement;
+  }
+
+  public async timeoutWorkspaceMember(
+    input: TimeoutWorkspaceMemberInput,
+  ): Promise<WorkspaceTimeoutRecord> {
+    const now = new Date();
+    const existing = this.memberTimeouts.find(
+      (timeout) =>
+        timeout.workspaceId === input.workspaceId && timeout.userId === input.targetUserId,
+    );
+    const timeout: WorkspaceTimeoutRecord = {
+      createdAt: existing?.createdAt ?? now,
+      createdBy: input.actorId,
+      reason: input.reason ?? null,
+      timedOutUntil: input.timedOutUntil,
+      updatedAt: now,
+      userId: input.targetUserId,
+      workspaceId: input.workspaceId,
+    };
+
+    if (existing) {
+      this.memberTimeouts[this.memberTimeouts.indexOf(existing)] = timeout;
+    } else {
+      this.memberTimeouts.push(timeout);
+    }
+
+    const voiceState = this.voiceStates.find(
+      (state) => state.workspaceId === input.workspaceId && state.userId === input.targetUserId,
+    );
+    if (voiceState) {
+      this.voiceStates[this.voiceStates.indexOf(voiceState)] = {
+        ...voiceState,
+        speaking: false,
+        updatedAt: now,
+      };
+    }
+
+    this.writeAuditLog({
+      actorId: input.actorId,
+      event: "MEMBER_TIMEOUT",
+      metadata: { timedOutUntil: input.timedOutUntil.toISOString() },
+      reason: input.reason ?? null,
+      targetId: input.targetUserId,
+      targetType: "workspace_member",
+      workspaceId: input.workspaceId,
+    });
+
+    return timeout;
+  }
+
   public async upsertVoiceState(input: UpsertVoiceStateInput): Promise<VoiceStateRecord> {
     const now = new Date();
     const existing = this.voiceStates.find(
@@ -674,12 +855,65 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         serverDeafened: replacement.serverDeafened,
         serverMuted: replacement.serverMuted,
       },
-      reason: null,
+      reason: input.reason ?? null,
       targetId: input.targetUserId,
       targetType: "workspace_member",
       workspaceId: input.workspaceId,
     });
     return replacement;
+  }
+
+  public async moveVoiceMember(input: MoveVoiceMemberInput): Promise<MoveVoiceMemberResult | null> {
+    const existing = this.voiceStates.find(
+      (state) => state.workspaceId === input.workspaceId && state.userId === input.targetUserId,
+    );
+    if (!existing) {
+      return null;
+    }
+
+    const previousChannelId = existing.channelId;
+    const state: VoiceStateRecord = {
+      ...existing,
+      channelId: input.targetChannelId,
+      speaking: false,
+      updatedAt: new Date(),
+    };
+    this.voiceStates[this.voiceStates.indexOf(existing)] = state;
+    this.writeAuditLog({
+      actorId: input.actorId,
+      event: "VOICE_MOVE",
+      metadata: {
+        fromChannelId: previousChannelId,
+        toChannelId: input.targetChannelId,
+      },
+      reason: input.reason ?? null,
+      targetId: input.targetUserId,
+      targetType: "workspace_member",
+      workspaceId: input.workspaceId,
+    });
+
+    return { previousChannelId, state };
+  }
+
+  public async disconnectVoiceMember(
+    input: DisconnectVoiceMemberInput,
+  ): Promise<DisconnectVoiceMemberResult | null> {
+    const state = await this.deleteVoiceState(input.workspaceId, input.targetUserId);
+    if (!state) {
+      return null;
+    }
+
+    this.writeAuditLog({
+      actorId: input.actorId,
+      event: "VOICE_DISCONNECT",
+      metadata: { channelId: state.channelId },
+      reason: input.reason ?? null,
+      targetId: input.targetUserId,
+      targetType: "workspace_member",
+      workspaceId: input.workspaceId,
+    });
+
+    return { state };
   }
 
   public async deleteVoiceState(
@@ -724,6 +958,49 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       targetType: "permission_override",
       workspaceId: channel.workspaceId,
     });
+  }
+
+  private removeWorkspaceMember(workspaceId: string, userId: string): WorkspaceMember | null {
+    const member = this.workspaceMembers.find(
+      (candidate) => candidate.workspaceId === workspaceId && candidate.userId === userId,
+    );
+    if (!member) {
+      return null;
+    }
+
+    this.workspaceMembers.splice(this.workspaceMembers.indexOf(member), 1);
+    for (let index = this.memberRoles.length - 1; index >= 0; index -= 1) {
+      if (this.memberRoles[index]?.workspaceMemberId === member.id) {
+        this.memberRoles.splice(index, 1);
+      }
+    }
+
+    return member;
+  }
+
+  private writeAuditLog(input: {
+    readonly actorId: string | null;
+    readonly event: string;
+    readonly metadata: AuditMetadata;
+    readonly reason?: string | null;
+    readonly targetId: string | null;
+    readonly targetType: string;
+    readonly workspaceId: string;
+  }): AuditLogEntry {
+    const entry: AuditLogEntry = {
+      actorId: input.actorId,
+      createdAt: new Date(),
+      event: input.event,
+      id: randomUUID(),
+      ipHash: null,
+      metadata: input.metadata,
+      reason: input.reason ?? null,
+      targetId: input.targetId,
+      targetType: input.targetType,
+      workspaceId: input.workspaceId,
+    };
+    this.auditLogEntries.push(entry);
+    return entry;
   }
 }
 

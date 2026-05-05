@@ -87,12 +87,34 @@ export interface VoiceSelfStateRequestBody {
 
 export interface VoiceModerationRequestBody {
   readonly enabled: boolean;
+  readonly reason?: string | null;
   readonly targetUserId: string;
 }
 
 export interface ListMessagesRequestQuery {
   readonly after?: MessageCursor;
   readonly before?: MessageCursor;
+  readonly limit: number;
+}
+
+export interface ModerationReasonRequestBody {
+  readonly reason?: string | null;
+}
+
+export interface TimeoutMemberRequestBody extends ModerationReasonRequestBody {
+  readonly durationSeconds: number;
+}
+
+export interface VoiceMoveRequestBody extends ModerationReasonRequestBody {
+  readonly channelId: string;
+  readonly targetUserId: string;
+}
+
+export interface VoiceMemberModerationRequestBody extends ModerationReasonRequestBody {
+  readonly targetUserId: string;
+}
+
+export interface ListAuditLogRequestQuery {
   readonly limit: number;
 }
 
@@ -280,6 +302,44 @@ export function parseVoiceModerationRequest(
 ): VoiceModerationRequestBody {
   return {
     enabled: parseBoolean(body.enabled, "enabled"),
+    ...(body.reason !== undefined ? { reason: parseOptionalReason(body.reason, "reason") } : {}),
+    targetUserId: parseUuidLikeString(body.targetUserId, "targetUserId"),
+  };
+}
+
+export function parseModerationReasonRequest(
+  body: Record<string, unknown>,
+): ModerationReasonRequestBody {
+  return {
+    ...(body.reason !== undefined ? { reason: parseOptionalReason(body.reason, "reason") } : {}),
+  };
+}
+
+export function parseTimeoutMemberRequest(body: Record<string, unknown>): TimeoutMemberRequestBody {
+  return {
+    durationSeconds: parseBoundedInteger(
+      body.durationSeconds,
+      "durationSeconds",
+      60,
+      28 * 24 * 60 * 60,
+    ),
+    ...(body.reason !== undefined ? { reason: parseOptionalReason(body.reason, "reason") } : {}),
+  };
+}
+
+export function parseVoiceMoveRequest(body: Record<string, unknown>): VoiceMoveRequestBody {
+  return {
+    channelId: parseUuidLikeString(body.channelId, "channelId"),
+    ...(body.reason !== undefined ? { reason: parseOptionalReason(body.reason, "reason") } : {}),
+    targetUserId: parseUuidLikeString(body.targetUserId, "targetUserId"),
+  };
+}
+
+export function parseVoiceMemberModerationRequest(
+  body: Record<string, unknown>,
+): VoiceMemberModerationRequestBody {
+  return {
+    ...(body.reason !== undefined ? { reason: parseOptionalReason(body.reason, "reason") } : {}),
     targetUserId: parseUuidLikeString(body.targetUserId, "targetUserId"),
   };
 }
@@ -294,6 +354,12 @@ export function parseListMessagesQuery(params: URLSearchParams): ListMessagesReq
   return {
     ...(after ? { after: parseCursor(after, "after") } : {}),
     ...(before ? { before: parseCursor(before, "before") } : {}),
+    limit: parseLimit(params.get("limit")),
+  };
+}
+
+export function parseListAuditLogQuery(params: URLSearchParams): ListAuditLogRequestQuery {
+  return {
     limit: parseLimit(params.get("limit")),
   };
 }
@@ -405,6 +471,26 @@ function parseBoolean(value: unknown, field: string): boolean {
   return value;
 }
 
+function parseOptionalReason(value: unknown, field: string): string | null {
+  if (value === null) {
+    return null;
+  }
+
+  if (typeof value !== "string") {
+    throw badRequest(`${field} must be a string.`, { field });
+  }
+
+  const text = value.trim();
+  if (text.length === 0) {
+    return null;
+  }
+  if (text.length > 512) {
+    throw badRequest(`${field} must be at most 512 characters.`, { field });
+  }
+
+  return text;
+}
+
 function parseClientMessageId(value: unknown): string {
   const clientMessageId = parseNonEmptyString(value, "clientMessageId").trim();
 
@@ -446,6 +532,16 @@ function parseLimit(value: string | null): number {
 function parseNonNegativeInteger(value: unknown, field: string): number {
   if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
     throw badRequest(`${field} must be a non-negative integer.`, {
+      field,
+    });
+  }
+
+  return value;
+}
+
+function parseBoundedInteger(value: unknown, field: string, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < min || value > max) {
+    throw badRequest(`${field} must be an integer between ${min} and ${max}.`, {
       field,
     });
   }

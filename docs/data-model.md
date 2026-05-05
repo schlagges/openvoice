@@ -17,6 +17,7 @@ Die verbindliche Datenmodellbeschreibung steht in `docs/lastenheft.md`.
 - `messages`
 - `voice_states`
 - `bans`
+- `member_timeouts`
 - `invites`
 - `audit_log`
 
@@ -44,6 +45,38 @@ Phase 6 ergänzt die laufenden Voice-Zustände um Kamera- und Screenshare-Status
 - `screen_share_quality`: `auto`, `720p`, `1080p`, `1440p`, `4k`
 - `screen_share_content_mode`: `detail`, `motion`
 
+Phase 7 nutzt `voice_states` auch als aktuellen Server-Mute/Deafen-, Move- und Disconnect-Zustand.
+Moderationsaktionen speichern keine Medieninhalte.
+
+## `bans`
+
+Phase 7 ergänzt aktive Workspace-Bans:
+
+- `workspace_id`
+- `user_id`
+- `banned_by`
+- `reason`
+- `revoked_at`
+- `revoked_by`
+- `created_at`
+
+Pro Workspace/User darf höchstens ein nicht aufgehobener Ban existieren. Die Tabelle ist die
+serverseitige Grundlage, damit spätere Invite-Joins aktive Bans ablehnen können.
+
+## `member_timeouts`
+
+Phase 7 speichert temporäre Einschränkungen pro Workspace/User:
+
+- `workspace_id`
+- `user_id`
+- `timed_out_until`
+- `created_by`
+- `reason`
+- `created_at`
+- `updated_at`
+
+Aktive Timeouts verhindern serverseitig das Schreiben von Chat-Nachrichten und Audio-Publish.
+
 ---
 
 ## Kritische Indizes
@@ -63,4 +96,11 @@ ON voice_states(workspace_id, channel_id);
 
 CREATE INDEX idx_roles_workspace_position
 ON roles(workspace_id, position);
+
+CREATE UNIQUE INDEX idx_bans_workspace_user_active
+ON bans(workspace_id, user_id)
+WHERE revoked_at IS NULL;
+
+CREATE INDEX idx_member_timeouts_active
+ON member_timeouts(workspace_id, timed_out_until DESC);
 ```

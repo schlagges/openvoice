@@ -3,6 +3,7 @@ import type { Session } from "../db/models.js";
 import { AuthService, toPublicUser } from "../modules/auth/service.js";
 import { ChannelService } from "../modules/channels/service.js";
 import { MessageService } from "../modules/messages/service.js";
+import { ModerationService } from "../modules/moderation/service.js";
 import { VoiceService } from "../modules/voice/service.js";
 import { WorkspaceService } from "../modules/workspaces/service.js";
 import { readRequestToken } from "../security/request-auth.js";
@@ -19,16 +20,21 @@ import {
   parseCreateChannelRequest,
   parseCreateMessageRequest,
   parseCreateWorkspaceRequest,
+  parseListAuditLogQuery,
   parseListMessagesQuery,
   parseLoginRequest,
+  parseModerationReasonRequest,
   parsePermissionOverrideRequest,
   parsePermissionOverrideTargetType,
   parseRegisterRequest,
   parseReorderChannelsRequest,
+  parseTimeoutMemberRequest,
   parseUpdateMessageRequest,
   parseUuidPathParameter,
   parseVoiceJoinRequest,
+  parseVoiceMemberModerationRequest,
   parseVoiceModerationRequest,
+  parseVoiceMoveRequest,
   parseVoiceSelfStateRequest,
   readJsonObject,
 } from "./validation.js";
@@ -41,6 +47,7 @@ export interface ApiHandlerOptions {
     "sessionCookieName" | "sessionCookieSecure" | "sessionTtlSeconds"
   >;
   readonly messageService: MessageService;
+  readonly moderationService?: ModerationService;
   readonly voiceService?: VoiceService;
   readonly workspaceService: WorkspaceService;
 }
@@ -203,6 +210,85 @@ async function routeRequest(
     const tree = await options.channelService.listVisibleTree(workspaceId, authenticated.userId);
 
     return jsonResponse({ channels: tree }, 200, requestId);
+  }
+
+  const auditLogMatch = matchPath(url.pathname, /^\/api\/v1\/workspaces\/([^/]+)\/audit-log$/);
+  if (auditLogMatch) {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    const workspaceId = parseUuidPathParameter(requirePathPart(auditLogMatch, 0), "workspaceId");
+    const query = parseListAuditLogQuery(url.searchParams);
+    const result = await requireModerationService(options).listAuditLog({
+      limit: query.limit,
+      userId: authenticated.userId,
+      workspaceId,
+    });
+
+    return jsonResponse(result, 200, requestId);
+  }
+
+  const memberModerationMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/members\/([^/]+)\/(kick|ban|unban|timeout)$/,
+  );
+  if (memberModerationMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(memberModerationMatch, 0),
+      "workspaceId",
+    );
+    const targetUserId = parseUuidPathParameter(
+      requirePathPart(memberModerationMatch, 1),
+      "targetUserId",
+    );
+    const action = requirePathPart(memberModerationMatch, 2);
+    const moderationService = requireModerationService(options);
+
+    if (action === "timeout") {
+      const body = parseTimeoutMemberRequest(await readJsonObject(request));
+      const result = await moderationService.timeoutMember({
+        ...body,
+        actorId: authenticated.userId,
+        targetUserId,
+        workspaceId,
+      });
+
+      return jsonResponse(result, 200, requestId);
+    }
+
+    const body = parseModerationReasonRequest(await readJsonObject(request));
+    if (action === "kick") {
+      const result = await moderationService.kickMember({
+        ...body,
+        actorId: authenticated.userId,
+        targetUserId,
+        workspaceId,
+      });
+
+      return jsonResponse(result, 200, requestId);
+    }
+    if (action === "ban") {
+      const result = await moderationService.banMember({
+        ...body,
+        actorId: authenticated.userId,
+        targetUserId,
+        workspaceId,
+      });
+
+      return jsonResponse(result, 200, requestId);
+    }
+    if (action === "unban") {
+      const result = await moderationService.unbanMember({
+        ...body,
+        actorId: authenticated.userId,
+        targetUserId,
+        workspaceId,
+      });
+
+      return jsonResponse(result, 200, requestId);
+    }
   }
 
   const reorderChannelsMatch = matchPath(
@@ -460,6 +546,47 @@ async function routeRequest(
     return jsonResponse({ state }, 200, requestId);
   }
 
+  const voiceMoveMatch = matchPath(url.pathname, /^\/api\/v1\/workspaces\/([^/]+)\/voice\/move$/);
+  if (voiceMoveMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(requirePathPart(voiceMoveMatch, 0), "workspaceId");
+    const body = parseVoiceMoveRequest(await readJsonObject(request));
+    const state = await requireVoiceService(options).moveMember({
+      actorId: authenticated.userId,
+      reason: body.reason ?? null,
+      targetChannelId: body.channelId,
+      targetUserId: body.targetUserId,
+      workspaceId,
+    });
+
+    return jsonResponse({ state }, 200, requestId);
+  }
+
+  const voiceDisconnectMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/voice\/disconnect$/,
+  );
+  if (voiceDisconnectMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(voiceDisconnectMatch, 0),
+      "workspaceId",
+    );
+    const body = parseVoiceMemberModerationRequest(await readJsonObject(request));
+    const state = await requireVoiceService(options).disconnectMember({
+      actorId: authenticated.userId,
+      reason: body.reason ?? null,
+      targetUserId: body.targetUserId,
+      workspaceId,
+    });
+
+    return jsonResponse({ state }, 200, requestId);
+  }
+
   throw notFound();
 }
 
@@ -519,6 +646,14 @@ function requireVoiceService(options: ApiHandlerOptions): VoiceService {
   }
 
   return options.voiceService;
+}
+
+function requireModerationService(options: ApiHandlerOptions): ModerationService {
+  if (!options.moderationService) {
+    throw new ApiError(500, "INTERNAL_ERROR", "Moderation service is not configured.");
+  }
+
+  return options.moderationService;
 }
 
 function matchPath(pathname: string, pattern: RegExp): string[] | null {

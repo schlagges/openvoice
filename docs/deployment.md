@@ -24,9 +24,10 @@ Beispiel siehe:
 - `infra/turnserver.example.conf`
 - `infra/livekit.example.yaml`
 
-Der aktuelle Phase-5-Compose-Stand in `infra/docker-compose.yml` startet Web, API, PostgreSQL,
-Valkey, LiveKit und coturn. Prometheus/Grafana bleiben in der Beispiel-Compose-Datei vorbereitet
-und werden in einer späteren Phase produktionsnah eingebunden.
+Der aktuelle Phase-7-Compose-Stand in `infra/docker-compose.yml` startet Web, API, PostgreSQL,
+Valkey, LiveKit und coturn. Phase 7 ergänzt keine neuen Infrastruktur-Services.
+Prometheus/Grafana bleiben in der Beispiel-Compose-Datei vorbereitet und werden in einer späteren
+Phase produktionsnah eingebunden.
 
 ---
 
@@ -111,13 +112,17 @@ MVP-Pflicht:
 
 ---
 
-## 7. Phase-5-Compose
+## 7. Aktueller Compose-Stand
 
 Lokaler Start:
 
 ```bash
 docker compose --env-file .env.example -f infra/docker-compose.yml up --build
 ```
+
+Der lokale PostgreSQL-Host-Port ist standardmäßig `55436`, damit Compose nicht mit häufig bereits
+laufenden lokalen PostgreSQL-Instanzen auf `5432` kollidiert. Container-intern bleibt PostgreSQL
+weiterhin auf `postgres:5432` erreichbar.
 
 Wichtige Voice-Variablen:
 

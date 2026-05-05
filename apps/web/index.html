@@ -253,6 +253,56 @@
         min-height: 20px;
       }
 
+      .audit-log {
+        border-top: 1px solid #d8d8ce;
+        display: grid;
+        gap: 10px;
+        padding: 14px 16px 20px;
+      }
+
+      .audit-log h2 {
+        font-size: 0.95rem;
+        margin: 0;
+      }
+
+      .audit-log__empty {
+        color: #5d5d55;
+        margin: 0;
+      }
+
+      .audit-log__list {
+        display: grid;
+        gap: 8px;
+        list-style: none;
+        margin: 0;
+        padding: 0;
+      }
+
+      .audit-log__entry {
+        border-bottom: 1px solid #e2e2d8;
+        display: grid;
+        gap: 4px;
+        padding: 0 0 8px;
+      }
+
+      .audit-log__line,
+      .audit-log__meta {
+        align-items: center;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        min-width: 0;
+      }
+
+      .audit-log__line code {
+        overflow-wrap: anywhere;
+      }
+
+      .audit-log__meta {
+        color: #5d5d55;
+        font-size: 0.8rem;
+      }
+
       @media (max-width: 720px) {
         .app-shell {
           grid-template-columns: 1fr;

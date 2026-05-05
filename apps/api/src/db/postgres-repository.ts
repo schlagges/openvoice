@@ -14,6 +14,8 @@ import { DuplicateEmailError } from "./errors.js";
 import type {
   AuditLogEntry,
   AuditMetadata,
+  BanWorkspaceMemberInput,
+  BanWorkspaceMemberResult,
   ChannelNodeRecord,
   CreateChannelInput,
   CreateMessageInput,
@@ -22,8 +24,15 @@ import type {
   CreateUserInput,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
+  DisconnectVoiceMemberInput,
+  DisconnectVoiceMemberResult,
+  KickWorkspaceMemberInput,
+  KickWorkspaceMemberResult,
+  ListAuditLogInput,
   ListMessagesInput,
   MessageRecord,
+  MoveVoiceMemberInput,
+  MoveVoiceMemberResult,
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
@@ -31,6 +40,8 @@ import type {
   SetVoiceModerationInput,
   Session,
   SoftDeleteMessageInput,
+  TimeoutWorkspaceMemberInput,
+  UnbanWorkspaceMemberInput,
   UpdateMessageInput,
   UpdateVoiceSelfStateInput,
   UpsertPermissionOverrideInput,
@@ -39,7 +50,9 @@ import type {
   VoiceStateRecord,
   Workspace,
   WorkspaceAccessContext,
+  WorkspaceBanRecord,
   WorkspaceMember,
+  WorkspaceTimeoutRecord,
 } from "./models.js";
 import type { OpenVoiceRepository } from "./repository.js";
 
@@ -257,6 +270,39 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows[0] ? mapWorkspaceMember(result.rows[0]) : null;
   }
 
+  public async findActiveWorkspaceBan(
+    workspaceId: string,
+    userId: string,
+  ): Promise<WorkspaceBanRecord | null> {
+    const result = await this.pool.query<WorkspaceBanRow>(
+      `SELECT *
+       FROM bans
+       WHERE workspace_id = $1
+         AND user_id = $2
+         AND revoked_at IS NULL`,
+      [workspaceId, userId],
+    );
+
+    return result.rows[0] ? mapWorkspaceBan(result.rows[0]) : null;
+  }
+
+  public async findActiveWorkspaceTimeout(
+    workspaceId: string,
+    userId: string,
+    now: Date,
+  ): Promise<WorkspaceTimeoutRecord | null> {
+    const result = await this.pool.query<WorkspaceTimeoutRow>(
+      `SELECT *
+       FROM member_timeouts
+       WHERE workspace_id = $1
+         AND user_id = $2
+         AND timed_out_until > $3`,
+      [workspaceId, userId, now],
+    );
+
+    return result.rows[0] ? mapWorkspaceTimeout(result.rows[0]) : null;
+  }
+
   public async findRoleById(roleId: string): Promise<Role | null> {
     const result = await this.pool.query<RoleRow>("SELECT * FROM roles WHERE id = $1", [roleId]);
 
@@ -329,6 +375,19 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     );
 
     return result.rows.map(mapChannelNode);
+  }
+
+  public async listAuditLog(input: ListAuditLogInput): Promise<readonly AuditLogEntry[]> {
+    const result = await this.pool.query<AuditLogRow>(
+      `SELECT *
+       FROM audit_log
+       WHERE workspace_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2`,
+      [input.workspaceId, input.limit],
+    );
+
+    return result.rows.map(mapAuditLogEntry);
   }
 
   public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
@@ -664,6 +723,223 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     }
   }
 
+  public async kickWorkspaceMember(
+    input: KickWorkspaceMemberInput,
+  ): Promise<KickWorkspaceMemberResult | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const memberResult = await client.query<WorkspaceMemberRow>(
+        `DELETE FROM workspace_members
+         WHERE workspace_id = $1
+           AND user_id = $2
+         RETURNING *`,
+        [input.workspaceId, input.targetUserId],
+      );
+      if (!memberResult.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const voiceState = await deleteVoiceStateWithClient(
+        client,
+        input.workspaceId,
+        input.targetUserId,
+      );
+      const member = mapWorkspaceMember(memberResult.rows[0]);
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "MEMBER_KICK",
+        metadata: {},
+        reason: input.reason ?? null,
+        targetId: input.targetUserId,
+        targetType: "workspace_member",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return { member, voiceState };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async banWorkspaceMember(
+    input: BanWorkspaceMemberInput,
+  ): Promise<BanWorkspaceMemberResult> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const existingBanResult = await client.query<WorkspaceBanRow>(
+        `SELECT *
+         FROM bans
+         WHERE workspace_id = $1
+           AND user_id = $2
+           AND revoked_at IS NULL
+         FOR UPDATE`,
+        [input.workspaceId, input.targetUserId],
+      );
+      let ban = existingBanResult.rows[0] ? mapWorkspaceBan(existingBanResult.rows[0]) : null;
+      if (!ban) {
+        const banResult = await client.query<WorkspaceBanRow>(
+          `INSERT INTO bans (id, workspace_id, user_id, banned_by, reason, revoked_at, revoked_by, created_at)
+           VALUES ($1, $2, $3, $4, $5, null, null, now())
+           RETURNING *`,
+          [
+            randomUUID(),
+            input.workspaceId,
+            input.targetUserId,
+            input.actorId,
+            input.reason ?? null,
+          ],
+        );
+        ban = mapWorkspaceBan(banResult.rows[0]);
+      }
+
+      const memberResult = await client.query<WorkspaceMemberRow>(
+        `DELETE FROM workspace_members
+         WHERE workspace_id = $1
+           AND user_id = $2
+         RETURNING *`,
+        [input.workspaceId, input.targetUserId],
+      );
+      const voiceState = await deleteVoiceStateWithClient(
+        client,
+        input.workspaceId,
+        input.targetUserId,
+      );
+
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "MEMBER_BAN",
+        metadata: { alreadyBanned: existingBanResult.rows[0] !== undefined },
+        reason: input.reason ?? null,
+        targetId: input.targetUserId,
+        targetType: "workspace_member",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return {
+        ban,
+        member: memberResult.rows[0] ? mapWorkspaceMember(memberResult.rows[0]) : null,
+        voiceState,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async unbanWorkspaceMember(
+    input: UnbanWorkspaceMemberInput,
+  ): Promise<WorkspaceBanRecord | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query<WorkspaceBanRow>(
+        `UPDATE bans
+         SET revoked_at = now(),
+             revoked_by = $3
+         WHERE workspace_id = $1
+           AND user_id = $2
+           AND revoked_at IS NULL
+         RETURNING *`,
+        [input.workspaceId, input.targetUserId, input.actorId],
+      );
+      if (!result.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const ban = mapWorkspaceBan(result.rows[0]);
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "MEMBER_UNBAN",
+        metadata: {},
+        reason: input.reason ?? null,
+        targetId: input.targetUserId,
+        targetType: "workspace_member",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return ban;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async timeoutWorkspaceMember(
+    input: TimeoutWorkspaceMemberInput,
+  ): Promise<WorkspaceTimeoutRecord> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const result = await client.query<WorkspaceTimeoutRow>(
+        `INSERT INTO member_timeouts (
+           workspace_id, user_id, timed_out_until, created_by, reason, created_at, updated_at
+         )
+         VALUES ($1, $2, $3, $4, $5, now(), now())
+         ON CONFLICT (workspace_id, user_id)
+         DO UPDATE SET timed_out_until = EXCLUDED.timed_out_until,
+                       created_by = EXCLUDED.created_by,
+                       reason = EXCLUDED.reason,
+                       updated_at = now()
+         RETURNING *`,
+        [
+          input.workspaceId,
+          input.targetUserId,
+          input.timedOutUntil,
+          input.actorId,
+          input.reason ?? null,
+        ],
+      );
+      const timeout = mapWorkspaceTimeout(result.rows[0]);
+      await client.query(
+        `UPDATE voice_states
+         SET speaking = false,
+             updated_at = now()
+         WHERE workspace_id = $1
+           AND user_id = $2`,
+        [input.workspaceId, input.targetUserId],
+      );
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "MEMBER_TIMEOUT",
+        metadata: { timedOutUntil: input.timedOutUntil.toISOString() },
+        reason: input.reason ?? null,
+        targetId: input.targetUserId,
+        targetType: "workspace_member",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return timeout;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   public async upsertVoiceState(input: UpsertVoiceStateInput): Promise<VoiceStateRecord> {
     const result = await this.pool.query<VoiceStateRow>(
       `INSERT INTO voice_states (
@@ -812,6 +1088,7 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
           serverDeafened: state.serverDeafened,
           serverMuted: state.serverMuted,
         },
+        reason: input.reason ?? null,
         targetId: input.targetUserId,
         targetType: "workspace_member",
         workspaceId: input.workspaceId,
@@ -827,19 +1104,95 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     }
   }
 
+  public async moveVoiceMember(input: MoveVoiceMemberInput): Promise<MoveVoiceMemberResult | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const existingResult = await client.query<VoiceStateRow>(
+        "SELECT * FROM voice_states WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [input.workspaceId, input.targetUserId],
+      );
+      const existing = existingResult.rows[0] ? mapVoiceState(existingResult.rows[0]) : null;
+      if (!existing) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const result = await client.query<VoiceStateRow>(
+        `UPDATE voice_states
+         SET channel_id = $3,
+             speaking = false,
+             updated_at = now()
+         WHERE workspace_id = $1
+           AND user_id = $2
+         RETURNING *`,
+        [input.workspaceId, input.targetUserId, input.targetChannelId],
+      );
+      const state = mapVoiceState(result.rows[0]);
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "VOICE_MOVE",
+        metadata: {
+          fromChannelId: existing.channelId,
+          toChannelId: input.targetChannelId,
+        },
+        reason: input.reason ?? null,
+        targetId: input.targetUserId,
+        targetType: "workspace_member",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return { previousChannelId: existing.channelId, state };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async disconnectVoiceMember(
+    input: DisconnectVoiceMemberInput,
+  ): Promise<DisconnectVoiceMemberResult | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const state = await deleteVoiceStateWithClient(client, input.workspaceId, input.targetUserId);
+      if (!state) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "VOICE_DISCONNECT",
+        metadata: { channelId: state.channelId },
+        reason: input.reason ?? null,
+        targetId: input.targetUserId,
+        targetType: "workspace_member",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return { state };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   public async deleteVoiceState(
     workspaceId: string,
     userId: string,
   ): Promise<VoiceStateRecord | null> {
-    const result = await this.pool.query<VoiceStateRow>(
-      `DELETE FROM voice_states
-       WHERE workspace_id = $1
-         AND user_id = $2
-       RETURNING *`,
-      [workspaceId, userId],
-    );
-
-    return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
+    return deleteVoiceStateWithClient(this.pool, workspaceId, userId);
   }
 }
 
@@ -1042,10 +1395,32 @@ interface VoiceStateRow extends QueryResultRow {
   readonly workspace_id: string;
 }
 
+interface WorkspaceBanRow extends QueryResultRow {
+  readonly banned_by: string;
+  readonly created_at: Date;
+  readonly id: string;
+  readonly reason: string | null;
+  readonly revoked_at: Date | null;
+  readonly revoked_by: string | null;
+  readonly user_id: string;
+  readonly workspace_id: string;
+}
+
+interface WorkspaceTimeoutRow extends QueryResultRow {
+  readonly created_at: Date;
+  readonly created_by: string;
+  readonly reason: string | null;
+  readonly timed_out_until: Date;
+  readonly updated_at: Date;
+  readonly user_id: string;
+  readonly workspace_id: string;
+}
+
 interface InsertAuditLogInput {
   readonly actorId: string | null;
   readonly event: string;
   readonly metadata: AuditMetadata;
+  readonly reason?: string | null;
   readonly targetId: string | null;
   readonly targetType: string;
   readonly workspaceId: string;
@@ -1057,7 +1432,7 @@ async function insertAuditLog(
 ): Promise<AuditLogEntry> {
   const result = await client.query<AuditLogRow>(
     `INSERT INTO audit_log (id, workspace_id, actor_id, event, target_type, target_id, reason, metadata, ip_hash, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, null, $7, null, now())
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, null, now())
      RETURNING *`,
     [
       randomUUID(),
@@ -1066,11 +1441,37 @@ async function insertAuditLog(
       input.event,
       input.targetType,
       input.targetId,
+      input.reason ?? null,
       JSON.stringify(input.metadata),
     ],
   );
 
   return mapAuditLogEntry(result.rows[0]);
+}
+
+interface Queryable {
+  query<T extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: unknown[],
+  ): Promise<{
+    rows: T[];
+  }>;
+}
+
+async function deleteVoiceStateWithClient(
+  queryable: Queryable,
+  workspaceId: string,
+  userId: string,
+): Promise<VoiceStateRecord | null> {
+  const result = await queryable.query<VoiceStateRow>(
+    `DELETE FROM voice_states
+     WHERE workspace_id = $1
+       AND user_id = $2
+     RETURNING *`,
+    [workspaceId, userId],
+  );
+
+  return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
 }
 
 function mapUser(row: UserRow | undefined): User {
@@ -1165,6 +1566,39 @@ function mapAuditLogEntry(row: AuditLogRow | undefined): AuditLogEntry {
     reason: row.reason,
     targetId: row.target_id,
     targetType: row.target_type,
+    workspaceId: row.workspace_id,
+  };
+}
+
+function mapWorkspaceBan(row: WorkspaceBanRow | undefined): WorkspaceBanRecord {
+  if (!row) {
+    throw new Error("Expected workspace ban row.");
+  }
+
+  return {
+    bannedBy: row.banned_by,
+    createdAt: row.created_at,
+    id: row.id,
+    reason: row.reason,
+    revokedAt: row.revoked_at,
+    revokedBy: row.revoked_by,
+    userId: row.user_id,
+    workspaceId: row.workspace_id,
+  };
+}
+
+function mapWorkspaceTimeout(row: WorkspaceTimeoutRow | undefined): WorkspaceTimeoutRecord {
+  if (!row) {
+    throw new Error("Expected workspace timeout row.");
+  }
+
+  return {
+    createdAt: row.created_at,
+    createdBy: row.created_by,
+    reason: row.reason,
+    timedOutUntil: row.timed_out_until,
+    updatedAt: row.updated_at,
+    userId: row.user_id,
     workspaceId: row.workspace_id,
   };
 }

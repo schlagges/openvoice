@@ -80,3 +80,20 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
   screenshare track ending and then clearing the server-side voice state.
 - Dependencies: no new direct dependencies were introduced in Phase 6, so the Phase 5 LiveKit
   license assessment remains unchanged.
+
+## 2026-05-05: Phase 7 Moderation
+
+- Timeout limit: member timeouts are capped at 28 days. The Lastenheft requires a bounded timeout
+  but does not define a concrete value; 28 days is long enough for MVP moderation while avoiding
+  accidental permanent bans through timeout.
+- Role hierarchy: lower numeric role positions are higher rank. Non-owner moderators may only
+  moderate members whose best role position is lower priority than their own; equal-rank actions
+  are denied. The workspace owner is always protected.
+- Voice move permissions: moving a member requires `MOVE_MEMBERS` on both the source and
+  destination voice channel. The destination must be `voice` or `combined`, and the target member
+  must still have `VIEW_CHANNEL` and `CONNECT_VOICE` for the destination.
+- Invite boundary: Phase 7 does not implement invites. Active bans are stored and enforced in
+  workspace/channel access checks so a future invite join can reject banned users without changing
+  the ban data model.
+- Dependencies: no new direct dependencies were introduced in Phase 7, so no additional license
+  assessment was required.

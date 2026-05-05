@@ -386,6 +386,10 @@ export class ChannelService {
     if (!access) {
       throw forbidden("Workspace access required.");
     }
+    const activeBan = await this.repository.findActiveWorkspaceBan(workspaceId, userId);
+    if (activeBan) {
+      throw forbidden("Workspace access is blocked by an active ban.");
+    }
 
     return access;
   }

@@ -21,6 +21,7 @@ import { badRequest, forbidden, notFound } from "../../http/errors.js";
 import type { ChannelService } from "../channels/service.js";
 import type { GatewayEventPublisher } from "../gateway/events.js";
 import type { MediaProvider } from "../media/provider.js";
+import { assertCanModerateMember } from "../moderation/hierarchy.js";
 import type { TurnCredentialService } from "../turn/credentials.js";
 
 export interface VoiceServiceOptions {
@@ -58,6 +59,22 @@ export interface UpdateVoiceSelfStateCommand {
 export interface ModerateVoiceCommand {
   readonly actorId: string;
   readonly enabled: boolean;
+  readonly reason?: string | null;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface MoveVoiceMemberCommand {
+  readonly actorId: string;
+  readonly reason?: string | null;
+  readonly targetChannelId: string;
+  readonly targetUserId: string;
+  readonly workspaceId: string;
+}
+
+export interface DisconnectVoiceMemberCommand {
+  readonly actorId: string;
+  readonly reason?: string | null;
   readonly targetUserId: string;
   readonly workspaceId: string;
 }
@@ -102,7 +119,11 @@ export class VoiceService {
       throw forbidden("Workspace access required.");
     }
 
-    const permissions = await this.resolvePublishPermissions(command.channelId, command.userId);
+    const permissions = await this.resolvePublishPermissions(
+      command.channelId,
+      command.userId,
+      channel.workspaceId,
+    );
     const state = await this.repository.upsertVoiceState({
       audioMode: command.audioMode,
       channelId: command.channelId,
@@ -175,7 +196,11 @@ export class VoiceService {
       command.userId,
       Permission.VIEW_CHANNEL,
     );
-    const permissions = await this.resolvePublishPermissions(existing.channelId, command.userId);
+    const permissions = await this.resolvePublishPermissions(
+      existing.channelId,
+      command.userId,
+      existing.workspaceId,
+    );
     this.assertMediaStateAllowed(command, existing, permissions);
     const state = await this.repository.updateVoiceSelfState({
       ...(command.audioMode !== undefined ? { audioMode: command.audioMode } : {}),
@@ -193,7 +218,13 @@ export class VoiceService {
       ...(command.selfDeafened !== undefined ? { selfDeafened: command.selfDeafened } : {}),
       ...(command.selfMuted !== undefined ? { selfMuted: command.selfMuted } : {}),
       ...(command.speaking !== undefined
-        ? { speaking: command.speaking && permissions.canPublishAudio && !existing.serverMuted }
+        ? {
+            speaking:
+              command.speaking &&
+              permissions.canPublishAudio &&
+              !existing.serverMuted &&
+              !existing.serverDeafened,
+          }
         : {}),
       userId: command.userId,
       workspaceId: command.workspaceId,
@@ -236,6 +267,120 @@ export class VoiceService {
     });
   }
 
+  public async moveMember(command: MoveVoiceMemberCommand): Promise<VoiceState> {
+    const targetState = await this.repository.findVoiceState(
+      command.workspaceId,
+      command.targetUserId,
+    );
+    if (!targetState) {
+      throw notFound("Voice state not found.");
+    }
+
+    const source = await this.channelService.requireChannelPermission(
+      targetState.channelId,
+      command.actorId,
+      Permission.MOVE_MEMBERS,
+    );
+    const destination = await this.channelService.requireChannelPermission(
+      command.targetChannelId,
+      command.actorId,
+      Permission.MOVE_MEMBERS,
+    );
+    if (
+      source.channel.workspaceId !== command.workspaceId ||
+      destination.channel.workspaceId !== command.workspaceId
+    ) {
+      throw notFound("Channel not found.");
+    }
+    if (
+      destination.channel.type !== ChannelType.VOICE &&
+      destination.channel.type !== ChannelType.COMBINED
+    ) {
+      throw badRequest("Voice members can only be moved into voice and combined channels.", {
+        field: "channelId",
+      });
+    }
+    await assertCanModerateMember({
+      actorAccess: source.access,
+      repository: this.repository,
+      targetUserId: command.targetUserId,
+    });
+    await this.channelService.requireChannelPermission(
+      command.targetChannelId,
+      command.targetUserId,
+      Permission.VIEW_CHANNEL,
+    );
+    await this.channelService.requireChannelPermission(
+      command.targetChannelId,
+      command.targetUserId,
+      Permission.CONNECT_VOICE,
+    );
+
+    const result = await this.repository.moveVoiceMember({
+      actorId: command.actorId,
+      reason: command.reason ?? null,
+      targetChannelId: command.targetChannelId,
+      targetUserId: command.targetUserId,
+      workspaceId: command.workspaceId,
+    });
+    if (!result) {
+      throw notFound("Voice state not found.");
+    }
+
+    await this.mediaProvider.moveVoiceParticipant({
+      fromRoomName: createLiveKitRoomName(command.workspaceId, result.previousChannelId),
+      toRoomName: createLiveKitRoomName(command.workspaceId, result.state.channelId),
+      userId: command.targetUserId,
+    });
+    await this.enforceCurrentPublishPermissions(result.state);
+    await this.publishVoiceState(null, result.state.workspaceId, result.previousChannelId);
+    await this.publishVoiceState(result.state);
+
+    return toPublicVoiceState(result.state);
+  }
+
+  public async disconnectMember(command: DisconnectVoiceMemberCommand): Promise<VoiceState> {
+    const targetState = await this.repository.findVoiceState(
+      command.workspaceId,
+      command.targetUserId,
+    );
+    if (!targetState) {
+      throw notFound("Voice state not found.");
+    }
+
+    const source = await this.channelService.requireChannelPermission(
+      targetState.channelId,
+      command.actorId,
+      Permission.DISCONNECT_MEMBERS,
+    );
+    if (source.channel.workspaceId !== command.workspaceId) {
+      throw notFound("Channel not found.");
+    }
+    await assertCanModerateMember({
+      actorAccess: source.access,
+      repository: this.repository,
+      targetUserId: command.targetUserId,
+    });
+
+    const result = await this.repository.disconnectVoiceMember({
+      actorId: command.actorId,
+      reason: command.reason ?? null,
+      targetUserId: command.targetUserId,
+      workspaceId: command.workspaceId,
+    });
+    if (!result) {
+      throw notFound("Voice state not found.");
+    }
+
+    await this.mediaProvider.disconnectVoiceParticipant({
+      roomName: createLiveKitRoomName(result.state.workspaceId, result.state.channelId),
+      userId: command.targetUserId,
+    });
+    await this.publishVoiceState(null, result.state.workspaceId, result.state.channelId);
+
+    return toPublicVoiceState(result.state);
+  }
+
   public createIceServers(userId: string): IceServersResponse {
     return this.turnCredentialService.createIceServers({ userId });
   }
@@ -253,15 +398,21 @@ export class VoiceService {
       throw notFound("Voice state not found.");
     }
 
-    await this.channelService.requireChannelPermission(
+    const permissionResult = await this.channelService.requireChannelPermission(
       targetState.channelId,
       command.actorId,
       requiredPermission,
     );
+    await assertCanModerateMember({
+      actorAccess: permissionResult.access,
+      repository: this.repository,
+      targetUserId: command.targetUserId,
+    });
 
     const state = await this.repository.setVoiceModerationState({
       actorId: command.actorId,
       ...moderationState,
+      reason: command.reason ?? null,
       targetUserId: command.targetUserId,
       workspaceId: command.workspaceId,
     });
@@ -269,25 +420,7 @@ export class VoiceService {
       throw notFound("Voice state not found.");
     }
 
-    const canSpeak = await this.canUsePermission(state.channelId, state.userId, Permission.SPEAK);
-    const canPublishCamera = await this.canUsePermission(
-      state.channelId,
-      state.userId,
-      Permission.STREAM_CAMERA,
-    );
-    const canPublishScreen = await this.canUsePermission(
-      state.channelId,
-      state.userId,
-      Permission.SHARE_SCREEN,
-    );
-    await this.mediaProvider.enforceVoicePublishPermission({
-      canPublishAudio:
-        canSpeak && !state.serverMuted && !state.serverDeafened && !state.selfDeafened,
-      canPublishCamera,
-      canPublishScreen,
-      roomName: createLiveKitRoomName(state.workspaceId, state.channelId),
-      userId: state.userId,
-    });
+    await this.enforceCurrentPublishPermissions(state);
     await this.publishVoiceState(state);
 
     return toPublicVoiceState(state);
@@ -309,6 +442,7 @@ export class VoiceService {
   private async resolvePublishPermissions(
     channelId: string,
     userId: string,
+    workspaceId: string,
   ): Promise<
     Pick<
       VoicePermissions,
@@ -329,13 +463,37 @@ export class VoiceService {
     const canPublishScreen4k =
       canPublishScreen &&
       (await this.canUsePermission(channelId, userId, Permission.SHARE_SCREEN_4K));
+    const activeTimeout = await this.repository.findActiveWorkspaceTimeout(
+      workspaceId,
+      userId,
+      new Date(),
+    );
 
     return {
-      canPublishAudio,
+      canPublishAudio: canPublishAudio && !activeTimeout,
       canPublishCamera,
       canPublishScreen,
       canPublishScreen4k,
     };
+  }
+
+  private async enforceCurrentPublishPermissions(state: VoiceStateRecord): Promise<void> {
+    const permissions = await this.resolvePublishPermissions(
+      state.channelId,
+      state.userId,
+      state.workspaceId,
+    );
+    await this.mediaProvider.enforceVoicePublishPermission({
+      canPublishAudio:
+        permissions.canPublishAudio &&
+        !state.serverMuted &&
+        !state.serverDeafened &&
+        !state.selfDeafened,
+      canPublishCamera: permissions.canPublishCamera,
+      canPublishScreen: permissions.canPublishScreen,
+      roomName: createLiveKitRoomName(state.workspaceId, state.channelId),
+      userId: state.userId,
+    });
   }
 
   private assertMediaStateAllowed(
@@ -410,7 +568,7 @@ export class VoiceService {
   }
 }
 
-function createLiveKitRoomName(workspaceId: string, channelId: string): string {
+export function createLiveKitRoomName(workspaceId: string, channelId: string): string {
   return `openvoice_${workspaceId}_${channelId}`.replace(/[^A-Za-z0-9_-]/g, "_");
 }
 

@@ -37,6 +37,8 @@ MVP:
 - Voice Tokens werden nur nach Permission Check ausgegeben.
 - TURN Credentials werden nur an authentifizierte Nutzer ausgegeben.
 - Channel Events dürfen keine privaten Channels leaken.
+- Moderationsaktionen prüfen zusätzlich Rollen-Hierarchie und Owner-Schutz.
+- Aktive Bans und Timeouts werden serverseitig durchgesetzt.
 
 ---
 
@@ -99,6 +101,7 @@ Pflichtfälle:
 - Kein Senden ohne `SEND_MESSAGES`.
 - Kein Voice Join ohne `CONNECT_VOICE`.
 - Kein Audio Publish ohne `SPEAK`.
+- Kein Audio Publish während aktivem Timeout.
 - Kein 4K Screenshare ohne `SHARE_SCREEN_4K`.
 - Keine statischen TURN Secrets im Frontend Bundle.
 - Rate Limits greifen.
