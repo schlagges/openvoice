@@ -35,6 +35,7 @@ Pflicht:
 - WebSocket Dispatch.
 - Redis/Valkey PubSub.
 - PostgreSQL Migrations.
+- Phase 7: Kick/Ban/Unban/Timeout, Voice-Move/Disconnect, Role-Hierarchy und Audit-Log-Zugriff.
 
 ---
 

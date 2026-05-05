@@ -18,6 +18,7 @@ import { createGatewayWebSocketUpgradeHandler } from "./modules/gateway/websocke
 import { LiveKitMediaProvider } from "./modules/media/livekit-provider.js";
 import { InMemoryMessageEventHub } from "./modules/messages/events.js";
 import { MessageService } from "./modules/messages/service.js";
+import { ModerationService } from "./modules/moderation/service.js";
 import { TurnCredentialService } from "./modules/turn/credentials.js";
 import { VoiceService } from "./modules/voice/service.js";
 import { createMessageWebSocketUpgradeHandler } from "./modules/messages/websocket.js";
@@ -74,6 +75,12 @@ export function createOpenVoiceApiServer() {
     repository,
     turnCredentialService,
   });
+  const moderationService = new ModerationService({
+    channelService,
+    eventPublisher: gatewayEventPublisher,
+    mediaProvider,
+    repository,
+  });
   const gatewayService = new GatewayService({
     authService,
     channelService,
@@ -87,6 +94,7 @@ export function createOpenVoiceApiServer() {
     channelService,
     config,
     messageService,
+    moderationService,
     voiceService,
     workspaceService,
   });

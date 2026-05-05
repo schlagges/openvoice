@@ -4,9 +4,10 @@ OpenVoice ist ein vollständig self-hostbares, browserbasiertes Voice-/Chat-/Vid
 Die Umsetzung erfolgt phasenweise nach `PLANS.md`; das verbindliche Lastenheft liegt in
 `docs/lastenheft.md`.
 
-Die Umsetzung ist aktuell bis Phase 6 vorbereitet: Monorepo-Fundament, Auth/Workspaces,
+Die Umsetzung ist aktuell bis Phase 7 vorbereitet: Monorepo-Fundament, Auth/Workspaces,
 Channel-Baum mit Rechte-Overrides, persistenter Chat, WebSocket Gateway/Presence sowie ein Voice
-MVP mit LiveKit-SFU, coturn, TURN REST Credentials, Kamera-Video und Screenshare-Basisprofilen.
+MVP mit LiveKit-SFU, coturn, TURN REST Credentials, Kamera-Video, Screenshare-Basisprofilen und
+Moderationsaktionen inklusive Audit-Log-Grundansicht.
 
 ## Struktur
 

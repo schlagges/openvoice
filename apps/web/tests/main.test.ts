@@ -10,6 +10,7 @@ import {
 import { renderChatPanel } from "../src/chat/chat-panel";
 import { renderChannelTree } from "../src/channels/channel-tree";
 import { formatWebTitle } from "../src/main";
+import { renderAuditLog } from "../src/moderation/audit-log";
 import {
   createCameraCaptureOptions,
   createScreenShareCaptureOptions,
@@ -18,7 +19,7 @@ import {
 
 describe("web foundation", () => {
   it("formats the phase title", () => {
-    expect(formatWebTitle(6)).toBe("OpenVoice Phase 6");
+    expect(formatWebTitle(7)).toBe("OpenVoice Phase 7");
   });
 
   it("renders an escaped channel tree", () => {
@@ -83,6 +84,27 @@ describe("web foundation", () => {
 
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("bearbeitet");
+  });
+
+  it("renders escaped audit log entries", () => {
+    const now = new Date().toISOString();
+    const html = renderAuditLog([
+      {
+        actorId: "actor<script>",
+        createdAt: now,
+        event: "MEMBER_BAN<script>",
+        id: "audit",
+        ipHash: null,
+        metadata: {},
+        reason: "<reason>",
+        targetId: "target",
+        targetType: "workspace_member",
+        workspaceId: "workspace",
+      },
+    ]);
+
+    expect(html).toContain("MEMBER_BAN&lt;script&gt;");
+    expect(html).toContain("&lt;reason&gt;");
   });
 
   it("builds camera and screenshare media profiles", () => {

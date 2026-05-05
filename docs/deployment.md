@@ -24,9 +24,10 @@ Beispiel siehe:
 - `infra/turnserver.example.conf`
 - `infra/livekit.example.yaml`
 
-Der aktuelle Phase-5-Compose-Stand in `infra/docker-compose.yml` startet Web, API, PostgreSQL,
-Valkey, LiveKit und coturn. Prometheus/Grafana bleiben in der Beispiel-Compose-Datei vorbereitet
-und werden in einer späteren Phase produktionsnah eingebunden.
+Der aktuelle Phase-7-Compose-Stand in `infra/docker-compose.yml` startet Web, API, PostgreSQL,
+Valkey, LiveKit und coturn. Phase 7 ergänzt keine neuen Infrastruktur-Services.
+Prometheus/Grafana bleiben in der Beispiel-Compose-Datei vorbereitet und werden in einer späteren
+Phase produktionsnah eingebunden.
 
 ---
 
@@ -111,7 +112,7 @@ MVP-Pflicht:
 
 ---
 
-## 7. Phase-5-Compose
+## 7. Aktueller Compose-Stand
 
 Lokaler Start:
 

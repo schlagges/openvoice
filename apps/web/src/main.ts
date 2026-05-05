@@ -2,6 +2,7 @@ import { OPENVOICE_PHASE } from "@openvoice/shared";
 
 import { mountChatPanel } from "./chat/chat-panel.js";
 import { mountChannelTree } from "./channels/channel-tree.js";
+import { mountAuditLog } from "./moderation/audit-log.js";
 import { mountVoiceControls } from "./voice/voice-client.js";
 
 export function formatWebTitle(phase: typeof OPENVOICE_PHASE): string {
@@ -32,6 +33,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   if (workspacePanel) {
     mountChatPanel(workspacePanel, []);
     mountVoiceControls(workspacePanel);
+    mountAuditLog(workspacePanel, []);
   }
 }
 

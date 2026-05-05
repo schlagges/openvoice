@@ -94,6 +94,15 @@ export class MessageService {
       command.userId,
       Permission.VIEW_CHANNEL,
     );
+    const activeTimeout = await this.repository.findActiveWorkspaceTimeout(
+      channel.workspaceId,
+      command.userId,
+      new Date(),
+    );
+    if (activeTimeout) {
+      throw forbidden("Timed out members cannot send messages.");
+    }
+
     const sanitized = sanitizeMessageInput(command.content, command.contentFormat);
     const result = await this.repository.createMessage({
       authorId: command.userId,

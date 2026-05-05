@@ -61,6 +61,25 @@ export class LiveKitMediaProvider implements MediaProvider {
     }
   }
 
+  public async disconnectVoiceParticipant(input: {
+    readonly roomName: string;
+    readonly userId: string;
+  }): Promise<void> {
+    await this.roomService
+      .removeParticipant(input.roomName, input.userId)
+      .catch(ignoreParticipantNotFound);
+  }
+
+  public async moveVoiceParticipant(input: {
+    readonly fromRoomName: string;
+    readonly toRoomName: string;
+    readonly userId: string;
+  }): Promise<void> {
+    await this.roomService
+      .moveParticipant(input.fromRoomName, input.userId, input.toRoomName)
+      .catch(ignoreParticipantNotFound);
+  }
+
   public get url(): string {
     return this.serverUrl;
   }
