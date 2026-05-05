@@ -2,16 +2,27 @@ import {
   Room,
   RoomEvent,
   Track,
+  type AudioReceiverStats,
   type AudioSenderStats,
   type LocalAudioTrack,
   type LocalTrackPublication,
+  type LocalVideoTrack,
+  type RemoteAudioTrack,
   type RemoteParticipant,
   type RemoteTrackPublication,
+  type VideoSenderStats,
 } from "livekit-client";
-import { VideoContentMode, VideoQualityProfile } from "@openvoice/shared";
+import {
+  IceCandidateType,
+  RtcTransportProtocol,
+  VideoContentMode,
+  VideoQualityProfile,
+} from "@openvoice/shared";
 import type {
+  ClientRtcQualitySample,
   VideoContentMode as ContentMode,
   VideoQualityProfile as QualityProfile,
+  RtcStatsIngestResponse,
   VoiceJoinResponse,
   VoiceState,
 } from "@openvoice/shared";
@@ -51,6 +62,7 @@ export class OpenVoiceVoiceClient {
   private lastSpeaking = false;
   private readonly room: Room;
   private state: VoiceState | null = null;
+  private statsReportTimer: ReturnType<typeof setInterval> | null = null;
 
   public constructor(options: VoiceClientOptions = {}) {
     this.apiBaseUrl = options.apiBaseUrl ?? defaultApiBaseUrl();
@@ -76,11 +88,13 @@ export class OpenVoiceVoiceClient {
     if (response.permissions.canPublishAudio && !response.state.selfMuted) {
       await this.room.localParticipant.setMicrophoneEnabled(true);
     }
+    this.startStatsReporting();
 
     return response;
   }
 
   public async leave(): Promise<void> {
+    this.stopStatsReporting();
     const workspaceId = this.state?.workspaceId;
     if (workspaceId) {
       await this.fetchJson(`/workspaces/${workspaceId}/voice/leave`, { method: "POST" });
@@ -186,6 +200,51 @@ export class OpenVoiceVoiceClient {
     };
   }
 
+  public async collectQualitySample(): Promise<ClientRtcQualitySample> {
+    if (!this.state) {
+      throw new Error("Voice room is not joined.");
+    }
+
+    const localAudioTrack = firstLocalAudioTrack(this.room);
+    const localAudio = localAudioTrack ? await localAudioTrack.getSenderStats() : undefined;
+    const remoteAudio = await collectRemoteAudioStats(this.room);
+    const localVideo = await collectLocalVideoStats(this.room);
+    const connection = await collectRtcConnectionSummary(this.room);
+
+    return {
+      audio: {
+        bitrateBps: null,
+        concealedSamples: nullableNonNegativeNumber(remoteAudio?.concealedSamples),
+        jitterMs: secondsToMilliseconds(remoteAudio?.jitter ?? localAudio?.jitter),
+        packetsLost: nonNegativeNumber(remoteAudio?.packetsLost ?? localAudio?.packetsLost),
+        packetsReceived: nonNegativeNumber(remoteAudio?.packetsReceived ?? localAudio?.packetsSent),
+        rttMs: secondsToMilliseconds(localAudio?.roundTripTime),
+      },
+      channelId: this.state.channelId,
+      connection,
+      sessionId: this.state.sessionId,
+      timestamp: new Date().toISOString(),
+      userId: this.state.userId,
+      video: {
+        bitrateBps: nullableNonNegativeNumber(localVideo?.targetBitrate),
+        framesDropped: null,
+        framesPerSecond: nullableNonNegativeNumber(localVideo?.framesPerSecond),
+        height: nullableNonNegativeNumber(localVideo?.frameHeight),
+        packetsLost: nonNegativeNumber(localVideo?.packetsLost),
+        width: nullableNonNegativeNumber(localVideo?.frameWidth),
+      },
+      workspaceId: this.state.workspaceId,
+    };
+  }
+
+  public async reportRtcStats(): Promise<void> {
+    const sample = await this.collectQualitySample();
+    await this.fetchJson<RtcStatsIngestResponse>("/rtc/stats", {
+      body: JSON.stringify(toRtcStatsRequestBody(sample)),
+      method: "POST",
+    });
+  }
+
   public get currentState(): VoiceState | null {
     return this.state;
   }
@@ -232,6 +291,23 @@ export class OpenVoiceVoiceClient {
     await this.updateSelfState({ screenShareEnabled: false }).catch(() => undefined);
   }
 
+  private startStatsReporting(): void {
+    this.stopStatsReporting();
+    void this.reportRtcStats().catch(() => undefined);
+    this.statsReportTimer = setInterval(() => {
+      void this.reportRtcStats().catch(() => undefined);
+    }, 30_000);
+  }
+
+  private stopStatsReporting(): void {
+    if (!this.statsReportTimer) {
+      return;
+    }
+
+    clearInterval(this.statsReportTimer);
+    this.statsReportTimer = null;
+  }
+
   private async updateSelfState(input: {
     readonly cameraEnabled?: boolean;
     readonly cameraQuality?: QualityProfile;
@@ -274,6 +350,20 @@ export class OpenVoiceVoiceClient {
 
     return (await response.json()) as T;
   }
+}
+
+export type RtcStatsRequestPayload = Omit<ClientRtcQualitySample, "userId">;
+
+export function toRtcStatsRequestBody(sample: ClientRtcQualitySample): RtcStatsRequestPayload {
+  return {
+    audio: sample.audio,
+    channelId: sample.channelId,
+    connection: sample.connection,
+    sessionId: sample.sessionId,
+    timestamp: sample.timestamp,
+    video: sample.video,
+    workspaceId: sample.workspaceId,
+  };
 }
 
 export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoiceClient()): void {
@@ -587,4 +677,210 @@ function firstLocalAudioTrack(room: Room): LocalAudioTrack | null {
   }
 
   return null;
+}
+
+function firstRemoteAudioTrack(room: Room): RemoteAudioTrack | null {
+  for (const participant of room.remoteParticipants.values()) {
+    for (const publication of participant.audioTrackPublications.values()) {
+      if (publication.audioTrack) {
+        return publication.audioTrack as RemoteAudioTrack;
+      }
+    }
+  }
+
+  return null;
+}
+
+async function collectRemoteAudioStats(room: Room): Promise<AudioReceiverStats | null> {
+  const remoteAudioTrack = firstRemoteAudioTrack(room);
+  return remoteAudioTrack ? ((await remoteAudioTrack.getReceiverStats()) ?? null) : null;
+}
+
+function firstLocalVideoTrack(room: Room): LocalVideoTrack | null {
+  for (const publication of room.localParticipant.videoTrackPublications.values()) {
+    if (publication.videoTrack) {
+      return publication.videoTrack;
+    }
+  }
+
+  return null;
+}
+
+async function collectLocalVideoStats(room: Room): Promise<VideoSenderStats | null> {
+  const localVideoTrack = firstLocalVideoTrack(room);
+  const stats = localVideoTrack ? await localVideoTrack.getSenderStats() : [];
+  return stats[0] ?? null;
+}
+
+async function collectRtcConnectionSummary(
+  room: Room,
+): Promise<ClientRtcQualitySample["connection"]> {
+  const manager = room.engine.pcManager;
+  const iceState = manager?.publisher.getICEConnectionState() ?? "unknown";
+
+  if (!manager) {
+    return {
+      iceState,
+      selectedCandidateType: IceCandidateType.UNKNOWN,
+      transport: RtcTransportProtocol.UNKNOWN,
+    };
+  }
+
+  const reports: RTCStatsReport[] = [];
+  const publisherStats = await manager.publisher.getStats().catch(() => null);
+  if (publisherStats) {
+    reports.push(publisherStats);
+  }
+  const subscriberStats = await manager.subscriber?.getStats().catch(() => null);
+  if (subscriberStats) {
+    reports.push(subscriberStats);
+  }
+
+  for (const report of reports) {
+    const selectedCandidate = extractSelectedCandidate(report);
+    if (selectedCandidate) {
+      return {
+        iceState,
+        ...selectedCandidate,
+      };
+    }
+  }
+
+  return {
+    iceState,
+    selectedCandidateType: IceCandidateType.UNKNOWN,
+    transport: RtcTransportProtocol.UNKNOWN,
+  };
+}
+
+function extractSelectedCandidate(
+  report: RTCStatsReport,
+): Pick<ClientRtcQualitySample["connection"], "selectedCandidateType" | "transport"> | null {
+  let selectedCandidatePairId: string | null = null;
+  const candidatePairs = new Map<string, RtcCandidatePairStats>();
+  const localCandidates = new Map<string, RtcCandidateStats>();
+
+  report.forEach((stats) => {
+    if (stats.type === "transport") {
+      const transport = stats as RTCStats & { readonly selectedCandidatePairId?: unknown };
+      const selectedId = optionalString(transport.selectedCandidatePairId);
+      if (selectedId) {
+        selectedCandidatePairId = selectedId;
+      }
+      return;
+    }
+
+    if (stats.type === "candidate-pair") {
+      const pair = stats as RTCStats & {
+        readonly localCandidateId?: unknown;
+        readonly selected?: unknown;
+      };
+      const localCandidateId = optionalString(pair.localCandidateId);
+      const candidatePair = {
+        id: pair.id,
+        selected: pair.selected === true,
+        ...(localCandidateId ? { localCandidateId } : {}),
+      };
+      candidatePairs.set(pair.id, candidatePair);
+      if (!selectedCandidatePairId && pair.selected) {
+        selectedCandidatePairId = pair.id;
+      }
+      return;
+    }
+
+    if (stats.type === "local-candidate") {
+      const candidate = stats as RTCStats & {
+        readonly candidateType?: unknown;
+        readonly protocol?: unknown;
+        readonly url?: unknown;
+      };
+      const candidateType = optionalString(candidate.candidateType);
+      const protocol = optionalString(candidate.protocol);
+      const url = optionalString(candidate.url);
+      localCandidates.set(stats.id, {
+        id: stats.id,
+        ...(candidateType ? { candidateType } : {}),
+        ...(protocol ? { protocol } : {}),
+        ...(url ? { url } : {}),
+      });
+    }
+  });
+
+  const selectedPair =
+    (selectedCandidatePairId ? candidatePairs.get(selectedCandidatePairId) : undefined) ??
+    Array.from(candidatePairs.values()).find((pair) => pair.selected);
+  const localCandidate = selectedPair?.localCandidateId
+    ? localCandidates.get(selectedPair.localCandidateId)
+    : undefined;
+  if (!localCandidate) {
+    return null;
+  }
+
+  return {
+    selectedCandidateType: normalizeCandidateType(localCandidate.candidateType),
+    transport: normalizeTransportProtocol(localCandidate),
+  };
+}
+
+interface RtcCandidatePairStats {
+  readonly id: string;
+  readonly localCandidateId?: string;
+  readonly selected: boolean;
+}
+
+interface RtcCandidateStats {
+  readonly candidateType?: string;
+  readonly id: string;
+  readonly protocol?: string;
+  readonly url?: string;
+}
+
+function normalizeCandidateType(value: string | undefined): IceCandidateType {
+  if (value === IceCandidateType.HOST) {
+    return IceCandidateType.HOST;
+  }
+  if (value === IceCandidateType.RELAY) {
+    return IceCandidateType.RELAY;
+  }
+  if (value === IceCandidateType.SRFLX) {
+    return IceCandidateType.SRFLX;
+  }
+
+  return IceCandidateType.UNKNOWN;
+}
+
+function normalizeTransportProtocol(candidate: RtcCandidateStats): RtcTransportProtocol {
+  if (candidate.url?.startsWith("turns:")) {
+    return RtcTransportProtocol.TLS;
+  }
+
+  if (candidate.protocol === RtcTransportProtocol.UDP) {
+    return RtcTransportProtocol.UDP;
+  }
+  if (candidate.protocol === RtcTransportProtocol.TCP) {
+    return RtcTransportProtocol.TCP;
+  }
+
+  return RtcTransportProtocol.UNKNOWN;
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
+}
+
+function nullableNonNegativeNumber(value: number | undefined): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    return null;
+  }
+
+  return value;
+}
+
+function nonNegativeNumber(value: number | undefined): number {
+  return nullableNonNegativeNumber(value) ?? 0;
+}
+
+function secondsToMilliseconds(value: number | undefined): number | null {
+  const seconds = nullableNonNegativeNumber(value);
+  return seconds === null ? null : seconds * 1000;
 }

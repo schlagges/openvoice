@@ -5,6 +5,8 @@ import type { IceServersResponse } from "@openvoice/shared";
 export interface TurnCredentialOptions {
   readonly realm: string;
   readonly sharedSecret: string;
+  readonly turnPort?: number;
+  readonly turnsPort?: number;
   readonly ttlSeconds: number;
   readonly turnHost: string;
 }
@@ -33,20 +35,20 @@ export class TurnCredentialService {
     return {
       expiresAt: new Date(expiresUnix * 1000).toISOString(),
       iceServers: [
-        { urls: [`stun:${host}:3478`] },
+        { urls: [`stun:${host}:${this.turnPort}`] },
         {
           credential,
-          urls: [`turn:${host}:3478?transport=udp`],
+          urls: [`turn:${host}:${this.turnPort}?transport=udp`],
           username,
         },
         {
           credential,
-          urls: [`turn:${host}:3478?transport=tcp`],
+          urls: [`turn:${host}:${this.turnPort}?transport=tcp`],
           username,
         },
         {
           credential,
-          urls: [`turns:${host}:5349?transport=tcp`],
+          urls: [`turns:${host}:${this.turnsPort}?transport=tcp`],
           username,
         },
       ],
@@ -55,6 +57,14 @@ export class TurnCredentialService {
 
   public get realm(): string {
     return this.options.realm;
+  }
+
+  private get turnPort(): number {
+    return this.options.turnPort ?? 3478;
+  }
+
+  private get turnsPort(): number {
+    return this.options.turnsPort ?? 5349;
   }
 }
 

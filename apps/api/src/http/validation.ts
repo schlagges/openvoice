@@ -5,7 +5,9 @@ import {
   isVideoContentMode,
   isVideoQualityProfile,
   AudioMode,
+  isIceCandidateType,
   MessageContentFormat,
+  isRtcTransportProtocol,
   VideoContentMode,
   VideoQualityProfile,
   parseMessageCursor,
@@ -14,6 +16,7 @@ import {
   type MessageContentFormat as ContentFormat,
   type MessageCursor,
   type PermissionMask,
+  type ClientRtcQualitySample,
 } from "@openvoice/shared";
 
 import type { PermissionOverrideTargetType } from "../db/models.js";
@@ -117,6 +120,8 @@ export interface VoiceMemberModerationRequestBody extends ModerationReasonReques
 export interface ListAuditLogRequestQuery {
   readonly limit: number;
 }
+
+export type RtcStatsRequestBody = Omit<ClientRtcQualitySample, "userId">;
 
 export async function readJsonObject(request: Request): Promise<Record<string, unknown>> {
   const contentType = request.headers.get("content-type") ?? "";
@@ -364,6 +369,59 @@ export function parseListAuditLogQuery(params: URLSearchParams): ListAuditLogReq
   };
 }
 
+export function parseRtcStatsRequest(body: Record<string, unknown>): RtcStatsRequestBody {
+  const audio = parsePlainObject(body.audio, "audio");
+  const video = parsePlainObject(body.video, "video");
+  const connection = parsePlainObject(body.connection, "connection");
+  const selectedCandidateType = connection.selectedCandidateType;
+  const transport = connection.transport;
+
+  if (!isIceCandidateType(selectedCandidateType)) {
+    throw badRequest("selectedCandidateType is invalid.", {
+      field: "connection.selectedCandidateType",
+    });
+  }
+  if (!isRtcTransportProtocol(transport)) {
+    throw badRequest("transport is invalid.", {
+      field: "connection.transport",
+    });
+  }
+
+  return {
+    audio: {
+      bitrateBps: parseNullableNonNegativeNumber(audio.bitrateBps, "audio.bitrateBps"),
+      concealedSamples: parseNullableNonNegativeNumber(
+        audio.concealedSamples,
+        "audio.concealedSamples",
+      ),
+      jitterMs: parseNullableNonNegativeNumber(audio.jitterMs, "audio.jitterMs"),
+      packetsLost: parseNonNegativeNumber(audio.packetsLost, "audio.packetsLost"),
+      packetsReceived: parseNonNegativeNumber(audio.packetsReceived, "audio.packetsReceived"),
+      rttMs: parseNullableNonNegativeNumber(audio.rttMs, "audio.rttMs"),
+    },
+    channelId: parseUuidLikeString(body.channelId, "channelId"),
+    connection: {
+      iceState: parseBoundedText(connection.iceState, "connection.iceState", 64),
+      selectedCandidateType,
+      transport,
+    },
+    sessionId: parseUuidLikeString(body.sessionId, "sessionId"),
+    timestamp: parseIsoTimestamp(body.timestamp, "timestamp"),
+    video: {
+      bitrateBps: parseNullableNonNegativeNumber(video.bitrateBps, "video.bitrateBps"),
+      framesDropped: parseNullableNonNegativeNumber(video.framesDropped, "video.framesDropped"),
+      framesPerSecond: parseNullableNonNegativeNumber(
+        video.framesPerSecond,
+        "video.framesPerSecond",
+      ),
+      height: parseNullableNonNegativeNumber(video.height, "video.height"),
+      packetsLost: parseNonNegativeNumber(video.packetsLost, "video.packetsLost"),
+      width: parseNullableNonNegativeNumber(video.width, "video.width"),
+    },
+    workspaceId: parseUuidLikeString(body.workspaceId, "workspaceId"),
+  };
+}
+
 export function parseUuidPathParameter(value: string, field: string): string {
   return parseUuidLikeString(value, field);
 }
@@ -471,6 +529,33 @@ function parseBoolean(value: unknown, field: string): boolean {
   return value;
 }
 
+function parsePlainObject(value: unknown, field: string): Record<string, unknown> {
+  if (!isPlainObject(value)) {
+    throw badRequest(`${field} must be an object.`, { field });
+  }
+
+  return value;
+}
+
+function parseBoundedText(value: unknown, field: string, maxLength: number): string {
+  const text = parseNonEmptyString(value, field).trim();
+  if (text.length > maxLength) {
+    throw badRequest(`${field} must be at most ${maxLength} characters.`, { field });
+  }
+
+  return text;
+}
+
+function parseIsoTimestamp(value: unknown, field: string): string {
+  const timestamp = parseNonEmptyString(value, field).trim();
+  const parsed = new Date(timestamp);
+  if (Number.isNaN(parsed.getTime())) {
+    throw badRequest(`${field} must be an ISO timestamp.`, { field });
+  }
+
+  return parsed.toISOString();
+}
+
 function parseOptionalReason(value: unknown, field: string): string | null {
   if (value === null) {
     return null;
@@ -537,6 +622,24 @@ function parseNonNegativeInteger(value: unknown, field: string): number {
   }
 
   return value;
+}
+
+function parseNonNegativeNumber(value: unknown, field: string): number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) {
+    throw badRequest(`${field} must be a non-negative number.`, {
+      field,
+    });
+  }
+
+  return value;
+}
+
+function parseNullableNonNegativeNumber(value: unknown, field: string): number | null {
+  if (value === null) {
+    return null;
+  }
+
+  return parseNonNegativeNumber(value, field);
 }
 
 function parseBoundedInteger(value: unknown, field: string, min: number, max: number): number {

@@ -97,3 +97,22 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
   the ban data model.
 - Dependencies: no new direct dependencies were introduced in Phase 7, so no additional license
   assessment was required.
+
+## 2026-05-05: Phase 8 Observability
+
+- Metrics registry: Phase 8 uses a small internal Prometheus text exporter instead of adding
+  `prom-client`. The required metric surface is narrow, and avoiding a new runtime dependency keeps
+  the self-hosting base smaller.
+- RTC quality aggregation: browser clients upload bounded WebRTC quality samples to the API. The
+  API verifies `VIEW_CHANNEL` serverseitig and exposes only aggregate window metrics through
+  Prometheus, not per-user raw stats.
+- SFU metrics: LiveKit room and participant counts are read through the existing media provider
+  control API and exported as `sfu_rooms_active` and `sfu_participants_active`. Component-level CPU
+  metrics remain deployment-specific.
+- TURN external ports: the API now uses `TURN_PORT` and `TURNS_PORT` when generating ICE server
+  URLs. This keeps local multi-stack Compose runs and production port mappings consistent.
+- Dashboards and alerts: Prometheus and Grafana are provisioned through Compose files under
+  `infra/`. Grafana uses `grafana/grafana-oss`, whose AGPL license aligns with OpenVoice's
+  open-source/self-hosting goal.
+- Dependencies: no new npm dependencies were introduced in Phase 8. The new Compose images are
+  open-source Prometheus and Grafana OSS images; no proprietary observability SaaS is used.

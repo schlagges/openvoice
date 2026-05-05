@@ -19,6 +19,9 @@ import { LiveKitMediaProvider } from "./modules/media/livekit-provider.js";
 import { InMemoryMessageEventHub } from "./modules/messages/events.js";
 import { MessageService } from "./modules/messages/service.js";
 import { ModerationService } from "./modules/moderation/service.js";
+import { createTcpReadinessCheck, HealthService } from "./modules/observability/health.js";
+import { OpenVoiceMetrics } from "./modules/observability/metrics.js";
+import { ObservabilityService } from "./modules/observability/service.js";
 import { TurnCredentialService } from "./modules/turn/credentials.js";
 import { VoiceService } from "./modules/voice/service.js";
 import { createMessageWebSocketUpgradeHandler } from "./modules/messages/websocket.js";
@@ -39,6 +42,7 @@ export function createOpenVoiceApiServer() {
   const messageEventHub = new InMemoryMessageEventHub();
   const gatewayPubSub = new RedisGatewayPubSub(config.redisUrl);
   const gatewayEventPublisher = gatewayPubSub;
+  const metrics = new OpenVoiceMetrics();
   const mediaProvider = new LiveKitMediaProvider({
     apiKey: config.livekitApiKey,
     apiSecret: config.livekitApiSecret,
@@ -50,6 +54,8 @@ export function createOpenVoiceApiServer() {
     sharedSecret: config.turnSharedSecret,
     ttlSeconds: config.turnTtlSeconds,
     turnHost: config.turnUrl,
+    turnPort: config.turnPort,
+    turnsPort: config.turnsPort,
   });
   const channelService = new ChannelService({
     eventPublisher: gatewayEventPublisher,
@@ -65,6 +71,7 @@ export function createOpenVoiceApiServer() {
       messageEventHub,
       new GatewayMessageEventPublisher(gatewayEventPublisher),
     ]),
+    metrics,
     repository,
   });
   const voiceService = new VoiceService({
@@ -72,6 +79,7 @@ export function createOpenVoiceApiServer() {
     eventPublisher: gatewayEventPublisher,
     livekitUrl: config.livekitUrl,
     mediaProvider,
+    metrics,
     repository,
     turnCredentialService,
   });
@@ -85,9 +93,31 @@ export function createOpenVoiceApiServer() {
     authService,
     channelService,
     config,
+    metrics,
     presenceStore: new RedisPresenceStore(config.redisUrl),
     pubSub: gatewayPubSub,
     workspaceService,
+  });
+  const healthService = new HealthService([
+    {
+      name: "postgres",
+      run: async () => {
+        await pool.query("SELECT 1");
+      },
+    },
+    createTcpReadinessCheck({ name: "valkey", url: config.redisUrl }),
+    {
+      name: "livekit",
+      run: async () => {
+        await mediaProvider.getStats();
+      },
+    },
+  ]);
+  const observabilityService = new ObservabilityService({
+    channelService,
+    healthService,
+    mediaProvider,
+    metrics,
   });
   const handler = createApiHandler({
     authService,
@@ -95,6 +125,7 @@ export function createOpenVoiceApiServer() {
     config,
     messageService,
     moderationService,
+    observabilityService,
     voiceService,
     workspaceService,
   });

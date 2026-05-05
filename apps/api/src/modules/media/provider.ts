@@ -30,10 +30,16 @@ export interface MoveVoiceParticipantInput {
   readonly userId: string;
 }
 
+export interface MediaProviderStats {
+  readonly participantsActive: number;
+  readonly roomsActive: number;
+}
+
 export interface MediaProvider {
   createVoiceJoinToken(input: CreateVoiceTokenInput): Promise<CreateVoiceTokenResult>;
   disconnectVoiceParticipant(input: DisconnectVoiceParticipantInput): Promise<void>;
   enforceVoicePublishPermission(input: EnforceVoicePublishInput): Promise<void>;
+  getStats(): Promise<MediaProviderStats>;
   moveVoiceParticipant(input: MoveVoiceParticipantInput): Promise<void>;
 }
 
@@ -60,6 +66,17 @@ export class InMemoryMediaProvider implements MediaProvider {
 
   public async enforceVoicePublishPermission(input: EnforceVoicePublishInput): Promise<void> {
     this.publishEnforcements.push(input);
+  }
+
+  public async getStats(): Promise<MediaProviderStats> {
+    const rooms = new Set(this.issuedTokens.map((token) => token.roomName));
+    return {
+      participantsActive: Math.max(
+        0,
+        this.issuedTokens.length - this.disconnectedParticipants.length,
+      ),
+      roomsActive: rooms.size,
+    };
   }
 
   public async disconnectVoiceParticipant(input: DisconnectVoiceParticipantInput): Promise<void> {

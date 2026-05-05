@@ -24,27 +24,28 @@ Beispiel siehe:
 - `infra/turnserver.example.conf`
 - `infra/livekit.example.yaml`
 
-Der aktuelle Phase-7-Compose-Stand in `infra/docker-compose.yml` startet Web, API, PostgreSQL,
-Valkey, LiveKit und coturn. Phase 7 ergänzt keine neuen Infrastruktur-Services.
-Prometheus/Grafana bleiben in der Beispiel-Compose-Datei vorbereitet und werden in einer späteren
-Phase produktionsnah eingebunden.
+Der aktuelle Phase-8-Compose-Stand in `infra/docker-compose.yml` startet Web, API, PostgreSQL,
+Valkey, LiveKit, coturn, Prometheus und Grafana. Prometheus scrapt die API unter `/metrics` und
+coturn unter `:9641`; Grafana lädt ein OpenVoice-Overview-Dashboard per Provisioning.
 
 ---
 
 ## 2. Ports
 
-| Port | Protokoll | Zweck |
-|---|---|---|
-| 443 | TCP | Web, API, WSS |
-| 3478 | UDP | STUN/TURN |
-| 3478 | TCP | TURN TCP Fallback |
-| 5349 | TCP | TURNS |
-| 5349 | UDP | TURN DTLS, falls genutzt |
-| 49152-65535 | UDP | TURN Relay Range, oder eigene Range |
-| 7880 | TCP | LiveKit API/WebSocket, falls direkt exponiert |
-| 7881 | TCP | LiveKit RTC TCP, falls genutzt |
-| 50000-50100 | UDP | LiveKit RTC UDP Range, lokaler Phase-5-Compose-Default |
-| 49152-49200 | UDP | coturn Relay Range, lokaler Phase-5-Compose-Default |
+| Port        | Protokoll | Zweck                                                  |
+| ----------- | --------- | ------------------------------------------------------ |
+| 443         | TCP       | Web, API, WSS                                          |
+| 3478        | UDP       | STUN/TURN                                              |
+| 3478        | TCP       | TURN TCP Fallback                                      |
+| 5349        | TCP       | TURNS                                                  |
+| 5349        | UDP       | TURN DTLS, falls genutzt                               |
+| 49152-65535 | UDP       | TURN Relay Range, oder eigene Range                    |
+| 7880        | TCP       | LiveKit API/WebSocket, falls direkt exponiert          |
+| 7881        | TCP       | LiveKit RTC TCP, falls genutzt                         |
+| 50000-50100 | UDP       | LiveKit RTC UDP Range, lokaler Phase-5-Compose-Default |
+| 49152-49200 | UDP       | coturn Relay Range, lokaler Phase-5-Compose-Default    |
+| 9090        | TCP       | Prometheus UI, lokaler Phase-8-Compose-Default         |
+| 3001        | TCP       | Grafana UI, lokaler Phase-8-Compose-Default            |
 
 ---
 
@@ -124,6 +125,14 @@ Der lokale PostgreSQL-Host-Port ist standardmäßig `55436`, damit Compose nicht
 laufenden lokalen PostgreSQL-Instanzen auf `5432` kollidiert. Container-intern bleibt PostgreSQL
 weiterhin auf `postgres:5432` erreichbar.
 
+Lokale Observability:
+
+- API Health: `http://localhost:3000/healthz`.
+- API Readiness: `http://localhost:3000/readyz`.
+- API Metrics: `http://localhost:3000/metrics`.
+- Prometheus: `http://localhost:9090`.
+- Grafana: `http://localhost:3001`.
+
 Wichtige Voice-Variablen:
 
 - `LIVEKIT_URL`: Browser-facing WebSocket URL, lokal `ws://localhost:7880`.
@@ -133,3 +142,5 @@ Wichtige Voice-Variablen:
 - `TURN_TTL_SECONDS`: TTL der temporären TURN Credentials.
 
 Für produktive TURNS-Nutzung müssen gültige TLS-Zertifikate in coturn konfiguriert werden.
+Für produktive Grafana-Nutzung muss `GRAFANA_ADMIN_PASSWORD` durch ein echtes Secret ersetzt und
+außerhalb des Repositories verwaltet werden.

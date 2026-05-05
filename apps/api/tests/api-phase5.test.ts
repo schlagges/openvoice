@@ -44,6 +44,28 @@ interface TestSession {
 }
 
 describe("Phase 5 voice API", () => {
+  it("uses configured external TURN ports in ICE responses", () => {
+    const service = new TurnCredentialService({
+      realm: "openvoice.test",
+      sharedSecret: "turn-secret",
+      ttlSeconds: 1200,
+      turnHost: "turn.local",
+      turnPort: 3488,
+      turnsPort: 5359,
+    });
+
+    expect(
+      service
+        .createIceServers({ now: new Date(0), userId: "user" })
+        .iceServers.flatMap((server) => server.urls),
+    ).toEqual([
+      "stun:turn.local:3488",
+      "turn:turn.local:3488?transport=udp",
+      "turn:turn.local:3488?transport=tcp",
+      "turns:turn.local:5359?transport=tcp",
+    ]);
+  });
+
   it("issues LiveKit voice tokens and short-lived TURN REST credentials", async () => {
     const app = createTestApp();
     const owner = await register(app, "owner@example.com");

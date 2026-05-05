@@ -4,6 +4,7 @@ import { AuthService, toPublicUser } from "../modules/auth/service.js";
 import { ChannelService } from "../modules/channels/service.js";
 import { MessageService } from "../modules/messages/service.js";
 import { ModerationService } from "../modules/moderation/service.js";
+import { ObservabilityService } from "../modules/observability/service.js";
 import { VoiceService } from "../modules/voice/service.js";
 import { WorkspaceService } from "../modules/workspaces/service.js";
 import { readRequestToken } from "../security/request-auth.js";
@@ -28,6 +29,7 @@ import {
   parsePermissionOverrideTargetType,
   parseRegisterRequest,
   parseReorderChannelsRequest,
+  parseRtcStatsRequest,
   parseTimeoutMemberRequest,
   parseUpdateMessageRequest,
   parseUuidPathParameter,
@@ -48,6 +50,7 @@ export interface ApiHandlerOptions {
   >;
   readonly messageService: MessageService;
   readonly moderationService?: ModerationService;
+  readonly observabilityService?: ObservabilityService;
   readonly voiceService?: VoiceService;
   readonly workspaceService: WorkspaceService;
 }
@@ -65,13 +68,35 @@ export function createApiHandler(
 ): (request: Request) => Promise<Response> {
   return async (request) => {
     const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
+    const url = new URL(request.url);
 
     try {
-      const url = new URL(request.url);
       const response = await routeRequest(request, url, requestId, options);
       response.headers.set("x-request-id", requestId);
+      options.observabilityService?.metrics.recordHttpRequest({
+        method: request.method,
+        status: response.status,
+      });
       return response;
     } catch (error) {
+      const apiError =
+        error instanceof ApiError
+          ? error
+          : new ApiError(500, "INTERNAL_ERROR", "Internal server error.");
+      options.observabilityService?.metrics.recordApiError({
+        code: apiError.code,
+        status: apiError.status,
+      });
+      if (apiError.status === 403) {
+        options.observabilityService?.metrics.recordPermissionDenied();
+      }
+      if (apiError.status >= 500) {
+        logApiError({ apiError, method: request.method, path: url.pathname, requestId });
+      }
+      options.observabilityService?.metrics.recordHttpRequest({
+        method: request.method,
+        status: apiError.status,
+      });
       return toErrorResponse(error, requestId);
     }
   };
@@ -83,6 +108,29 @@ async function routeRequest(
   requestId: string,
   options: ApiHandlerOptions,
 ): Promise<Response> {
+  if (url.pathname === "/healthz") {
+    assertMethod(request, "GET");
+    return jsonResponse(requireObservabilityService(options).liveness(), 200, requestId);
+  }
+
+  if (url.pathname === "/readyz") {
+    assertMethod(request, "GET");
+    const readiness = await requireObservabilityService(options).readiness();
+    return jsonResponse(readiness, readiness.status === "ok" ? 200 : 503, requestId);
+  }
+
+  if (url.pathname === "/metrics") {
+    assertMethod(request, "GET");
+    const body = await requireObservabilityService(options).metricsText();
+    return new Response(body, {
+      headers: {
+        "content-type": "text/plain; version=0.0.4; charset=utf-8",
+        "x-request-id": requestId,
+      },
+      status: 200,
+    });
+  }
+
   if (url.pathname === "/api/v1/auth/register") {
     assertMethod(request, "POST");
     const result = await options.authService.register(
@@ -163,6 +211,22 @@ async function routeRequest(
       200,
       requestId,
     );
+  }
+
+  if (url.pathname === "/api/v1/rtc/stats") {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const body = parseRtcStatsRequest(await readJsonObject(request));
+    await requireObservabilityService(options).ingestRtcStats({
+      sample: {
+        ...body,
+        userId: authenticated.userId,
+      },
+      userId: authenticated.userId,
+    });
+
+    return jsonResponse({ accepted: true }, 202, requestId);
   }
 
   if (url.pathname === "/api/v1/workspaces") {
@@ -654,6 +718,33 @@ function requireModerationService(options: ApiHandlerOptions): ModerationService
   }
 
   return options.moderationService;
+}
+
+function requireObservabilityService(options: ApiHandlerOptions): ObservabilityService {
+  if (!options.observabilityService) {
+    throw new ApiError(500, "INTERNAL_ERROR", "Observability service is not configured.");
+  }
+
+  return options.observabilityService;
+}
+
+function logApiError(input: {
+  readonly apiError: ApiError;
+  readonly method: string;
+  readonly path: string;
+  readonly requestId: string;
+}): void {
+  process.stderr.write(
+    `${JSON.stringify({
+      code: input.apiError.code,
+      event: "api_error",
+      level: "error",
+      method: input.method,
+      path: input.path,
+      requestId: input.requestId,
+      status: input.apiError.status,
+    })}\n`,
+  );
 }
 
 function matchPath(pathname: string, pattern: RegExp): string[] | null {
