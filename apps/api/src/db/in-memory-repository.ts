@@ -289,6 +289,16 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     );
   }
 
+  public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
+    const workspaceIds = new Set(
+      this.workspaceMembers
+        .filter((member) => member.userId === userId)
+        .map((member) => member.workspaceId),
+    );
+
+    return this.workspaces.filter((workspace) => workspaceIds.has(workspace.id));
+  }
+
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {
     const now = new Date();
     const updated: ChannelNodeRecord[] = [];

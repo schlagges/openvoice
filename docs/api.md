@@ -82,6 +82,28 @@ DELETE /api/v1/messages/:messageId
 WS     /api/v1/channels/:channelId/messages/ws
 ```
 
+Der channel-spezifische Message-WebSocket bleibt als Phase-3-Kompatibilität bestehen. Neue
+Realtime-Clients sollen den Gateway-Endpunkt verwenden.
+
+---
+
+## Gateway
+
+```http
+WS     /api/v1/gateway
+```
+
+Gateway-Konventionen:
+
+- Server sendet nach Verbindungsaufbau `HELLO { heartbeatIntervalMs, resumeTimeoutMs }`.
+- Client identifiziert sich mit `IDENTIFY`; Cookie-Auth aus dem Upgrade-Request wird akzeptiert,
+  alternativ `d.sessionToken`.
+- Server antwortet mit `READY { user, workspaces, resumeToken, resumed, heartbeatIntervalMs }`.
+- Client sendet `HEARTBEAT`; Server antwortet mit `HEARTBEAT_ACK`.
+- Client-Presence läuft über `DISPATCH` mit `t: "PRESENCE_UPDATE"` und `d.status`.
+- Server-Events nutzen ein einheitliches Envelope mit `op`, `t`, `s` und `d`.
+- Channel- und Message-Events werden serverseitig pro Empfänger gegen `VIEW_CHANNEL` gefiltert.
+
 ---
 
 ## Roles

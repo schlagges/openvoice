@@ -43,3 +43,12 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - Message content: message HTML is never stored as raw HTML. The server stores escaped text with a constrained Markdown subset and strips unsafe links/images. Link previews, embeds, GIFs, stickers and reactions remain out of scope.
 - Message length: Phase 3 uses a default maximum message length of 4000 characters until channel-specific text settings are implemented.
 - Rate limits: Phase 3 rate limits are in-process token buckets. Distributed Redis/Valkey-backed limits are deferred to the Gateway/operations phases where horizontal coordination is introduced.
+
+## 2026-05-05: Phase 4 Gateway and Presence
+
+- Gateway endpoint: `/api/v1/gateway` is the primary realtime endpoint from Phase 4 onward. The Phase 3 channel-scoped message socket remains for compatibility, but new realtime dispatch uses the Gateway envelope.
+- Heartbeat ACK: the Gateway uses an explicit `HEARTBEAT_ACK` op. The Lastenheft requires an ACK response but only listed the initial envelope ops; the explicit op avoids overloading client-to-server `HEARTBEAT` messages.
+- Identify auth: Gateway `IDENTIFY` accepts either a `sessionToken` in the payload or the existing HttpOnly session cookie/Bearer token from the WebSocket upgrade. Cookie auth avoids exposing the session token to browser JavaScript.
+- Resume foundation: Phase 4 issues in-memory resume tokens and preserves the last sequence number/status for a short timeout. Event replay is not implemented yet and remains future work.
+- Redis/Valkey integration: PubSub and temporary presence state use a small internal RESP client instead of adding a Redis npm dependency. This keeps dependencies unchanged while covering the limited Phase 4 commands (`PUBLISH`, `SUBSCRIBE`, `SET`, `SADD`, `SREM`, `SCARD`, `PEXPIRE`, `DEL`).
+- Permission updates: `PERMISSION_UPDATE` dispatches workspace-scoped refresh events without channel IDs. This avoids leaking private channel IDs to members who cannot currently see a channel.

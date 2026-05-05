@@ -7,7 +7,7 @@ import { formatWebTitle } from "../src/main";
 
 describe("web foundation", () => {
   it("formats the phase title", () => {
-    expect(formatWebTitle(3)).toBe("OpenVoice Phase 3");
+    expect(formatWebTitle(4)).toBe("OpenVoice Phase 4");
   });
 
   it("renders an escaped channel tree", () => {

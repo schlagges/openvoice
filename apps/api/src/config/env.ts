@@ -3,6 +3,7 @@ export interface ApiConfig {
   readonly csrfSecret: string;
   readonly databaseUrl: string;
   readonly passwordPepper: string;
+  readonly redisUrl: string;
   readonly sessionCookieName: string;
   readonly sessionCookieSecure: boolean;
   readonly sessionSecret: string;
@@ -15,6 +16,7 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     csrfSecret: readRequired(env.CSRF_SECRET, "CSRF_SECRET"),
     databaseUrl: readRequired(env.DATABASE_URL, "DATABASE_URL"),
     passwordPepper: readRequired(env.PASSWORD_PEPPER, "PASSWORD_PEPPER"),
+    redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
     sessionCookieName: env.SESSION_COOKIE_NAME ?? "openvoice_session",
     sessionCookieSecure: readBoolean(env.SESSION_COOKIE_SECURE, env.NODE_ENV === "production"),
     sessionSecret: readRequired(env.SESSION_SECRET, "SESSION_SECRET"),

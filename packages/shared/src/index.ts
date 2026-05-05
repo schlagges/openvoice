@@ -1,6 +1,7 @@
-export const OPENVOICE_PHASE = 3 as const;
+export const OPENVOICE_PHASE = 4 as const;
 
 export * from "./channels/index.js";
+export * from "./gateway/index.js";
 export * from "./messages/index.js";
 export * from "./permissions/index.js";
 
