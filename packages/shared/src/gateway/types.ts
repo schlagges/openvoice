@@ -1,5 +1,6 @@
 import type { ChannelNode, ChannelTreeNode } from "../channels/types.js";
 import type { Message } from "../messages/types.js";
+import type { SpeakingUpdatePayload, VoiceStateUpdatePayload } from "../voice/types.js";
 
 export const GatewayOp = {
   DISPATCH: "DISPATCH",
@@ -45,6 +46,8 @@ export const ServerGatewayEventType = {
   ROLE_CREATE: "ROLE_CREATE",
   ROLE_DELETE: "ROLE_DELETE",
   ROLE_UPDATE: "ROLE_UPDATE",
+  SPEAKING_UPDATE: "SPEAKING_UPDATE",
+  VOICE_STATE_UPDATE: "VOICE_STATE_UPDATE",
   WORKSPACE_UPDATE: "WORKSPACE_UPDATE",
 } as const;
 
@@ -123,6 +126,8 @@ export type GatewayDispatchPayload =
   | Message
   | PermissionUpdatePayload
   | PresenceUpdatePayload
+  | SpeakingUpdatePayload
+  | VoiceStateUpdatePayload
   | WorkspaceUpdatePayload;
 
 export function isPresenceStatus(value: unknown): value is PresenceStatus {

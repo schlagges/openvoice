@@ -3,6 +3,7 @@ import type { Session } from "../db/models.js";
 import { AuthService, toPublicUser } from "../modules/auth/service.js";
 import { ChannelService } from "../modules/channels/service.js";
 import { MessageService } from "../modules/messages/service.js";
+import { VoiceService } from "../modules/voice/service.js";
 import { WorkspaceService } from "../modules/workspaces/service.js";
 import { readRequestToken } from "../security/request-auth.js";
 import { clearSessionCookie, createSessionCookie } from "./cookies.js";
@@ -26,6 +27,9 @@ import {
   parseReorderChannelsRequest,
   parseUpdateMessageRequest,
   parseUuidPathParameter,
+  parseVoiceJoinRequest,
+  parseVoiceModerationRequest,
+  parseVoiceSelfStateRequest,
   readJsonObject,
 } from "./validation.js";
 
@@ -37,6 +41,7 @@ export interface ApiHandlerOptions {
     "sessionCookieName" | "sessionCookieSecure" | "sessionTtlSeconds"
   >;
   readonly messageService: MessageService;
+  readonly voiceService?: VoiceService;
   readonly workspaceService: WorkspaceService;
 }
 
@@ -141,6 +146,16 @@ async function routeRequest(
     }
 
     return jsonResponse({ user: toPublicUser(authResult.user) }, 200, requestId);
+  }
+
+  if (url.pathname === "/api/v1/turn/credentials") {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    return jsonResponse(
+      requireVoiceService(options).createIceServers(authenticated.userId),
+      200,
+      requestId,
+    );
   }
 
   if (url.pathname === "/api/v1/workspaces") {
@@ -357,6 +372,94 @@ async function routeRequest(
     throw methodNotAllowed();
   }
 
+  const voiceJoinMatch = matchPath(url.pathname, /^\/api\/v1\/channels\/([^/]+)\/voice\/join$/);
+  if (voiceJoinMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const channelId = parseUuidPathParameter(requirePathPart(voiceJoinMatch, 0), "channelId");
+    const body = parseVoiceJoinRequest(await readJsonObject(request));
+    const result = await requireVoiceService(options).join({
+      ...body,
+      channelId,
+      sessionId: authenticated.sessionId,
+      userId: authenticated.userId,
+    });
+
+    return jsonResponse(result, 200, requestId);
+  }
+
+  const voiceLeaveMatch = matchPath(url.pathname, /^\/api\/v1\/workspaces\/([^/]+)\/voice\/leave$/);
+  if (voiceLeaveMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(requirePathPart(voiceLeaveMatch, 0), "workspaceId");
+    const result = await requireVoiceService(options).leave(workspaceId, authenticated.userId);
+
+    return jsonResponse(result, 200, requestId);
+  }
+
+  const voiceStateMatch = matchPath(url.pathname, /^\/api\/v1\/workspaces\/([^/]+)\/voice\/state$/);
+  if (voiceStateMatch) {
+    assertMethod(request, "PATCH");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(requirePathPart(voiceStateMatch, 0), "workspaceId");
+    const body = parseVoiceSelfStateRequest(await readJsonObject(request));
+    const state = await requireVoiceService(options).updateSelfState({
+      ...body,
+      userId: authenticated.userId,
+      workspaceId,
+    });
+
+    return jsonResponse({ state }, 200, requestId);
+  }
+
+  const voiceServerMuteMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/voice\/server-mute$/,
+  );
+  if (voiceServerMuteMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(voiceServerMuteMatch, 0),
+      "workspaceId",
+    );
+    const body = parseVoiceModerationRequest(await readJsonObject(request));
+    const state = await requireVoiceService(options).serverMute({
+      ...body,
+      actorId: authenticated.userId,
+      workspaceId,
+    });
+
+    return jsonResponse({ state }, 200, requestId);
+  }
+
+  const voiceServerDeafenMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/voice\/server-deafen$/,
+  );
+  if (voiceServerDeafenMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(voiceServerDeafenMatch, 0),
+      "workspaceId",
+    );
+    const body = parseVoiceModerationRequest(await readJsonObject(request));
+    const state = await requireVoiceService(options).serverDeafen({
+      ...body,
+      actorId: authenticated.userId,
+      workspaceId,
+    });
+
+    return jsonResponse({ state }, 200, requestId);
+  }
+
   throw notFound();
 }
 
@@ -408,6 +511,14 @@ function assertMethod(request: Request, expectedMethod: string): void {
   if (request.method !== expectedMethod) {
     throw methodNotAllowed();
   }
+}
+
+function requireVoiceService(options: ApiHandlerOptions): VoiceService {
+  if (!options.voiceService) {
+    throw new ApiError(500, "INTERNAL_ERROR", "Voice service is not configured.");
+  }
+
+  return options.voiceService;
 }
 
 function matchPath(pathname: string, pattern: RegExp): string[] | null {

@@ -19,11 +19,15 @@ import type {
   PermissionOverrideTargetType,
   ReorderChannelInput,
   Role,
+  SetVoiceModerationInput,
   Session,
   SoftDeleteMessageInput,
   UpdateMessageInput,
+  UpdateVoiceSelfStateInput,
   UpsertPermissionOverrideInput,
+  UpsertVoiceStateInput,
   User,
+  VoiceStateRecord,
   Workspace,
   WorkspaceAccessContext,
   WorkspaceMember,
@@ -42,6 +46,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
   public readonly roles: Role[] = [];
   public readonly sessions: Session[] = [];
   public readonly users: User[] = [];
+  public readonly voiceStates: VoiceStateRecord[] = [];
   public readonly workspaceMembers: WorkspaceMember[] = [];
   public readonly workspaces: Workspace[] = [];
 
@@ -528,6 +533,146 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     }
 
     return replacement;
+  }
+
+  public async upsertVoiceState(input: UpsertVoiceStateInput): Promise<VoiceStateRecord> {
+    const now = new Date();
+    const existing = this.voiceStates.find(
+      (state) => state.workspaceId === input.workspaceId && state.userId === input.userId,
+    );
+
+    if (existing) {
+      const replacement: VoiceStateRecord = {
+        ...existing,
+        audioMode: input.audioMode,
+        cameraEnabled: false,
+        channelId: input.channelId,
+        screenShareEnabled: false,
+        selfDeafened: input.selfDeafened,
+        selfMuted: input.selfMuted,
+        sessionId: input.sessionId,
+        speaking: false,
+        updatedAt: now,
+      };
+      this.voiceStates[this.voiceStates.indexOf(existing)] = replacement;
+      return replacement;
+    }
+
+    const state: VoiceStateRecord = {
+      audioMode: input.audioMode,
+      cameraEnabled: false,
+      channelId: input.channelId,
+      connectedAt: now,
+      screenShareEnabled: false,
+      selfDeafened: input.selfDeafened,
+      selfMuted: input.selfMuted,
+      serverDeafened: false,
+      serverMuted: false,
+      sessionId: input.sessionId,
+      speaking: false,
+      updatedAt: now,
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+    };
+    this.voiceStates.push(state);
+    return state;
+  }
+
+  public async findVoiceState(
+    workspaceId: string,
+    userId: string,
+  ): Promise<VoiceStateRecord | null> {
+    return (
+      this.voiceStates.find(
+        (state) => state.workspaceId === workspaceId && state.userId === userId,
+      ) ?? null
+    );
+  }
+
+  public async listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]> {
+    return this.voiceStates.filter((state) => state.channelId === channelId);
+  }
+
+  public async updateVoiceSelfState(
+    input: UpdateVoiceSelfStateInput,
+  ): Promise<VoiceStateRecord | null> {
+    const existing = this.voiceStates.find(
+      (state) => state.workspaceId === input.workspaceId && state.userId === input.userId,
+    );
+    if (!existing) {
+      return null;
+    }
+
+    const selfDeafened = input.selfDeafened ?? existing.selfDeafened;
+    const speaking =
+      input.speaking !== undefined
+        ? input.speaking && !existing.serverMuted && !existing.serverDeafened && !selfDeafened
+        : existing.speaking && !existing.serverMuted && !existing.serverDeafened && !selfDeafened;
+    const replacement: VoiceStateRecord = {
+      ...existing,
+      ...(input.audioMode !== undefined ? { audioMode: input.audioMode } : {}),
+      selfDeafened,
+      selfMuted: selfDeafened ? true : (input.selfMuted ?? existing.selfMuted),
+      speaking,
+      updatedAt: new Date(),
+    };
+    this.voiceStates[this.voiceStates.indexOf(existing)] = replacement;
+    return replacement;
+  }
+
+  public async setVoiceModerationState(
+    input: SetVoiceModerationInput,
+  ): Promise<VoiceStateRecord | null> {
+    const existing = this.voiceStates.find(
+      (state) => state.workspaceId === input.workspaceId && state.userId === input.targetUserId,
+    );
+    if (!existing) {
+      return null;
+    }
+
+    const now = new Date();
+    const serverMuted = input.serverMuted ?? existing.serverMuted;
+    const serverDeafened = input.serverDeafened ?? existing.serverDeafened;
+    const replacement: VoiceStateRecord = {
+      ...existing,
+      serverDeafened,
+      serverMuted,
+      speaking: serverMuted || serverDeafened ? false : existing.speaking,
+      updatedAt: now,
+    };
+    this.voiceStates[this.voiceStates.indexOf(existing)] = replacement;
+    this.auditLogEntries.push({
+      actorId: input.actorId,
+      createdAt: now,
+      event: input.serverMuted !== undefined ? "VOICE_SERVER_MUTE" : "VOICE_SERVER_DEAFEN",
+      id: randomUUID(),
+      ipHash: null,
+      metadata: {
+        channelId: existing.channelId,
+        serverDeafened: replacement.serverDeafened,
+        serverMuted: replacement.serverMuted,
+      },
+      reason: null,
+      targetId: input.targetUserId,
+      targetType: "workspace_member",
+      workspaceId: input.workspaceId,
+    });
+    return replacement;
+  }
+
+  public async deleteVoiceState(
+    workspaceId: string,
+    userId: string,
+  ): Promise<VoiceStateRecord | null> {
+    const existing = this.voiceStates.find(
+      (state) => state.workspaceId === workspaceId && state.userId === userId,
+    );
+    if (!existing) {
+      return null;
+    }
+
+    this.voiceStates.splice(this.voiceStates.indexOf(existing), 1);
+    return existing;
   }
 
   private writePermissionOverrideAudit(

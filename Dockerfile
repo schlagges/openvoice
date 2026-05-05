@@ -14,6 +14,8 @@ COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
+ARG VITE_API_BASE_URL=http://localhost:3000/api/v1
+ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY . .
 RUN pnpm build
 
@@ -27,5 +29,6 @@ EXPOSE 3000
 CMD ["sh", "-c", "node apps/api/dist/db/migrate.js && node apps/api/dist/server.js"]
 
 FROM nginx:1.27-alpine AS web
+COPY infra/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 80

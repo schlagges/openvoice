@@ -52,3 +52,16 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - Resume foundation: Phase 4 issues in-memory resume tokens and preserves the last sequence number/status for a short timeout. Event replay is not implemented yet and remains future work.
 - Redis/Valkey integration: PubSub and temporary presence state use a small internal RESP client instead of adding a Redis npm dependency. This keeps dependencies unchanged while covering the limited Phase 4 commands (`PUBLISH`, `SUBSCRIBE`, `SET`, `SADD`, `SREM`, `SCARD`, `PEXPIRE`, `DEL`).
 - Permission updates: `PERMISSION_UPDATE` dispatches workspace-scoped refresh events without channel IDs. This avoids leaking private channel IDs to members who cannot currently see a channel.
+
+## 2026-05-05: Phase 5 Voice MVP
+
+- Media provider: Phase 5 introduces a narrow `MediaProvider` interface and a LiveKit implementation. LiveKit is self-hosted and keeps the SFU replaceable in later phases.
+- LiveKit URLs: `LIVEKIT_URL` is the browser-facing WebSocket URL returned to clients; `LIVEKIT_INTERNAL_URL` is the API-to-SFU HTTP URL used for room control. Docker Compose therefore works without exposing internal service names to browsers.
+- TURN credentials: the API generates coturn REST credentials with HMAC-SHA1, short TTL and no frontend-shipped shared secret. The ICE endpoint returns STUN, TURN UDP, TURN TCP and TURNS entries.
+- Server mute enforcement: server mute/deafen is stored in `voice_states`, dispatched through the Gateway and enforced against LiveKit by updating participant publish permissions and muting existing microphone tracks when the participant is connected.
+- Phase boundary: camera, screenshare, recording and bots remain unimplemented. The voice client only publishes microphone audio.
+- Docker images: the Phase 5 Compose file adds LiveKit and coturn with placeholder development credentials. Production deployments must replace all placeholders and provide proper TLS/TURNS configuration.
+
+## Phase 5 Dependency License Check
+
+`livekit-client` and `livekit-server-sdk` are Apache-2.0 licensed. The license is OSI-compatible and documented in `THIRD_PARTY_NOTICES.md`.

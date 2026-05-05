@@ -56,6 +56,8 @@ Mit Playwright:
 
 ## Manuelle RTC Tests
 
+Phase-5-spezifische Schritte stehen in `docs/manual-voice-tests.md`.
+
 - 2 Nutzer Audio.
 - 5 Nutzer Audio.
 - 20 Nutzer Audio.

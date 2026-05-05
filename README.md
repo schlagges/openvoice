@@ -4,9 +4,10 @@ OpenVoice ist ein vollständig self-hostbares, browserbasiertes Voice-/Chat-/Vid
 Die Umsetzung erfolgt phasenweise nach `PLANS.md`; das verbindliche Lastenheft liegt in
 `docs/lastenheft.md`.
 
-Die Umsetzung ist aktuell bis Phase 4 vorbereitet: Monorepo-Fundament, Auth/Workspaces,
-Channel-Baum mit Rechte-Overrides, persistenter Chat sowie WebSocket Gateway und Presence. Voice,
-Video und Screenshare sind noch nicht implementiert.
+Die Umsetzung ist aktuell bis Phase 5 vorbereitet: Monorepo-Fundament, Auth/Workspaces,
+Channel-Baum mit Rechte-Overrides, persistenter Chat, WebSocket Gateway/Presence sowie ein Voice
+MVP mit LiveKit-SFU, coturn und TURN REST Credentials. Kamera-Video und Screenshare sind noch
+nicht implementiert.
 
 ## Struktur
 
@@ -40,7 +41,7 @@ pnpm build
 
 ## Lokale Infrastruktur
 
-Die Compose-Datei baut API und Web-App und startet PostgreSQL sowie Valkey:
+Die Compose-Datei baut API und Web-App und startet PostgreSQL, Valkey, LiveKit und coturn:
 
 ```bash
 docker compose --env-file .env.example -f infra/docker-compose.yml up --build
@@ -52,8 +53,9 @@ Die API führt Migrationen beim Containerstart aus. Für lokale Migrationen ohne
 pnpm db:migrate
 ```
 
-Nach dem Compose-Start sind die Web-App unter `http://localhost:5173` und die API unter
-`http://localhost:3000` erreichbar.
+Nach dem Compose-Start sind die Web-App unter `http://localhost:5173`, die API unter
+`http://localhost:3000`, LiveKit unter `ws://localhost:7880` und coturn auf `localhost:3478` /
+`localhost:5349` erreichbar.
 
 Die Beispielwerte in `.env.example` sind Platzhalter für lokale Entwicklung. Produktive Secrets
 dürfen nicht in Git gespeichert werden.
@@ -64,3 +66,4 @@ dürfen nicht in Git gespeichert werden.
 - `PLANS.md`: phasenweiser Umsetzungsplan
 - `docs/lastenheft.md`: verbindliche Produkt- und Technikvorgaben
 - `docs/decision-log.md`: dokumentierte technische Entscheidungen
+- `docs/manual-voice-tests.md`: manuelle Phase-5-Voice-Prüfschritte

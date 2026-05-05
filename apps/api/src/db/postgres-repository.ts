@@ -28,11 +28,15 @@ import type {
   PermissionOverrideTargetType,
   ReorderChannelInput,
   Role,
+  SetVoiceModerationInput,
   Session,
   SoftDeleteMessageInput,
   UpdateMessageInput,
+  UpdateVoiceSelfStateInput,
   UpsertPermissionOverrideInput,
+  UpsertVoiceStateInput,
   User,
+  VoiceStateRecord,
   Workspace,
   WorkspaceAccessContext,
   WorkspaceMember,
@@ -659,6 +663,173 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       client.release();
     }
   }
+
+  public async upsertVoiceState(input: UpsertVoiceStateInput): Promise<VoiceStateRecord> {
+    const result = await this.pool.query<VoiceStateRow>(
+      `INSERT INTO voice_states (
+         workspace_id, channel_id, user_id, session_id, self_muted, self_deafened,
+         server_muted, server_deafened, speaking, camera_enabled, screen_share_enabled,
+         audio_mode, connected_at, updated_at
+       )
+       VALUES ($1, $2, $3, $4, $5, $6, false, false, false, false, false, $7, now(), now())
+       ON CONFLICT (workspace_id, user_id)
+       DO UPDATE SET channel_id = EXCLUDED.channel_id,
+                     session_id = EXCLUDED.session_id,
+                     self_muted = EXCLUDED.self_muted,
+                     self_deafened = EXCLUDED.self_deafened,
+                     speaking = false,
+                     camera_enabled = false,
+                     screen_share_enabled = false,
+                     audio_mode = EXCLUDED.audio_mode,
+                     updated_at = now()
+       RETURNING *`,
+      [
+        input.workspaceId,
+        input.channelId,
+        input.userId,
+        input.sessionId,
+        input.selfMuted,
+        input.selfDeafened,
+        input.audioMode,
+      ],
+    );
+
+    return mapVoiceState(result.rows[0]);
+  }
+
+  public async findVoiceState(
+    workspaceId: string,
+    userId: string,
+  ): Promise<VoiceStateRecord | null> {
+    const result = await this.pool.query<VoiceStateRow>(
+      "SELECT * FROM voice_states WHERE workspace_id = $1 AND user_id = $2",
+      [workspaceId, userId],
+    );
+
+    return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
+  }
+
+  public async listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]> {
+    const result = await this.pool.query<VoiceStateRow>(
+      `SELECT *
+       FROM voice_states
+       WHERE channel_id = $1
+       ORDER BY connected_at ASC`,
+      [channelId],
+    );
+
+    return result.rows.map(mapVoiceState);
+  }
+
+  public async updateVoiceSelfState(
+    input: UpdateVoiceSelfStateInput,
+  ): Promise<VoiceStateRecord | null> {
+    const existing = await this.findVoiceState(input.workspaceId, input.userId);
+    if (!existing) {
+      return null;
+    }
+
+    const selfDeafened = input.selfDeafened ?? existing.selfDeafened;
+    const selfMuted = selfDeafened ? true : (input.selfMuted ?? existing.selfMuted);
+    const speaking =
+      input.speaking !== undefined
+        ? input.speaking && !existing.serverMuted && !existing.serverDeafened && !selfDeafened
+        : existing.speaking && !existing.serverMuted && !existing.serverDeafened && !selfDeafened;
+    const result = await this.pool.query<VoiceStateRow>(
+      `UPDATE voice_states
+       SET self_muted = $3,
+           self_deafened = $4,
+           speaking = $5,
+           audio_mode = $6,
+           camera_enabled = false,
+           screen_share_enabled = false,
+           updated_at = now()
+       WHERE workspace_id = $1
+         AND user_id = $2
+       RETURNING *`,
+      [
+        input.workspaceId,
+        input.userId,
+        selfMuted,
+        selfDeafened,
+        speaking,
+        input.audioMode ?? existing.audioMode,
+      ],
+    );
+
+    return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
+  }
+
+  public async setVoiceModerationState(
+    input: SetVoiceModerationInput,
+  ): Promise<VoiceStateRecord | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const existingResult = await client.query<VoiceStateRow>(
+        "SELECT * FROM voice_states WHERE workspace_id = $1 AND user_id = $2 FOR UPDATE",
+        [input.workspaceId, input.targetUserId],
+      );
+      const existing = existingResult.rows[0] ? mapVoiceState(existingResult.rows[0]) : null;
+      if (!existing) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const serverMuted = input.serverMuted ?? existing.serverMuted;
+      const serverDeafened = input.serverDeafened ?? existing.serverDeafened;
+      const result = await client.query<VoiceStateRow>(
+        `UPDATE voice_states
+         SET server_muted = $3,
+             server_deafened = $4,
+             speaking = CASE WHEN $3 OR $4 THEN false ELSE speaking END,
+             updated_at = now()
+         WHERE workspace_id = $1
+           AND user_id = $2
+         RETURNING *`,
+        [input.workspaceId, input.targetUserId, serverMuted, serverDeafened],
+      );
+      const state = mapVoiceState(result.rows[0]);
+
+      await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: input.serverMuted !== undefined ? "VOICE_SERVER_MUTE" : "VOICE_SERVER_DEAFEN",
+        metadata: {
+          channelId: state.channelId,
+          serverDeafened: state.serverDeafened,
+          serverMuted: state.serverMuted,
+        },
+        targetId: input.targetUserId,
+        targetType: "workspace_member",
+        workspaceId: input.workspaceId,
+      });
+
+      await client.query("COMMIT");
+      return state;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async deleteVoiceState(
+    workspaceId: string,
+    userId: string,
+  ): Promise<VoiceStateRecord | null> {
+    const result = await this.pool.query<VoiceStateRow>(
+      `DELETE FROM voice_states
+       WHERE workspace_id = $1
+         AND user_id = $2
+       RETURNING *`,
+      [workspaceId, userId],
+    );
+
+    return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
+  }
 }
 
 interface WorkspaceCreationAuditInput {
@@ -837,6 +1008,23 @@ interface MessageRow extends QueryResultRow {
   readonly edited_at: Date | null;
   readonly id: string;
   readonly updated_at: Date;
+  readonly workspace_id: string;
+}
+
+interface VoiceStateRow extends QueryResultRow {
+  readonly audio_mode: VoiceStateRecord["audioMode"];
+  readonly camera_enabled: boolean;
+  readonly channel_id: string;
+  readonly connected_at: Date;
+  readonly screen_share_enabled: boolean;
+  readonly self_deafened: boolean;
+  readonly self_muted: boolean;
+  readonly server_deafened: boolean;
+  readonly server_muted: boolean;
+  readonly session_id: string;
+  readonly speaking: boolean;
+  readonly updated_at: Date;
+  readonly user_id: string;
   readonly workspace_id: string;
 }
 
@@ -1024,6 +1212,29 @@ function mapMessage(row: MessageRow | undefined): MessageRecord {
     editedAt: row.edited_at,
     id: row.id,
     updatedAt: row.updated_at,
+    workspaceId: row.workspace_id,
+  };
+}
+
+function mapVoiceState(row: VoiceStateRow | undefined): VoiceStateRecord {
+  if (!row) {
+    throw new Error("Expected voice state row.");
+  }
+
+  return {
+    audioMode: row.audio_mode,
+    cameraEnabled: row.camera_enabled,
+    channelId: row.channel_id,
+    connectedAt: row.connected_at,
+    screenShareEnabled: row.screen_share_enabled,
+    selfDeafened: row.self_deafened,
+    selfMuted: row.self_muted,
+    serverDeafened: row.server_deafened,
+    serverMuted: row.server_muted,
+    sessionId: row.session_id,
+    speaking: row.speaking,
+    updatedAt: row.updated_at,
+    userId: row.user_id,
     workspaceId: row.workspace_id,
   };
 }
