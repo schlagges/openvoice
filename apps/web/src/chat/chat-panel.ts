@@ -45,6 +45,7 @@ let currentUserId = "";
 let reconnectAttempt = 0;
 
 const MAX_RECONNECT_DELAY_MS = 10_000;
+const CHAT_EMOJIS = ["🙂", "👍", "🎉", "❤️", "😂", "👀"];
 const authorNameCache = new Map<string, string>();
 
 export function renderChatPanel(messages: readonly Message[], channelName = "Nachrichten"): string {
@@ -74,6 +75,12 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
           <textarea id="chat-message-input" class="chat-composer__input" name="message" rows="1" placeholder="Nachricht schreiben"></textarea>
           <button class="chat-composer__send" type="submit" aria-label="Nachricht senden" title="Nachricht senden">↵</button>
         </div>
+        <div class="chat-emoji-set" aria-label="Smileys">
+          ${CHAT_EMOJIS.map(
+            (emoji) =>
+              `<button class="chat-emoji-button" type="button" data-chat-emoji="${escapeHtml(emoji)}" aria-label="Smiley ${escapeHtml(emoji)} einfuegen" title="${escapeHtml(emoji)} einfuegen">${escapeHtml(emoji)}</button>`,
+          ).join("")}
+        </div>
         <p id="chat-composer-status" class="chat-composer__status" role="status"></p>
       </form>
     </section>
@@ -102,6 +109,26 @@ function bindChatComposer(root: HTMLElement): void {
 
     event.preventDefault();
     form?.requestSubmit();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-chat-emoji]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!input) {
+        return;
+      }
+
+      const emoji = button.dataset.chatEmoji ?? "";
+      const selectionStart = input.selectionStart;
+      const selectionEnd = input.selectionEnd;
+      const prefix = input.value.slice(0, selectionStart);
+      const suffix = input.value.slice(selectionEnd);
+      const spacer = prefix && !prefix.endsWith(" ") ? " " : "";
+      const nextValue = `${prefix}${spacer}${emoji}${suffix}`;
+      input.value = nextValue;
+      const cursor = prefix.length + spacer.length + emoji.length;
+      input.setSelectionRange(cursor, cursor);
+      input.focus();
+    });
   });
 
   form?.addEventListener("submit", (event) => {

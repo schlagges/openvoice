@@ -268,8 +268,18 @@ export class OpenVoiceVoiceClient {
   }
 
   public async setSelfDeafened(selfDeafened: boolean): Promise<VoiceState> {
-    const state = await this.updateSelfState({ selfDeafened });
-    if (selfDeafened) {
+    return this.updateSelfState({ selfDeafened });
+  }
+
+  public async setSelfMutedAndDeafened(enabled: boolean): Promise<VoiceState> {
+    const state = await this.updateSelfState({ selfDeafened: enabled, selfMuted: enabled });
+    if (!enabled && this.canPublishAudio && !state.serverMuted && !state.serverDeafened) {
+      await this.enableMicrophoneOrMarkMuted();
+      return this.state ?? state;
+    }
+
+    if (enabled) {
+      this.microphoneError = null;
       await this.room.localParticipant.setMicrophoneEnabled(false);
     }
     return state;
@@ -635,6 +645,28 @@ export interface VoiceParticipantView {
   readonly statusLabel: string;
 }
 
+export type VoiceShortcutAction = "deafen" | "mute" | "muteAndDeafen";
+
+export function resolveVoiceShortcut(
+  event: Pick<KeyboardEvent, "altKey" | "ctrlKey" | "key" | "metaKey" | "repeat">,
+  target: EventTarget | null,
+): VoiceShortcutAction | null {
+  if (event.altKey || event.ctrlKey || event.metaKey || event.repeat || isTextEntryTarget(target)) {
+    return null;
+  }
+
+  switch (event.key.toLowerCase()) {
+    case "m":
+      return "mute";
+    case "d":
+      return "deafen";
+    case "b":
+      return "muteAndDeafen";
+    default:
+      return null;
+  }
+}
+
 export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoiceClient()): void {
   root.insertAdjacentHTML("beforeend", renderVoiceControlsPanel());
   const audioInput = root.querySelector<HTMLSelectElement>("#voice-audio-input");
@@ -644,6 +676,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   const screenQuality = root.querySelector<HTMLSelectElement>("#voice-screen-quality");
   const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
   const status = root.querySelector<HTMLOutputElement>("#voice-status");
+  const statsOutput = root.querySelector<HTMLElement>("#voice-connection-stats");
   const audioHost = root.querySelector<HTMLElement>("#voice-audio-host");
   const videoGrid = root.querySelector<HTMLElement>("#voice-video-grid");
   const participantStage = root.querySelector<HTMLElement>("#voice-participant-stage");
@@ -684,6 +717,25 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       status.value = text;
     }
   };
+  const refreshConnectionStats = (): void => {
+    if (!statsOutput) {
+      return;
+    }
+
+    if (!client.currentState) {
+      statsOutput.textContent = "Nicht verbunden";
+      return;
+    }
+
+    void client
+      .collectQualitySample()
+      .then((sample) => {
+        statsOutput.textContent = formatConnectionStats(sample);
+      })
+      .catch(() => {
+        statsOutput.textContent = "Stats nicht verfuegbar";
+      });
+  };
   const setVoiceActionsEnabled = (enabled: boolean): void => {
     for (const button of mediaButtons) {
       if (button) {
@@ -697,9 +749,14 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
     deafenButton?.classList.toggle("is-active", Boolean(state?.selfDeafened));
     cameraButton?.classList.toggle("is-active", Boolean(state?.cameraEnabled));
     screenButton?.classList.toggle("is-active", Boolean(state?.screenShareEnabled));
+    setAttachedRemoteAudioMuted(audioHost, Boolean(state?.selfDeafened));
     muteButton?.setAttribute(
       "aria-label",
       state?.selfMuted ? "Mikrofon einschalten" : "Mikrofon stummschalten",
+    );
+    deafenButton?.setAttribute(
+      "aria-label",
+      state?.selfDeafened ? "Audio einschalten" : "Audio ausschalten",
     );
     cameraButton?.setAttribute(
       "aria-label",
@@ -741,6 +798,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
           setVoiceActionsEnabled(true);
           setStatus(client.lastMicrophoneError ?? `Verbunden: ${result.roomName}`);
           updateControlStates();
+          refreshConnectionStats();
           applyAttachedAudioSinkId(audioHost, audioOutput?.value ?? "");
           void refreshMediaDeviceSelects({ audioInput, audioOutput, videoInput });
           void client
@@ -788,6 +846,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
         setVoiceActionsEnabled(false);
         setStatus("Getrennt");
         updateControlStates();
+        refreshConnectionStats();
       })
       .catch((error: unknown) => {
         setVoiceActionsEnabled(false);
@@ -802,6 +861,14 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       updateControlStates();
     });
   });
+  const statsTimer = setInterval(refreshConnectionStats, 3_000);
+  window.addEventListener(
+    "beforeunload",
+    () => {
+      clearInterval(statsTimer);
+    },
+    { once: true },
+  );
   audioInput?.addEventListener("change", () => {
     void client
       .setAudioInputDevice(audioInput.value)
@@ -837,6 +904,38 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
     const nextDeafened = !client.currentState?.selfDeafened;
     void client.setSelfDeafened(nextDeafened).then((state) => {
       setStatus(state.selfDeafened ? "Taub" : "Audio an");
+      updateControlStates();
+    });
+  });
+  window.addEventListener("keydown", (event) => {
+    const action = resolveVoiceShortcut(event, event.target);
+    if (!action || !client.currentState) {
+      return;
+    }
+
+    event.preventDefault();
+    dispatchAudioUnlock();
+    if (action === "mute") {
+      const nextMuted = !client.currentState.selfMuted;
+      void client.setSelfMuted(nextMuted).then((state) => {
+        setStatus(client.lastMicrophoneError ?? (state.selfMuted ? "Stumm" : "Mic an"));
+        updateControlStates();
+      });
+      return;
+    }
+
+    if (action === "deafen") {
+      const nextDeafened = !client.currentState.selfDeafened;
+      void client.setSelfDeafened(nextDeafened).then((state) => {
+        setStatus(state.selfDeafened ? "Taub" : "Audio an");
+        updateControlStates();
+      });
+      return;
+    }
+
+    const nextEnabled = !(client.currentState.selfMuted && client.currentState.selfDeafened);
+    void client.setSelfMutedAndDeafened(nextEnabled).then((state) => {
+      setStatus(state.selfMuted && state.selfDeafened ? "Stumm und taub" : "Mic und Audio an");
       updateControlStates();
     });
   });
@@ -901,8 +1000,8 @@ export function renderVoiceControlsPanel(): string {
         <div id="voice-participant-stage" class="voice-participant-stage" aria-label="Teilnehmer"></div>
         <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
         <div class="voice-panel__actions" aria-label="Voice Aktionen">
-          <button id="voice-mute" class="voice-control-button" type="button" disabled aria-label="Mikrofon stummschalten" title="Mikrofon stummschalten">${controlIcon("mic")}</button>
-          <button id="voice-deafen" class="voice-control-button" type="button" disabled aria-label="Deafen" title="Deafen">${controlIcon("audio")}</button>
+          <button id="voice-mute" class="voice-control-button" type="button" disabled aria-label="Mikrofon stummschalten" title="Mikrofon stummschalten (M)">${controlIcon("mic")}</button>
+          <button id="voice-deafen" class="voice-control-button" type="button" disabled aria-label="Audio ausschalten" title="Audio ausschalten (D)">${controlIcon("audio")}</button>
           <button id="voice-camera" class="voice-control-button" type="button" disabled aria-label="Kamera einschalten" title="Kamera">${controlIcon("camera")}</button>
           <button id="voice-screen" class="voice-control-button" type="button" disabled aria-label="Bildschirm teilen" title="Bildschirm teilen">${controlIcon("screen")}</button>
           <button id="voice-leave" class="voice-control-button voice-control-button--danger" type="button" disabled aria-label="Voice verlassen" title="Voice verlassen">${controlIcon("leave")}</button>
@@ -928,7 +1027,13 @@ export function renderVoiceControlsPanel(): string {
                 </select>
               </label>
               <label class="voice-panel__field">
-                <span>Camera quality</span>
+                <span>Audio-Codec</span>
+                <select id="voice-audio-codec" class="voice-panel__input" disabled>
+                  <option value="opus">Opus Auto</option>
+                </select>
+              </label>
+              <label class="voice-panel__field">
+                <span>Kamera-Qualitaet</span>
                 <select id="voice-camera-quality" class="voice-panel__input">
                   <option value="720p">720p</option>
                   <option value="1080p">1080p</option>
@@ -937,7 +1042,7 @@ export function renderVoiceControlsPanel(): string {
                 </select>
               </label>
               <label class="voice-panel__field">
-                <span>Screen quality</span>
+                <span>Screen-Qualitaet</span>
                 <select id="voice-screen-quality" class="voice-panel__input">
                   <option value="1080p">1080p</option>
                   <option value="1440p">1440p</option>
@@ -946,17 +1051,38 @@ export function renderVoiceControlsPanel(): string {
                 </select>
               </label>
               <label class="voice-panel__field">
-                <span>Screen mode</span>
+                <span>Screen-Modus</span>
                 <select id="voice-screen-mode" class="voice-panel__input">
                   <option value="detail">Detail</option>
                   <option value="motion">Motion</option>
                 </select>
               </label>
+              <div class="voice-panel__stats" aria-live="polite">
+                <span>Connection Stats</span>
+                <output id="voice-connection-stats">Nicht verbunden</output>
+              </div>
             </div>
           </details>
         </div>
       </section>
     `;
+}
+
+export function formatConnectionStats(sample: ClientRtcQualitySample): string {
+  const audio = sample.audio;
+  const video = sample.video;
+  const rtt = formatNullableMetric(audio.rttMs, "ms");
+  const jitter = formatNullableMetric(audio.jitterMs, "ms");
+  const lost = audio.packetsLost ?? 0;
+  const received = audio.packetsReceived ?? 0;
+  const videoSize = video.width && video.height ? `${video.width}x${video.height}` : "kein Video";
+  const fps = formatNullableMetric(video.framesPerSecond, "fps");
+
+  return `ICE ${sample.connection.iceState} · ${sample.connection.selectedCandidateType}/${sample.connection.transport} · RTT ${rtt} · Jitter ${jitter} · Lost ${lost}/${received} · ${videoSize} ${fps}`;
+}
+
+function formatNullableMetric(value: number | null, unit: string): string {
+  return value === null ? "-" : `${Math.round(value)} ${unit}`;
 }
 
 function controlIcon(name: "audio" | "camera" | "leave" | "mic" | "screen" | "settings"): string {
@@ -1046,10 +1172,12 @@ export function renderRemoteAudio(root: HTMLElement, room: Room, outputDeviceId 
 
   const fragment = document.createDocumentFragment();
   const attachedTracks: RemoteAudioTrack[] = [];
+  const muted = root.dataset.remoteAudioMuted === "true";
   for (const track of collectRemoteAudioTracks(room)) {
     const audio = document.createElement("audio");
     audio.autoplay = true;
     audio.hidden = true;
+    audio.muted = muted;
     audio.dataset.openvoiceRemoteAudio = "true";
     track.attach(audio);
     attachedTracks.push(track);
@@ -1072,6 +1200,17 @@ export function collectRemoteAudioTracks(room: Room): RemoteAudioTrack[] {
     }
   }
   return tracks;
+}
+
+function setAttachedRemoteAudioMuted(root: HTMLElement | null, muted: boolean): void {
+  if (!root) {
+    return;
+  }
+
+  root.dataset.remoteAudioMuted = muted ? "true" : "false";
+  root.querySelectorAll<HTMLAudioElement>("audio[data-openvoice-remote-audio]").forEach((audio) => {
+    audio.muted = muted;
+  });
 }
 
 function clearAttachedRemoteAudio(root: HTMLElement): void {
@@ -1097,6 +1236,20 @@ function setAudioElementSinkId(audio: HTMLAudioElement, outputDeviceId: string):
   }
 
   void audio.setSinkId(outputDeviceId || "default").catch(() => undefined);
+}
+
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!target || typeof target !== "object") {
+    return false;
+  }
+
+  const element = target as Partial<HTMLElement>;
+  if (element.isContentEditable) {
+    return true;
+  }
+
+  const tagName = typeof element.tagName === "string" ? element.tagName.toLowerCase() : "";
+  return tagName === "input" || tagName === "select" || tagName === "textarea";
 }
 
 export function renderVideoGrid(root: HTMLElement, room: Room): void {

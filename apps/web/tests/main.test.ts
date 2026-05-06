@@ -45,6 +45,7 @@ import {
   formatVoiceRequestError,
   OpenVoiceVoiceClient,
   renderVoiceControlsPanel,
+  resolveVoiceShortcut,
   shouldRetryVoiceJoinError,
   toRtcIceServers,
   toRtcStatsRequestBody,
@@ -207,6 +208,50 @@ describe("web foundation", () => {
       },
     });
     expect(setMicrophoneEnabled).toHaveBeenCalledWith(true, undefined);
+  });
+
+  it("keeps self deafen independent from microphone mute", async () => {
+    const state = createVoiceState("workspace", "channel", "user-local");
+    const deafenedState = { ...state, selfDeafened: true };
+    const setMicrophoneEnabled = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const room = {
+      localParticipant: {
+        setMicrophoneEnabled,
+      },
+    } as unknown as Room;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () => Response.json({ state: deafenedState })) as unknown as typeof fetch;
+
+    const client = new OpenVoiceVoiceClient({ apiBaseUrl: "/api/v1", room });
+    Object.defineProperty(client, "state", { configurable: true, value: state, writable: true });
+
+    try {
+      await client.setSelfDeafened(true);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(setMicrophoneEnabled).not.toHaveBeenCalled();
+    expect(client.currentState?.selfDeafened).toBe(true);
+    expect(client.currentState?.selfMuted).toBe(false);
+  });
+
+  it("maps single-key voice shortcuts outside form fields", () => {
+    expect(resolveVoiceShortcut({ altKey: false, ctrlKey: false, key: "m", metaKey: false, repeat: false }, null)).toBe(
+      "mute",
+    );
+    expect(resolveVoiceShortcut({ altKey: false, ctrlKey: false, key: "D", metaKey: false, repeat: false }, null)).toBe(
+      "deafen",
+    );
+    expect(resolveVoiceShortcut({ altKey: false, ctrlKey: false, key: "b", metaKey: false, repeat: false }, null)).toBe(
+      "muteAndDeafen",
+    );
+    expect(
+      resolveVoiceShortcut(
+        { altKey: false, ctrlKey: false, key: "m", metaKey: false, repeat: false },
+        document.createElement("textarea"),
+      ),
+    ).toBeNull();
   });
 
   it("maps OpenVoice ICE servers to browser RTCConfiguration servers", () => {
