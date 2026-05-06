@@ -24,6 +24,10 @@ interface MessageDispatchEnvelope {
 let selectedChannelId = "";
 let activeMessageSocket: WebSocket | null = null;
 let activeMessageSocketChannelId = "";
+let activeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let reconnectAttempt = 0;
+
+const MAX_RECONNECT_DELAY_MS = 10_000;
 
 export function renderChatPanel(messages: readonly Message[], channelName = "Nachrichten"): string {
   return `
@@ -115,12 +119,12 @@ function bindChatComposer(root: HTMLElement): void {
     selectedChannelId = detail.channelId;
     updateChatTitle(root, detail.channelName);
     if (detail.channelType === "voice") {
-      closeMessageSocket();
+      closeMessageSocket({ reconnect: false });
       setStatus(status, "Voice-Channel ausgewaehlt.", "success");
       return;
     }
     if (detail.channelType !== "text" && detail.channelType !== "combined") {
-      closeMessageSocket();
+      closeMessageSocket({ reconnect: false });
       setStatus(status, "Dieser Channel hat keinen Textverlauf.", "success");
       return;
     }
@@ -128,6 +132,7 @@ function bindChatComposer(root: HTMLElement): void {
     setStatus(status, "Nachrichten werden geladen.", "loading");
     void loadMessages(root, detail.channelId)
       .then(() => {
+        reconnectAttempt = 0;
         openMessageSocket(root, detail.channelId, status);
         setStatus(status, "Channel geladen. Live-Sync aktiv.", "success");
       })
@@ -222,10 +227,17 @@ function openMessageSocket(root: HTMLElement, channelId: string, status: HTMLEle
     return;
   }
 
-  closeMessageSocket();
+  closeMessageSocket({ reconnect: false });
   activeMessageSocketChannelId = channelId;
   const socket = new WebSocket(messageSocketUrl(channelId));
   activeMessageSocket = socket;
+
+  socket.addEventListener("open", () => {
+    if (activeMessageSocket === socket) {
+      reconnectAttempt = 0;
+      setStatus(status, "Live-Sync aktiv.", "success");
+    }
+  });
 
   socket.addEventListener("message", (event) => {
     const envelope = parseMessageEnvelope(event.data);
@@ -246,16 +258,63 @@ function openMessageSocket(root: HTMLElement, channelId: string, status: HTMLEle
     if (activeMessageSocket === socket) {
       activeMessageSocket = null;
       activeMessageSocketChannelId = "";
-      setStatus(status, "Live-Sync getrennt. Channel erneut anklicken.", "error");
+      scheduleMessageReconnect(root, channelId, status);
     }
+  });
+
+  socket.addEventListener("error", () => {
+    socket.close();
   });
 }
 
-function closeMessageSocket(): void {
+function closeMessageSocket(options: { readonly reconnect: boolean }): void {
+  if (!options.reconnect) {
+    clearReconnectTimer();
+  }
   const socket = activeMessageSocket;
   activeMessageSocket = null;
   activeMessageSocketChannelId = "";
   socket?.close();
+}
+
+function scheduleMessageReconnect(
+  root: HTMLElement,
+  channelId: string,
+  status: HTMLElement | null,
+): void {
+  if (selectedChannelId !== channelId) {
+    return;
+  }
+
+  clearReconnectTimer();
+  const delay = reconnectDelayMs(reconnectAttempt);
+  reconnectAttempt += 1;
+  setStatus(status, `Live-Sync getrennt. Neuer Versuch in ${Math.round(delay / 1000)}s.`, "error");
+
+  activeReconnectTimer = setTimeout(() => {
+    activeReconnectTimer = null;
+    if (selectedChannelId !== channelId || activeMessageSocket) {
+      return;
+    }
+
+    setStatus(status, "Live-Sync wird neu verbunden.", "loading");
+    void loadMessages(root, channelId)
+      .then(() => openMessageSocket(root, channelId, status))
+      .catch(() => scheduleMessageReconnect(root, channelId, status));
+  }, delay);
+}
+
+function clearReconnectTimer(): void {
+  if (!activeReconnectTimer) {
+    return;
+  }
+
+  clearTimeout(activeReconnectTimer);
+  activeReconnectTimer = null;
+}
+
+export function reconnectDelayMs(attempt: number): number {
+  return Math.min(1_000 * 2 ** Math.max(0, attempt), MAX_RECONNECT_DELAY_MS);
 }
 
 function parseMessageEnvelope(data: unknown): MessageDispatchEnvelope | null {

@@ -9,7 +9,7 @@ import {
   type ClientRtcQualitySample,
   type ChannelTreeNode,
 } from "@openvoice/shared";
-import { renderChatPanel, renderMessage } from "../src/chat/chat-panel";
+import { reconnectDelayMs, renderChatPanel, renderMessage } from "../src/chat/chat-panel";
 import { renderChannelTree } from "../src/channels/channel-tree";
 import {
   formatWebTitle,
@@ -210,6 +210,12 @@ describe("web foundation", () => {
     expect(html).toContain("Noch keine Nachrichten");
     expect(html).toContain("Nachricht senden");
     expect(html).toContain("chat-composer-status");
+  });
+
+  it("caps chat websocket reconnect backoff", () => {
+    expect(reconnectDelayMs(0)).toBe(1_000);
+    expect(reconnectDelayMs(2)).toBe(4_000);
+    expect(reconnectDelayMs(20)).toBe(10_000);
   });
 
   it("exports escaped message rendering for dynamic appends", () => {

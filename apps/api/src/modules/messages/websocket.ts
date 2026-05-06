@@ -12,6 +12,8 @@ import type { AuthService } from "../auth/service.js";
 import type { InMemoryMessageEventHub } from "./events.js";
 import type { MessageService } from "./service.js";
 
+const MESSAGE_SOCKET_HEARTBEAT_MS = 30_000;
+
 export interface MessageWebSocketOptions {
   readonly authService: AuthService;
   readonly config: Pick<ApiConfig, "corsAllowedOrigins" | "sessionCookieName"> & {
@@ -103,6 +105,7 @@ async function handleMessageSocketUpgrade(
   }
 
   webSocketServer.handleUpgrade(incoming, socket, head, (webSocket) => {
+    let alive = true;
     const unsubscribe = options.eventHub.subscribe({
       canReceive: () => options.messageService.canReceiveMessageEvents(channelId, userId),
       channelId,
@@ -113,8 +116,26 @@ async function handleMessageSocketUpgrade(
       },
     });
 
-    webSocket.on("close", unsubscribe);
-    webSocket.on("error", unsubscribe);
+    const heartbeat = setInterval(() => {
+      if (!alive) {
+        webSocket.terminate();
+        return;
+      }
+
+      alive = false;
+      webSocket.ping();
+    }, MESSAGE_SOCKET_HEARTBEAT_MS);
+
+    const cleanup = (): void => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    };
+
+    webSocket.on("pong", () => {
+      alive = true;
+    });
+    webSocket.on("close", cleanup);
+    webSocket.on("error", cleanup);
   });
 }
 

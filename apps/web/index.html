@@ -12,6 +12,9 @@
         --surface-3: #252d39;
         --panel: #141922;
         --panel-2: #1b2230;
+        --stage: #151a23;
+        --stage-2: #10141b;
+        --subtle-surface: rgb(255 255 255 / 5%);
         --border: #2d3542;
         --border-light: #303948;
         --text: #eef4ff;
@@ -46,6 +49,9 @@
         --surface-3: #e2e8f0;
         --panel: #ffffff;
         --panel-2: #f1f5f9;
+        --stage: #ffffff;
+        --stage-2: #f8fafc;
+        --subtle-surface: rgb(15 23 42 / 4%);
         --border: #d8dee8;
         --border-light: #d8dee8;
         --text: #111827;
@@ -83,7 +89,7 @@
 
       .app-shell {
         background:
-          radial-gradient(circle at top left, rgb(79 140 255 / 14%), transparent 34rem), var(--bg);
+          radial-gradient(circle at top left, rgb(79 140 255 / 10%), transparent 34rem), var(--bg);
         display: grid;
         grid-template-columns: minmax(260px, 300px) minmax(0, 1fr) minmax(320px, 370px);
         height: 100dvh;
@@ -310,7 +316,7 @@
 
       .channel-tree__empty,
       .sidebar-participants {
-        background: rgb(255 255 255 / 4%);
+        background: var(--subtle-surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         color: var(--text-muted);
@@ -420,7 +426,7 @@
       }
 
       .workspace-topbar {
-        background: rgb(255 255 255 / 5%);
+        background: var(--subtle-surface);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         padding: 12px 14px;
@@ -465,7 +471,7 @@
       }
 
       .voice-panel {
-        background: linear-gradient(180deg, #151a23 0%, #10141b 100%);
+        background: linear-gradient(180deg, var(--stage) 0%, var(--stage-2) 100%);
         border: 1px solid var(--border);
         border-radius: var(--radius);
         display: grid;
@@ -609,7 +615,7 @@
 
       .voice-panel__actions {
         align-items: center;
-        background: rgb(255 255 255 / 6%);
+        background: var(--subtle-surface);
         border: 1px solid var(--border);
         border-radius: 999px;
         display: flex;
