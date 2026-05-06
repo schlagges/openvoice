@@ -66,6 +66,7 @@ export function createOpenVoiceApiServer() {
   });
   const workspaceService = new WorkspaceService({
     eventPublisher: gatewayEventPublisher,
+    inviteTtlSeconds: config.inviteTtlSeconds,
     repository,
   });
   const messageService = new MessageService({

@@ -10,7 +10,12 @@ export interface ApiConfig {
   readonly livekitInternalUrl: string;
   readonly livekitTokenTtlSeconds: number;
   readonly livekitUrl: string;
+  readonly localPasswordAuthEnabled: boolean;
   readonly mediaProvider: "livekit";
+  readonly oidcAudience: string;
+  readonly oidcClientId: string;
+  readonly oidcIssuerUrl: string;
+  readonly inviteTtlSeconds: number;
   readonly passwordPepper: string;
   readonly rateLimitsEnabled: boolean;
   readonly redisUrl: string;
@@ -40,7 +45,16 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     livekitInternalUrl: env.LIVEKIT_INTERNAL_URL ?? readRequired(env.LIVEKIT_URL, "LIVEKIT_URL"),
     livekitTokenTtlSeconds: readInteger(env.LIVEKIT_TOKEN_TTL_SECONDS, 60 * 10),
     livekitUrl: readRequired(env.LIVEKIT_URL, "LIVEKIT_URL"),
+    localPasswordAuthEnabled: readBoolean(
+      env.LOCAL_PASSWORD_AUTH_ENABLED,
+      env.NODE_ENV !== "production",
+    ),
     mediaProvider: readMediaProvider(env.MEDIA_PROVIDER),
+    oidcAudience: env.OIDC_AUDIENCE ?? env.OIDC_CLIENT_ID ?? "openvoice-web",
+    oidcClientId: env.OIDC_CLIENT_ID ?? "openvoice-web",
+    oidcIssuerUrl:
+      env.OIDC_ISSUER_URL ?? "https://auth.schnick-schnack.info/realms/schnick-schnack",
+    inviteTtlSeconds: readInteger(env.INVITE_TTL_SECONDS, 60 * 5),
     passwordPepper: readRequired(env.PASSWORD_PEPPER, "PASSWORD_PEPPER"),
     rateLimitsEnabled: readBoolean(env.RATE_LIMITS_ENABLED, true),
     redisUrl: env.REDIS_URL ?? "redis://localhost:6379",

@@ -21,6 +21,7 @@ import type { GatewayEventPublisher } from "../gateway/events.js";
 
 export interface WorkspaceServiceOptions {
   readonly eventPublisher?: GatewayEventPublisher;
+  readonly inviteTtlSeconds?: number;
   readonly repository: OpenVoiceRepository;
 }
 
@@ -69,10 +70,12 @@ export interface PublicWorkspaceMember {
 
 export class WorkspaceService {
   private readonly eventPublisher: GatewayEventPublisher | null;
+  private readonly inviteTtlSeconds: number;
   private readonly repository: OpenVoiceRepository;
 
   public constructor(options: WorkspaceServiceOptions) {
     this.eventPublisher = options.eventPublisher ?? null;
+    this.inviteTtlSeconds = options.inviteTtlSeconds ?? 60 * 5;
     this.repository = options.repository;
   }
 
@@ -137,7 +140,7 @@ export class WorkspaceService {
     }
 
     const code = createInviteCode();
-    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const expiresAt = new Date(Date.now() + this.inviteTtlSeconds * 1000);
     const { invite } = await this.repository.createWorkspaceInvite({
       actorId: input.actorId,
       codeHash: hashInviteCode(code),

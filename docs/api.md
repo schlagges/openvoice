@@ -43,6 +43,7 @@ aktuellen RC noch nicht implementiert sind, explizit mit `(nicht in v0.1.0-rc1)`
 ## Auth
 
 ```http
+GET  /api/v1/auth/config
 POST /api/v1/auth/register
 POST /api/v1/auth/login
 POST /api/v1/auth/logout
@@ -50,6 +51,12 @@ POST /api/v1/auth/password-reset/request (nicht in v0.1.0-rc1)
 POST /api/v1/auth/password-reset/confirm (nicht in v0.1.0-rc1)
 GET  /api/v1/me
 ```
+
+`GET /auth/config` liefert die aktuelle Login-Konfiguration fuer das Frontend, inklusive
+Keycloak/OIDC-Issuer und Client-ID. Fuer den geplanten Keycloak-Betrieb zeigt
+`localPasswordAuthEnabled=false`, dass lokale E-Mail/Passwort-Registrierung und Login abgeschaltet
+sind. Bis zur vollstaendigen OIDC- und Gast-Token-Migration bleiben lokale Passwort-Endpunkte fuer
+Entwicklung und bestehende Tests aktivierbar.
 
 ## Observability
 
@@ -89,7 +96,8 @@ User leaken.
 
 `GET /audit-log` benötigt `VIEW_AUDIT_LOG` und liefert die neuesten Einträge mit `limit` 1-100.
 `POST /workspaces/:workspaceId/invites` benötigt `MANAGE_INVITES` und gibt den Invite-Code nur
-einmal im Response zurück. Gespeichert wird ausschließlich ein SHA-256-Hash des Codes.
+einmal im Response zurück. Gespeichert wird ausschließlich ein SHA-256-Hash des Codes. Invite-Codes
+laufen standardmäßig nach 5 Minuten ab (`INVITE_TTL_SECONDS=300`).
 `POST /invites/join` benötigt Auth und CSRF, lehnt aktive Bans ab und weist die Default-Rolle
 `member` zu.
 

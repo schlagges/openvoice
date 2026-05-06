@@ -20,8 +20,8 @@
     "e2e": "playwright test",
     "db:migrate": "pnpm --filter @openvoice/api build && pnpm --filter @openvoice/api migrate",
     "docker:export": "node scripts/export-docker-images.mjs",
-    "format": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"e2e/**/*.ts\" \"scripts/*.mjs\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,ts,yaml,yml}\" \"docs/{api,backup-restore,data-retention,decision-log,deployment,e2e-test-matrix,security,testing}.md\" \"pnpm-workspace.yaml\" --write",
-    "format:check": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"e2e/**/*.ts\" \"scripts/*.mjs\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,ts,yaml,yml}\" \"docs/{api,backup-restore,data-retention,decision-log,deployment,e2e-test-matrix,security,testing}.md\" \"pnpm-workspace.yaml\" --check",
+    "format": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"e2e/**/*.ts\" \"scripts/*.mjs\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,ts,yaml,yml}\" \"docs/{api,auth-keycloak-guest-plan,backup-restore,data-retention,decision-log,deployment,e2e-test-matrix,security,testing}.md\" \"pnpm-workspace.yaml\" --write",
+    "format:check": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"e2e/**/*.ts\" \"scripts/*.mjs\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,ts,yaml,yml}\" \"docs/{api,auth-keycloak-guest-plan,backup-restore,data-retention,decision-log,deployment,e2e-test-matrix,security,testing}.md\" \"pnpm-workspace.yaml\" --check",
     "license:check": "node scripts/check-licenses.mjs",
     "lint": "eslint . --max-warnings=0",
     "test": "vitest run"

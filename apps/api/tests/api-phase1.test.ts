@@ -260,6 +260,62 @@ describe("Phase 1 API", () => {
     );
   });
 
+  it("creates short-lived invites by default", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "short-invite-owner@example.com");
+    const workspace = await createWorkspace(app, owner, "Short Invite Workspace");
+    const before = Date.now();
+
+    const inviteResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.workspace.id}/invites`,
+        {},
+        {
+          cookie: owner.cookie,
+          "x-openvoice-csrf-token": owner.csrfToken,
+        },
+      ),
+    );
+    const inviteBody = (await inviteResponse.json()) as { expiresAt: string };
+    const expiresAt = new Date(inviteBody.expiresAt).getTime();
+
+    expect(inviteResponse.status).toBe(201);
+    expect(expiresAt - before).toBeGreaterThan(295_000);
+    expect(expiresAt - before).toBeLessThan(305_000);
+  });
+
+  it("exposes OIDC login configuration and can disable local password auth", async () => {
+    const app = createTestApp({
+      localPasswordAuthEnabled: false,
+      oidcClientId: "openvoice-web",
+      oidcIssuerUrl: "https://auth.schnick-schnack.info/realms/schnick-schnack",
+    });
+
+    const configResponse = await app.handler(new Request("http://local.test/api/v1/auth/config"));
+    const configBody = (await configResponse.json()) as {
+      localPasswordAuthEnabled: boolean;
+      oidc: { clientId: string; issuerUrl: string };
+    };
+
+    expect(configResponse.status).toBe(200);
+    expect(configBody).toEqual({
+      localPasswordAuthEnabled: false,
+      oidc: {
+        clientId: "openvoice-web",
+        issuerUrl: "https://auth.schnick-schnack.info/realms/schnick-schnack",
+      },
+    });
+
+    const registerResponse = await app.handler(
+      jsonRequest("/api/v1/auth/register", {
+        email: "disabled@example.com",
+        password: "very-secure-password",
+      }),
+    );
+
+    expect(registerResponse.status).toBe(403);
+  });
+
   it("rejects invite creation without MANAGE_INVITES membership and blocks banned invite joins", async () => {
     const app = createTestApp();
     const owner = await register(app, "invite-owner-2@example.com");
@@ -332,7 +388,13 @@ interface TestSession {
   readonly user: PublicUser;
 }
 
-function createTestApp(): TestApp {
+function createTestApp(
+  configOverrides: Partial<{
+    readonly localPasswordAuthEnabled: boolean;
+    readonly oidcClientId: string;
+    readonly oidcIssuerUrl: string;
+  }> = {},
+): TestApp {
   const repository = new InMemoryOpenVoiceRepository();
   const passwordHasher = new TestPasswordHasher();
   const authService = new AuthService({
@@ -355,6 +417,7 @@ function createTestApp(): TestApp {
     config: {
       corsAllowedOrigins: ["http://local.test"],
       enableHsts: false,
+      ...configOverrides,
       sessionCookieName: "openvoice_session",
       sessionCookieSecure: false,
       sessionTtlSeconds: 3600,

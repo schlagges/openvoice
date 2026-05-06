@@ -1,5 +1,28 @@
 # Decision Log
 
+## 2026-05-06: Planned Keycloak and Guest Invite Auth
+
+- OpenVoice should migrate production authentication from local email/password
+  sessions to Keycloak OIDC. The API should verify Keycloak bearer tokens and map
+  the `sub` claim to an OpenVoice user; Keycloak realm roles must not bypass
+  OpenVoice workspace permissions.
+- Direct invite links remain a separate guest entry path. Guests should join with
+  only a display name, receive an OpenVoice guest principal plus workspace
+  membership, and may link to Keycloak later.
+- Invite links should expire after 5 minutes and should continue to be stored
+  hashed at rest. The current 24-hour invite TTL is intentionally not compatible
+  with the target flow.
+- The current application-owned email/password session cookie path should be
+  disabled in production once OIDC and guest tokens are implemented. Browser
+  cookies may still be used by infrastructure such as temporary Basic Auth, but
+  they should not remain the primary OpenVoice login mechanism.
+- Host check: Keycloak is reachable at `https://auth.schnick-schnack.info`; the
+  shared realm is `schnick-schnack`, and its OIDC discovery endpoint works. The
+  app defaults should use
+  `https://auth.schnick-schnack.info/realms/schnick-schnack` for now.
+
+See `docs/auth-keycloak-guest-plan.md` for the migration plan.
+
 ## 2026-05-04: Phase 0 Tooling
 
 - Package manager: `pnpm`, because the project requires a TypeScript-oriented monorepo with workspace support and deterministic installs.

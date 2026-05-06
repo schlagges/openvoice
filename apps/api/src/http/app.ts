@@ -18,6 +18,7 @@ import {
   notFound,
   toErrorResponse,
   unauthorized,
+  forbidden,
 } from "./errors.js";
 import { ApiRequestRateLimiter } from "./request-rate-limit.js";
 import {
@@ -62,6 +63,9 @@ export interface ApiHandlerOptions {
     | "sessionTtlSeconds"
   > & {
     readonly auditIpHashSecret?: string;
+    readonly localPasswordAuthEnabled?: boolean;
+    readonly oidcClientId?: string;
+    readonly oidcIssuerUrl?: string;
     readonly rateLimitsEnabled?: boolean | undefined;
     readonly trustedProxyIps?: readonly string[];
   };
@@ -172,6 +176,7 @@ async function routeRequest(
 
   if (url.pathname === "/api/v1/auth/register") {
     assertMethod(request, "POST");
+    assertLocalPasswordAuthEnabled(options);
     const result = await options.authService.register(
       parseRegisterRequest(await readJsonObject(request)),
     );
@@ -195,6 +200,7 @@ async function routeRequest(
 
   if (url.pathname === "/api/v1/auth/login") {
     assertMethod(request, "POST");
+    assertLocalPasswordAuthEnabled(options);
     const result = await options.authService.login(
       parseLoginRequest(await readJsonObject(request)),
     );
@@ -213,6 +219,23 @@ async function routeRequest(
           secure: options.config.sessionCookieSecure,
         }),
       },
+    );
+  }
+
+  if (url.pathname === "/api/v1/auth/config") {
+    assertMethod(request, "GET");
+    return jsonResponse(
+      {
+        localPasswordAuthEnabled: options.config.localPasswordAuthEnabled ?? true,
+        oidc: {
+          clientId: options.config.oidcClientId ?? "openvoice-web",
+          issuerUrl:
+            options.config.oidcIssuerUrl ??
+            "https://auth.schnick-schnack.info/realms/schnick-schnack",
+        },
+      },
+      200,
+      requestId,
     );
   }
 
@@ -728,6 +751,12 @@ async function routeRequest(
   }
 
   throw notFound();
+}
+
+function assertLocalPasswordAuthEnabled(options: ApiHandlerOptions): void {
+  if (options.config.localPasswordAuthEnabled === false) {
+    throw forbidden("Local password authentication is disabled.");
+  }
 }
 
 async function authenticateRequest(
