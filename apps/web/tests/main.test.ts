@@ -138,6 +138,9 @@ describe("web foundation", () => {
     expect(html).not.toContain("voice-channel-id");
     expect(html).toContain('aria-label="Kamera einschalten"');
     expect(html).toContain('id="voice-camera"');
+    expect(html).toContain('id="voice-audio-input"');
+    expect(html).toContain('id="voice-audio-output"');
+    expect(html).toContain('id="voice-video-input"');
     expect(html).toContain('type="button" disabled aria-label="Kamera einschalten"');
     expect(html).toContain("Media Einstellungen");
     expect(html).toContain("Nicht verbunden");
@@ -201,7 +204,7 @@ describe("web foundation", () => {
         ],
       },
     });
-    expect(setMicrophoneEnabled).toHaveBeenCalledWith(true);
+    expect(setMicrophoneEnabled).toHaveBeenCalledWith(true, undefined);
   });
 
   it("maps OpenVoice ICE servers to browser RTCConfiguration servers", () => {
@@ -500,6 +503,9 @@ describe("web foundation", () => {
       frameRate: 30,
       height: 720,
       width: 1280,
+    });
+    expect(createCameraCaptureOptions(VideoQualityProfile.P720, "camera-1").deviceId).toEqual({
+      exact: "camera-1",
     });
 
     expect(

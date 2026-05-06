@@ -4,6 +4,7 @@ import {
   Track,
   type AudioReceiverStats,
   type AudioSenderStats,
+  type AudioCaptureOptions,
   type LocalAudioTrack,
   type LocalTrackPublication,
   type LocalVideoTrack,
@@ -38,6 +39,9 @@ import {
 } from "./media-profiles.js";
 
 const videoGridTracks = new WeakMap<HTMLElement, VideoTile["track"][]>();
+const AUDIO_INPUT_DEVICE_STORAGE_KEY = "openvoice.audioInputDeviceId";
+const AUDIO_OUTPUT_DEVICE_STORAGE_KEY = "openvoice.audioOutputDeviceId";
+const VIDEO_INPUT_DEVICE_STORAGE_KEY = "openvoice.videoInputDeviceId";
 
 export interface VoiceClientOptions {
   readonly apiBaseUrl?: string;
@@ -64,6 +68,10 @@ export class OpenVoiceVoiceClient {
   private csrfToken: string | null;
   private lastSpeaking = false;
   private readonly room: Room;
+  private microphoneError: string | null = null;
+  private audioInputDeviceId: string | null = readStoredDeviceId(AUDIO_INPUT_DEVICE_STORAGE_KEY);
+  private audioOutputDeviceId: string | null = readStoredDeviceId(AUDIO_OUTPUT_DEVICE_STORAGE_KEY);
+  private videoInputDeviceId: string | null = readStoredDeviceId(VIDEO_INPUT_DEVICE_STORAGE_KEY);
   private participantPollTimer: ReturnType<typeof setInterval> | null = null;
   private serverParticipants: readonly VoiceParticipant[] = [];
   private state: VoiceState | null = null;
@@ -97,12 +105,16 @@ export class OpenVoiceVoiceClient {
     this.attachSpeakingListener(response.state.workspaceId);
 
     if (response.permissions.canPublishAudio && !response.state.selfMuted) {
-      await this.room.localParticipant.setMicrophoneEnabled(true);
+      await this.enableMicrophoneOrMarkMuted();
     }
     this.startStatsReporting();
     this.startParticipantPolling();
 
     return response;
+  }
+
+  public get lastMicrophoneError(): string | null {
+    return this.microphoneError;
   }
 
   public async leave(): Promise<void> {
@@ -124,10 +136,57 @@ export class OpenVoiceVoiceClient {
 
   public async setSelfMuted(selfMuted: boolean): Promise<VoiceState> {
     const state = await this.updateSelfState({ selfMuted });
-    await this.room.localParticipant.setMicrophoneEnabled(
-      this.canPublishAudio && !state.selfMuted && !state.serverMuted && !state.serverDeafened,
-    );
+    const microphoneEnabled =
+      this.canPublishAudio && !state.selfMuted && !state.serverMuted && !state.serverDeafened;
+    if (microphoneEnabled) {
+      await this.enableMicrophoneOrMarkMuted();
+      return this.state ?? state;
+    }
+
+    this.microphoneError = null;
+    await this.room.localParticipant.setMicrophoneEnabled(false);
     return state;
+  }
+
+  public async setAudioInputDevice(deviceId: string): Promise<void> {
+    const normalizedDeviceId = deviceId.trim();
+    this.audioInputDeviceId = normalizedDeviceId || null;
+    storeDeviceId(AUDIO_INPUT_DEVICE_STORAGE_KEY, this.audioInputDeviceId);
+    if (!this.state || this.state.selfMuted || this.state.serverMuted || this.state.serverDeafened) {
+      return;
+    }
+
+    await this.room.switchActiveDevice(
+      "audioinput",
+      this.audioInputDeviceId ?? "default",
+      Boolean(this.audioInputDeviceId),
+    );
+  }
+
+  public async setAudioOutputDevice(deviceId: string): Promise<void> {
+    const normalizedDeviceId = deviceId.trim();
+    this.audioOutputDeviceId = normalizedDeviceId || null;
+    storeDeviceId(AUDIO_OUTPUT_DEVICE_STORAGE_KEY, this.audioOutputDeviceId);
+    await this.room.switchActiveDevice(
+      "audiooutput",
+      this.audioOutputDeviceId ?? "default",
+      Boolean(this.audioOutputDeviceId),
+    );
+  }
+
+  public async setVideoInputDevice(deviceId: string): Promise<void> {
+    const normalizedDeviceId = deviceId.trim();
+    this.videoInputDeviceId = normalizedDeviceId || null;
+    storeDeviceId(VIDEO_INPUT_DEVICE_STORAGE_KEY, this.videoInputDeviceId);
+    if (!this.state?.cameraEnabled) {
+      return;
+    }
+
+    await this.room.switchActiveDevice(
+      "videoinput",
+      this.videoInputDeviceId ?? "default",
+      Boolean(this.videoInputDeviceId),
+    );
   }
 
   public async refreshParticipants(): Promise<readonly VoiceParticipant[]> {
@@ -158,7 +217,7 @@ export class OpenVoiceVoiceClient {
     try {
       await this.room.localParticipant.setCameraEnabled(
         enabled,
-        enabled ? createCameraCaptureOptions(quality) : undefined,
+        enabled ? createCameraCaptureOptions(quality, this.videoInputDeviceId) : undefined,
         enabled ? createCameraPublishOptions(quality) : undefined,
       );
     } catch (error) {
@@ -358,6 +417,28 @@ export class OpenVoiceVoiceClient {
     this.statsReportTimer = null;
   }
 
+  private async enableMicrophoneOrMarkMuted(): Promise<void> {
+    try {
+      await this.room.localParticipant.setMicrophoneEnabled(
+        true,
+        createAudioCaptureOptions(this.audioInputDeviceId),
+      );
+      this.microphoneError = null;
+    } catch (error) {
+      this.microphoneError = formatMicrophoneError(error);
+      if (this.state && !this.state.selfMuted) {
+        await this.updateSelfState({ selfMuted: true }).catch(() => undefined);
+      }
+      if (typeof window !== "undefined") {
+        window.dispatchEvent(
+          new CustomEvent("openvoice:microphone-error", {
+            detail: { message: this.microphoneError },
+          }),
+        );
+      }
+    }
+  }
+
   private async updateSelfState(input: {
     readonly cameraEnabled?: boolean;
     readonly cameraQuality?: QualityProfile;
@@ -406,6 +487,79 @@ export class OpenVoiceVoiceClient {
   }
 }
 
+function createAudioCaptureOptions(deviceId: string | null): AudioCaptureOptions | undefined {
+  return deviceId ? { deviceId: { exact: deviceId } } : undefined;
+}
+
+async function refreshMediaDeviceSelects(selects: {
+  readonly audioInput: HTMLSelectElement | null;
+  readonly audioOutput: HTMLSelectElement | null;
+  readonly videoInput: HTMLSelectElement | null;
+}): Promise<void> {
+  if (typeof navigator === "undefined" || !navigator.mediaDevices?.enumerateDevices) {
+    setSelectUnavailable(selects.audioInput, "Keine Geraeteliste");
+    setSelectUnavailable(selects.audioOutput, "Keine Geraeteliste");
+    setSelectUnavailable(selects.videoInput, "Keine Geraeteliste");
+    return;
+  }
+
+  const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+  updateDeviceSelect(
+    selects.audioInput,
+    devices.filter((device) => device.kind === "audioinput"),
+    "Standard-Mikrofon",
+    readStoredDeviceId(AUDIO_INPUT_DEVICE_STORAGE_KEY),
+  );
+  updateDeviceSelect(
+    selects.audioOutput,
+    devices.filter((device) => device.kind === "audiooutput"),
+    "Standard-Ausgabe",
+    readStoredDeviceId(AUDIO_OUTPUT_DEVICE_STORAGE_KEY),
+  );
+  updateDeviceSelect(
+    selects.videoInput,
+    devices.filter((device) => device.kind === "videoinput"),
+    "Standard-Kamera",
+    readStoredDeviceId(VIDEO_INPUT_DEVICE_STORAGE_KEY),
+  );
+}
+
+function updateDeviceSelect(
+  select: HTMLSelectElement | null,
+  devices: readonly MediaDeviceInfo[],
+  defaultLabel: string,
+  selectedDeviceId: string | null,
+): void {
+  if (!select) {
+    return;
+  }
+
+  const selectedValue =
+    selectedDeviceId && devices.some((device) => device.deviceId === selectedDeviceId)
+      ? selectedDeviceId
+      : "";
+  select.replaceChildren(new Option(defaultLabel, ""));
+  devices.forEach((device, index) => {
+    const label = device.label || `${defaultLabel.replace("Standard-", "")} ${index + 1}`;
+    select.add(new Option(label, device.deviceId));
+  });
+  select.value = selectedValue;
+  select.disabled = devices.length <= 1;
+  select.title =
+    devices.length <= 1
+      ? "Nur ein Geraet verfuegbar oder Browserfreigabe noch nicht erteilt"
+      : "Geraet auswaehlen";
+}
+
+function setSelectUnavailable(select: HTMLSelectElement | null, label: string): void {
+  if (!select) {
+    return;
+  }
+
+  select.replaceChildren(new Option(label, ""));
+  select.disabled = true;
+}
+
 export type RtcStatsRequestPayload = Omit<ClientRtcQualitySample, "userId">;
 
 export async function formatVoiceRequestError(response: Response): Promise<string> {
@@ -436,6 +590,18 @@ async function readApiErrorMessage(response: Response): Promise<string | null> {
     error?: { message?: unknown };
   } | null;
   return typeof body?.error?.message === "string" ? body.error.message : null;
+}
+
+function formatMicrophoneError(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (/denied|permission|notallowed/i.test(message)) {
+    return "Mikrofonzugriff wurde blockiert. Bitte Browser-Berechtigung und Eingabegeraet pruefen.";
+  }
+  if (/notfound|device|devices|notreadable/i.test(message)) {
+    return "Kein nutzbares Mikrofon gefunden. Bitte Eingabegeraet und Systemfreigabe pruefen.";
+  }
+
+  return `Mikrofon konnte nicht aktiviert werden: ${message}`;
 }
 
 export function toRtcStatsRequestBody(sample: ClientRtcQualitySample): RtcStatsRequestPayload {
@@ -470,6 +636,9 @@ export interface VoiceParticipantView {
 
 export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoiceClient()): void {
   root.insertAdjacentHTML("beforeend", renderVoiceControlsPanel());
+  const audioInput = root.querySelector<HTMLSelectElement>("#voice-audio-input");
+  const audioOutput = root.querySelector<HTMLSelectElement>("#voice-audio-output");
+  const videoInput = root.querySelector<HTMLSelectElement>("#voice-video-input");
   const cameraQuality = root.querySelector<HTMLSelectElement>("#voice-camera-quality");
   const screenQuality = root.querySelector<HTMLSelectElement>("#voice-screen-quality");
   const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
@@ -499,6 +668,12 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
     mountVideoGrid(videoGrid, client.liveKitRoom, renderParticipants);
   }
   window.addEventListener("openvoice:voice-participants-refreshed", renderParticipants);
+  void refreshMediaDeviceSelects({ audioInput, audioOutput, videoInput });
+  if (typeof navigator !== "undefined") {
+    navigator.mediaDevices?.addEventListener?.("devicechange", () => {
+      void refreshMediaDeviceSelects({ audioInput, audioOutput, videoInput });
+    });
+  }
   const setStatus = (text: string): void => {
     if (status) {
       status.value = text;
@@ -558,8 +733,9 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
         .then((result) => {
           joiningChannelId = null;
           setVoiceActionsEnabled(true);
-          setStatus(`Verbunden: ${result.roomName}`);
+          setStatus(client.lastMicrophoneError ?? `Verbunden: ${result.roomName}`);
           updateControlStates();
+          void refreshMediaDeviceSelects({ audioInput, audioOutput, videoInput });
           void client
             .refreshParticipants()
             .then(renderParticipants)
@@ -613,9 +789,37 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   muteButton?.addEventListener("click", () => {
     const nextMuted = !client.currentState?.selfMuted;
     void client.setSelfMuted(nextMuted).then((state) => {
-      setStatus(state.selfMuted ? "Stumm" : "Mic an");
+      setStatus(client.lastMicrophoneError ?? (state.selfMuted ? "Stumm" : "Mic an"));
       updateControlStates();
     });
+  });
+  audioInput?.addEventListener("change", () => {
+    void client
+      .setAudioInputDevice(audioInput.value)
+      .then(() => setStatus(audioInput.value ? "Mikrofon gewechselt" : "Standard-Mikrofon aktiv"))
+      .catch((error: unknown) =>
+        setStatus(error instanceof Error ? error.message : "Mikrofon konnte nicht gewechselt werden"),
+      );
+  });
+  audioOutput?.addEventListener("change", () => {
+    void client
+      .setAudioOutputDevice(audioOutput.value)
+      .then(() =>
+        setStatus(audioOutput.value ? "Ausgabegeraet gewechselt" : "Standard-Ausgabe aktiv"),
+      )
+      .catch((error: unknown) =>
+        setStatus(
+          error instanceof Error ? error.message : "Ausgabegeraet konnte nicht gewechselt werden",
+        ),
+      );
+  });
+  videoInput?.addEventListener("change", () => {
+    void client
+      .setVideoInputDevice(videoInput.value)
+      .then(() => setStatus(videoInput.value ? "Kamera gewechselt" : "Standard-Kamera aktiv"))
+      .catch((error: unknown) =>
+        setStatus(error instanceof Error ? error.message : "Kamera konnte nicht gewechselt werden"),
+      );
   });
   deafenButton?.addEventListener("click", () => {
     const nextDeafened = !client.currentState?.selfDeafened;
@@ -690,6 +894,24 @@ export function renderVoiceControlsPanel(): string {
           <details class="voice-panel__settings">
             <summary aria-label="Media Einstellungen" title="Media Einstellungen">${controlIcon("settings")}</summary>
             <div class="voice-panel__media">
+              <label class="voice-panel__field">
+                <span>Mikrofon</span>
+                <select id="voice-audio-input" class="voice-panel__input">
+                  <option value="">Standard-Mikrofon</option>
+                </select>
+              </label>
+              <label class="voice-panel__field">
+                <span>Ausgabe</span>
+                <select id="voice-audio-output" class="voice-panel__input">
+                  <option value="">Standard-Ausgabe</option>
+                </select>
+              </label>
+              <label class="voice-panel__field">
+                <span>Kamera</span>
+                <select id="voice-video-input" class="voice-panel__input">
+                  <option value="">Standard-Kamera</option>
+                </select>
+              </label>
               <label class="voice-panel__field">
                 <span>Camera quality</span>
                 <select id="voice-camera-quality" class="voice-panel__input">
@@ -1080,6 +1302,27 @@ function readStoredCsrfToken(): string | null {
   }
 
   return localStorage.getItem("openvoice.csrfToken");
+}
+
+function readStoredDeviceId(key: string): string | null {
+  if (typeof localStorage === "undefined") {
+    return null;
+  }
+
+  return localStorage.getItem(key);
+}
+
+function storeDeviceId(key: string, deviceId: string | null): void {
+  if (typeof localStorage === "undefined") {
+    return;
+  }
+
+  if (deviceId) {
+    localStorage.setItem(key, deviceId);
+    return;
+  }
+
+  localStorage.removeItem(key);
 }
 
 function authHeader(): Record<string, string> {

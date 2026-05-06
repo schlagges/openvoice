@@ -39,8 +39,10 @@ const SCREEN_PROFILE_BY_QUALITY: Record<QualityProfile, MediaProfileDefinition> 
 
 export function createCameraCaptureOptions(
   quality: QualityProfile = VideoQualityProfile.P720,
+  deviceId: string | null = null,
 ): VideoCaptureOptions {
   return {
+    ...(deviceId ? { deviceId: { exact: deviceId } } : {}),
     resolution: toResolution(CAMERA_PROFILE_BY_QUALITY[quality] ?? CAMERA_PROFILE_BY_QUALITY.auto),
   };
 }
