@@ -132,6 +132,7 @@ services:
       - --tls-listening-port=5349
       - --realm=${TURN_REALM:?TURN_REALM is required}
       - --server-name=${TURN_REALM:?TURN_REALM is required}
+      - --external-ip=${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP is required}
       - --fingerprint
       - --lt-cred-mech
       - --use-auth-secret

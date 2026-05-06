@@ -255,6 +255,10 @@ dokumentierten TURN-Ports direkt auf den coturn-Container weiterleiten. Fuer pro
 muessen gueltige Zertifikate in `infra/certs` bereitgestellt oder der coturn-Zertifikatspfad
 deploymentseitig angepasst werden.
 
+Wenn coturn im Docker-Bridge-Netzwerk laeuft, muss `TURN_EXTERNAL_IP` auf die oeffentliche IPv4 des
+Hosts gesetzt werden. Sonst kann coturn private Container-Adressen als Relay-Kandidaten
+signalisieren und Browser bleiben bei `could not establish pc connection` haengen.
+
 ## 10. Image-basiertes Zielsystem ohne Source-Build
 
 Fuer Zielsysteme soll der Anwendungscode nicht gebaut werden. Der Zielserver bekommt nur fertige
