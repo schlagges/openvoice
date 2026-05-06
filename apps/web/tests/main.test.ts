@@ -42,6 +42,7 @@ import {
   collectRemoteAudioTracks,
   collectVoiceParticipants,
   collectVideoTiles,
+  formatConnectionStats,
   formatVoiceRequestError,
   OpenVoiceVoiceClient,
   renderVoiceControlsPanel,
@@ -131,6 +132,7 @@ describe("web foundation", () => {
     expect(html).toContain("Personen einladen");
     expect(html).toContain("Invite-Code erstellen");
     expect(html).toContain('id="invite-dialog"');
+    expect(html).toContain('id="invite-link"');
   });
 
   it("renders voice controls without a separate join button", () => {
@@ -142,7 +144,9 @@ describe("web foundation", () => {
     expect(html).toContain('id="voice-camera"');
     expect(html).toContain('id="voice-audio-input"');
     expect(html).toContain('id="voice-audio-output"');
+    expect(html).toContain('id="voice-audio-codec"');
     expect(html).toContain('id="voice-audio-host"');
+    expect(html).toContain('id="voice-connection-stats"');
     expect(html).toContain('id="voice-video-input"');
     expect(html).toContain('type="button" disabled aria-label="Kamera einschalten"');
     expect(html).toContain("Media Einstellungen");
@@ -237,19 +241,28 @@ describe("web foundation", () => {
   });
 
   it("maps single-key voice shortcuts outside form fields", () => {
-    expect(resolveVoiceShortcut({ altKey: false, ctrlKey: false, key: "m", metaKey: false, repeat: false }, null)).toBe(
-      "mute",
-    );
-    expect(resolveVoiceShortcut({ altKey: false, ctrlKey: false, key: "D", metaKey: false, repeat: false }, null)).toBe(
-      "deafen",
-    );
-    expect(resolveVoiceShortcut({ altKey: false, ctrlKey: false, key: "b", metaKey: false, repeat: false }, null)).toBe(
-      "muteAndDeafen",
-    );
     expect(
       resolveVoiceShortcut(
         { altKey: false, ctrlKey: false, key: "m", metaKey: false, repeat: false },
-        document.createElement("textarea"),
+        null,
+      ),
+    ).toBe("mute");
+    expect(
+      resolveVoiceShortcut(
+        { altKey: false, ctrlKey: false, key: "D", metaKey: false, repeat: false },
+        null,
+      ),
+    ).toBe("deafen");
+    expect(
+      resolveVoiceShortcut(
+        { altKey: false, ctrlKey: false, key: "b", metaKey: false, repeat: false },
+        null,
+      ),
+    ).toBe("muteAndDeafen");
+    expect(
+      resolveVoiceShortcut(
+        { altKey: false, ctrlKey: false, key: "m", metaKey: false, repeat: false },
+        { tagName: "TEXTAREA" } as unknown as EventTarget,
       ),
     ).toBeNull();
   });
@@ -370,6 +383,14 @@ describe("web foundation", () => {
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("bearbeitet");
     expect(html).toContain("Benachrichtigungen");
+  });
+
+  it("renders compact chat emoji buttons", () => {
+    const html = renderChatPanel([]);
+
+    expect(html).toContain("chat-emoji-set");
+    expect(html).toContain('data-chat-emoji="🙂"');
+    expect(html).toContain('data-chat-emoji="👍"');
   });
 
   it("does not notify for own or deleted messages", () => {
