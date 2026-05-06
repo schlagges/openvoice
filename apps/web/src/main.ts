@@ -41,7 +41,7 @@ export function renderOnboardingDialog(): string {
           </label>
           <label>
             <span>Workspace-Name</span>
-            <input id="create-workspace" name="workspace" value="18 Löcher" />
+            <input id="create-workspace" name="workspace" value="Privater Raum" />
           </label>
           <label>
             <span>Erster Channel</span>

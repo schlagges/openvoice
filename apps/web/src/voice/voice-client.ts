@@ -645,13 +645,13 @@ export function renderVoiceControlsPanel(): string {
         <div id="voice-participant-stage" class="voice-participant-stage" aria-label="Teilnehmer"></div>
         <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
         <div class="voice-panel__actions" aria-label="Voice Aktionen">
-          <button id="voice-mute" class="voice-control-button" type="button" disabled aria-label="Mikrofon stummschalten" title="Mikrofon stummschalten"><span aria-hidden="true">🎙</span></button>
-          <button id="voice-deafen" class="voice-control-button" type="button" disabled aria-label="Deafen" title="Deafen"><span aria-hidden="true">🎧</span></button>
-          <button id="voice-camera" class="voice-control-button" type="button" disabled aria-label="Kamera einschalten" title="Kamera"><span aria-hidden="true">▣</span></button>
-          <button id="voice-screen" class="voice-control-button" type="button" disabled aria-label="Bildschirm teilen" title="Bildschirm teilen"><span aria-hidden="true">▤</span></button>
-          <button id="voice-leave" class="voice-control-button voice-control-button--danger" type="button" disabled aria-label="Voice verlassen" title="Voice verlassen"><span aria-hidden="true">☎</span></button>
+          <button id="voice-mute" class="voice-control-button" type="button" disabled aria-label="Mikrofon stummschalten" title="Mikrofon stummschalten">${controlIcon("mic")}</button>
+          <button id="voice-deafen" class="voice-control-button" type="button" disabled aria-label="Deafen" title="Deafen">${controlIcon("audio")}</button>
+          <button id="voice-camera" class="voice-control-button" type="button" disabled aria-label="Kamera einschalten" title="Kamera">${controlIcon("camera")}</button>
+          <button id="voice-screen" class="voice-control-button" type="button" disabled aria-label="Bildschirm teilen" title="Bildschirm teilen">${controlIcon("screen")}</button>
+          <button id="voice-leave" class="voice-control-button voice-control-button--danger" type="button" disabled aria-label="Voice verlassen" title="Voice verlassen">${controlIcon("leave")}</button>
           <details class="voice-panel__settings">
-            <summary aria-label="Media Einstellungen" title="Media Einstellungen">⚙</summary>
+            <summary aria-label="Media Einstellungen" title="Media Einstellungen">${controlIcon("settings")}</summary>
             <div class="voice-panel__media">
               <label class="voice-panel__field">
                 <span>Camera quality</span>
@@ -683,6 +683,23 @@ export function renderVoiceControlsPanel(): string {
         </div>
       </section>
     `;
+}
+
+function controlIcon(name: "audio" | "camera" | "leave" | "mic" | "screen" | "settings"): string {
+  const paths: Record<typeof name, string> = {
+    audio:
+      '<path d="M4 10v4h3l4 4V6l-4 4H4z"></path><path d="M15 9a4 4 0 0 1 0 6"></path><path d="M17 6a8 8 0 0 1 0 12"></path>',
+    camera: '<path d="M4 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4z"></path><path d="M16 10l4-2v8l-4-2z"></path>',
+    leave:
+      '<path d="M6 14c3-3 9-3 12 0"></path><path d="M8 16l-2 3"></path><path d="M16 16l2 3"></path><path d="M10 13v4h4v-4"></path>',
+    mic:
+      '<path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z"></path><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path>',
+    screen: '<rect x="4" y="5" width="16" height="11" rx="2"></rect><path d="M12 16v4"></path><path d="M8 20h8"></path>',
+    settings:
+      '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"></path><path d="M4 12h2"></path><path d="M18 12h2"></path><path d="M12 4v2"></path><path d="M12 18v2"></path>',
+  };
+
+  return `<svg class="voice-control-icon" aria-hidden="true" viewBox="0 0 24 24">${paths[name]}</svg>`;
 }
 
 export function mountVideoGrid(root: HTMLElement, room: Room, onRender?: () => void): () => void {

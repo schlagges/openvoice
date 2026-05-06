@@ -105,7 +105,7 @@ describe("web foundation", () => {
     expect(html).toContain("Workspace beitreten");
     expect(html).toContain("Channel-Typ");
     expect(html).toContain("Chat + Voice");
-    expect(html).toContain("18 Löcher");
+    expect(html).toContain("Privater Raum");
     expect(html).toContain("Windfang");
     expect(html).toContain('value="combined"');
     expect(html).toMatch(/value="(?:BoToLu|BoLuTo|ToBoLu|ToLuBo|LuBoTo|LuToBo)#[0-9]{4}"/);
