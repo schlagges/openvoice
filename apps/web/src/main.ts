@@ -5,6 +5,12 @@ import { mountChatPanel } from "./chat/chat-panel.js";
 import { mountChannelTree } from "./channels/channel-tree.js";
 import { mountAuditLog } from "./moderation/audit-log.js";
 import { mountVoiceControls, type VoiceParticipantView } from "./voice/voice-client.js";
+import {
+  clearSessionState,
+  persistSessionState,
+  readSessionCsrfToken,
+  readSessionDisplayName,
+} from "./session.js";
 
 const DEFAULT_PASSWORD = "very-secure-password";
 
@@ -452,7 +458,7 @@ function bindLogout(root: HTMLElement): void {
   const status = root.querySelector<HTMLElement>("#logout-status");
 
   button?.addEventListener("click", () => {
-    if (!localStorage.getItem("openvoice.csrfToken")) {
+    if (!readSessionCsrfToken()) {
       updateCurrentUserLabel(root);
       return;
     }
@@ -466,8 +472,7 @@ function bindLogout(root: HTMLElement): void {
     })
       .catch(() => undefined)
       .then(() => {
-        localStorage.removeItem("openvoice.csrfToken");
-        localStorage.removeItem("openvoice.displayName");
+        clearSessionState();
         updateCurrentUserLabel(root);
         renderWorkspaceList(root, [], "");
         renderWorkspaceEmptyState(root);
@@ -602,7 +607,7 @@ async function registerTestUser(input: {
   readonly email: string;
   readonly password: string;
 }): Promise<string> {
-  localStorage.removeItem("openvoice.csrfToken");
+  clearSessionState();
   const register = await fetch("/api/v1/auth/register", {
     body: JSON.stringify({
       displayName: input.displayName,
@@ -694,7 +699,7 @@ async function createInvite(workspaceId: string): Promise<WorkspaceInviteRespons
 
 async function joinInvite(
   code: string,
-  csrfToken = localStorage.getItem("openvoice.csrfToken") ?? "",
+  csrfToken = readSessionCsrfToken() ?? "",
 ): Promise<WorkspaceInviteJoinResponse> {
   const response = await fetch("/api/v1/invites/join", {
     body: JSON.stringify({ code }),
@@ -1039,15 +1044,14 @@ function closeDialog(dialog: HTMLDialogElement | null): void {
 }
 
 function persistSession(displayName: string, csrfToken: string): void {
-  localStorage.setItem("openvoice.csrfToken", csrfToken);
-  localStorage.setItem("openvoice.displayName", displayName);
+  persistSessionState(displayName, csrfToken);
 }
 
 function updateCurrentUserLabel(root: HTMLElement): void {
   const label = root.querySelector<HTMLElement>("#current-user-label");
   const logout = root.querySelector<HTMLButtonElement>("#logout-button");
-  const csrfToken = localStorage.getItem("openvoice.csrfToken");
-  const displayName = localStorage.getItem("openvoice.displayName");
+  const csrfToken = readSessionCsrfToken();
+  const displayName = readSessionDisplayName();
 
   if (label) {
     label.textContent = csrfToken && displayName ? displayName : "Nicht angemeldet";
@@ -1102,7 +1106,7 @@ function setFormStatus(
 }
 
 function csrfHeader(): Record<string, string> {
-  const token = localStorage.getItem("openvoice.csrfToken");
+  const token = readSessionCsrfToken();
   return token ? { "x-openvoice-csrf-token": token } : {};
 }
 
