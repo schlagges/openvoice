@@ -73,12 +73,12 @@ build_images:
   before_script:
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
   script:
-    - docker build --pull --target api -t "$CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHA" -t "$CI_REGISTRY_IMAGE/api:latest" .
-    - docker build --pull --target web --build-arg VITE_API_BASE_URL="$VITE_API_BASE_URL" -t "$CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHA" -t "$CI_REGISTRY_IMAGE/web:latest" .
-    - docker push "$CI_REGISTRY_IMAGE/api:$CI_COMMIT_SHA"
-    - docker push "$CI_REGISTRY_IMAGE/api:latest"
-    - docker push "$CI_REGISTRY_IMAGE/web:$CI_COMMIT_SHA"
-    - docker push "$CI_REGISTRY_IMAGE/web:latest"
+    - docker build --pull --target api -t "$CI_REGISTRY_IMAGE:api-$CI_COMMIT_SHA" -t "$CI_REGISTRY_IMAGE:api-latest" .
+    - docker build --pull --target web --build-arg VITE_API_BASE_URL="$VITE_API_BASE_URL" -t "$CI_REGISTRY_IMAGE:web-$CI_COMMIT_SHA" -t "$CI_REGISTRY_IMAGE:web-latest" .
+    - docker push "$CI_REGISTRY_IMAGE:api-$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:api-latest"
+    - docker push "$CI_REGISTRY_IMAGE:web-$CI_COMMIT_SHA"
+    - docker push "$CI_REGISTRY_IMAGE:web-latest"
 
 deploy_prod:
   stage: deploy
@@ -93,6 +93,8 @@ deploy_prod:
     - echo "$CI_REGISTRY_PASSWORD" | docker login "$CI_REGISTRY" -u "$CI_REGISTRY_USER" --password-stdin
   script:
     - cd /home/schlagges/projects/openvoice/infra
+    - export OPENVOICE_API_IMAGE="$CI_REGISTRY_IMAGE:api-$CI_COMMIT_SHA"
+    - export OPENVOICE_WEB_IMAGE="$CI_REGISTRY_IMAGE:web-$CI_COMMIT_SHA"
     - docker compose pull api web
     - docker compose up -d api web
     - docker image prune -f
