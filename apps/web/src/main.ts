@@ -333,7 +333,7 @@ function bindOnboarding(root: HTMLElement): void {
     setButtonLoading(submit, true);
     void joinWorkspaceFlow(input)
       .then((result) => {
-        persistSession(input.displayName, { accessToken: result.accessToken, authMode: "guest" });
+        persistInviteSession(input.displayName, result);
         setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
         void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
         updateCurrentUserLabel(root);
@@ -415,7 +415,7 @@ function processInviteDeepLink(root: HTMLElement): void {
   const input = readJoinWorkspaceForm(root);
   void joinWorkspaceFlow(input)
     .then((result) => {
-      persistSession(input.displayName, { accessToken: result.accessToken, authMode: "guest" });
+      persistInviteSession(input.displayName, result);
       setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
       void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
       updateCurrentUserLabel(root);
@@ -1213,6 +1213,12 @@ function persistSession(
   localStorage.setItem("openvoice.displayName", displayName);
   if (tokens.authMode) {
     localStorage.setItem("openvoice.authMode", tokens.authMode);
+  }
+}
+
+function persistInviteSession(displayName: string, result: WorkspaceInviteJoinResponse): void {
+  if (result.accessToken) {
+    persistSession(displayName, { accessToken: result.accessToken, authMode: "guest" });
   }
 }
 

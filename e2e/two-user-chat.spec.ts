@@ -10,7 +10,7 @@ test("two browser contexts can join one workspace and sync chat messages", async
   const owner = await ownerContext.newPage();
   const member = await memberContext.newPage();
 
-  await owner.goto("/");
+  await owner.goto(`/?e2e=${suffix}-owner`);
   await owner.getByRole("button", { name: "Workspace erstellen" }).click();
   await owner.locator("#create-display-name").fill("Owner Test");
   await owner.locator("#create-workspace").fill(workspaceName);
@@ -27,12 +27,11 @@ test("two browser contexts can join one workspace and sync chat messages", async
   await owner.getByRole("button", { name: "Personen einladen" }).click();
   await owner.getByRole("button", { name: "Invite-Code erstellen" }).click();
   await expect(owner.locator("#invite-code")).toHaveValue(/^[A-Za-z0-9_-]{16,64}$/);
-  const inviteCode = await owner.locator("#invite-code").inputValue();
+  await expect(owner.locator("#invite-link")).toHaveValue(/invite=/);
+  const inviteLink = await owner.locator("#invite-link").inputValue();
   await owner.locator("#invite-dialog-close").click();
 
-  await member.goto("/");
-  await registerMemberAndJoinInvite(member, inviteCode, suffix);
-  await member.reload();
+  await member.goto(inviteLink);
 
   await expect(member.locator("#onboarding-dialog")).not.toBeVisible();
   await expect(member.getByRole("button", { name: new RegExp(workspaceName) })).toBeVisible();
@@ -60,47 +59,6 @@ async function sendMessage(page: Page, message: string): Promise<void> {
   await page.locator("#chat-message-input").fill(message);
   await page.getByRole("button", { name: "Nachricht senden" }).click();
   await expect(page.locator(".chat-message__body", { hasText: message })).toBeVisible();
-}
-
-async function registerMemberAndJoinInvite(
-  page: Page,
-  inviteCode: string,
-  suffix: string,
-): Promise<void> {
-  await page.evaluate(
-    async ({ code, userSuffix }) => {
-      const register = await fetch("/api/v1/auth/register", {
-        body: JSON.stringify({
-          displayName: "Member Test",
-          email: `member-${userSuffix}@example.com`,
-          password: "very-secure-password",
-        }),
-        credentials: "include",
-        headers: { "content-type": "application/json" },
-        method: "POST",
-      });
-      if (!register.ok) {
-        throw new Error(`Register failed with ${register.status}`);
-      }
-      const session = (await register.json()) as { csrfToken: string };
-      localStorage.setItem("openvoice.csrfToken", session.csrfToken);
-      localStorage.setItem("openvoice.displayName", "Member Test");
-
-      const join = await fetch("/api/v1/invites/join", {
-        body: JSON.stringify({ code }),
-        credentials: "include",
-        headers: {
-          "content-type": "application/json",
-          "x-openvoice-csrf-token": session.csrfToken,
-        },
-        method: "POST",
-      });
-      if (!join.ok) {
-        throw new Error(`Invite join failed with ${join.status}`);
-      }
-    },
-    { code: inviteCode, userSuffix: suffix },
-  );
 }
 
 async function expectChronologicalMessages(page: Page, messages: readonly string[]): Promise<void> {
