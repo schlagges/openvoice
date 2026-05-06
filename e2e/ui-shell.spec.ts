@@ -5,7 +5,7 @@ test("workspace shell renders dark and light mode with screenshots", async ({ pa
   const workspaceName = `UI Workspace ${suffix}`;
   const channelName = `ui-general-${suffix}`;
 
-  await page.goto("/");
+  await page.goto(`/?e2e=${suffix}`);
   await createWorkspace(page, workspaceName, channelName);
 
   await expect(page.locator(".app-shell")).toBeVisible();
@@ -36,7 +36,7 @@ test("workspace create retry logs into the already registered local test user", 
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const workspaceName = `Retry Workspace ${suffix}`;
 
-  await page.goto("/");
+  await page.goto(`/?e2e=${suffix}`);
   await createWorkspace(page, workspaceName, `retry-general-${suffix}`);
 
   await page.getByRole("button", { name: "Neu" }).click();
@@ -59,6 +59,21 @@ test("workspace create retry logs into the already registered local test user", 
     .click();
   await expect(page.locator("#onboarding-dialog")).not.toBeVisible();
   await expect(page.getByRole("button", { name: new RegExp(retriedWorkspaceName) })).toBeVisible();
+});
+
+test("mobile shell renders current controls without stale cache", async ({ page }, testInfo) => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const workspaceName = `Mobile Workspace ${suffix}`;
+  const channelName = `mobile-general-${suffix}`;
+
+  await page.goto(`/?mobile-e2e=${suffix}`);
+  await createWorkspace(page, workspaceName, channelName);
+
+  await expect(page.locator(".app-shell")).toBeVisible();
+  await expect(page.locator("#voice-audio-codec")).toBeAttached();
+  await expect(page.locator("#voice-connection-stats")).toBeAttached();
+  await expect(page.locator(".chat-emoji-set")).toBeVisible();
+  await attachScreenshot(page, testInfo, "openvoice-mobile-shell");
 });
 
 async function createWorkspace(
