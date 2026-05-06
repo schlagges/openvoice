@@ -37,7 +37,10 @@ describe("permission bitsets", () => {
     expect(hasPermissionBit(role("administrator"), Permission.ADMINISTRATOR)).toBe(true);
     expect(hasPermissionBit(MODERATOR_PERMISSION_MASK, Permission.MANAGE_MESSAGES)).toBe(true);
     expect(hasPermissionBit(MEMBER_PERMISSION_MASK, Permission.SHARE_SCREEN)).toBe(true);
-    expect(hasPermissionBit(GUEST_PERMISSION_MASK, Permission.READ_MESSAGE_HISTORY)).toBe(false);
+    expect(hasPermissionBit(GUEST_PERMISSION_MASK, Permission.READ_MESSAGE_HISTORY)).toBe(true);
+    expect(hasPermissionBit(GUEST_PERMISSION_MASK, Permission.SEND_MESSAGES)).toBe(true);
+    expect(hasPermissionBit(GUEST_PERMISSION_MASK, Permission.SHARE_SCREEN)).toBe(true);
+    expect(hasPermissionBit(GUEST_PERMISSION_MASK, Permission.MANAGE_INVITES)).toBe(false);
   });
 });
 

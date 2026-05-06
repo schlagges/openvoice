@@ -20,9 +20,11 @@ import {
 } from "../src/chat/chat-panel";
 import { renderChannelTree } from "../src/channels/channel-tree";
 import {
+  DEFAULT_UI_PREFERENCES,
   formatWebTitle,
   renderDesktopQrPanel,
   renderInviteDialog,
+  renderModeControls,
   renderOnboardingDialog,
   renderOperationsLinks,
   renderWorkspaceSwitcher,
@@ -76,6 +78,21 @@ describe("web foundation", () => {
     expect(html).toContain("https://voice.schnick-schnack.info/test");
   });
 
+  it("renders the multi-mode UI controls", () => {
+    const html = renderModeControls(DEFAULT_UI_PREFERENCES);
+
+    expect(html).toContain("Meeting");
+    expect(html).toContain("Compact");
+    expect(html).toContain("Grid");
+    expect(html).toContain("Focus");
+    expect(html).toContain("Fullscreen");
+    expect(html).toContain('data-ui-preference="channelVisibility"');
+    expect(html).toContain('data-ui-preference="chatVisibility"');
+    expect(html).toContain("UI Scale");
+    expect(html).toContain("Tile Size");
+    expect(html).toContain("Compactness");
+  });
+
   it("renders visible workspaces with active state", () => {
     const html = renderWorkspaceSwitcher(
       [
@@ -92,10 +109,10 @@ describe("web foundation", () => {
 
     expect(html).toContain("Team Voice");
     expect(html).toContain("is-active");
-    expect(html).toContain("Ebene 1: Server und Mitglieder");
+    expect(html).toContain("Server, Mitglieder und Einladungen");
     expect(html).toContain("3 Mitglieder");
     expect(html).toContain("Global");
-    expect(html).toContain("Keycloak-Workspace");
+    expect(html).toContain("Keycloak");
     expect(html).not.toContain("Invite erstellen");
   });
 
@@ -103,25 +120,25 @@ describe("web foundation", () => {
     const html = renderWorkspaceSwitcher([], "");
 
     expect(html).toContain("Noch kein Workspace");
-    expect(html).toContain("Workspace erstellen");
-    expect(html).toContain("Workspace beitreten");
-    expect(html).toContain(">Neu<");
+    expect(html).toContain("Mit Keycloak anmelden");
+    expect(html).toContain("Invite-Code verwenden");
     expect(html.match(/Workspace starten/g)).toBeNull();
   });
 
-  it("renders a focused onboarding flow without invite creation", () => {
+  it("renders a focused Keycloak-first onboarding flow without invite creation", () => {
     const html = renderOnboardingDialog();
 
     expect(html).toContain("Workspace starten");
+    expect(html).toContain("Mit Keycloak anmelden");
     expect(html).toContain("Workspace erstellen");
     expect(html).toContain("Workspace beitreten");
-    expect(html).toContain("Channel-Typ");
     expect(html).toContain("Chat + Voice");
-    expect(html).toContain("Privater Raum");
     expect(html).toContain("Windfang");
-    expect(html).toContain('value="combined"');
+    expect(html).toContain('type="hidden" value="combined"');
     expect(html).toMatch(/value="(?:BoToLu|BoLuTo|ToBoLu|ToLuBo|LuBoTo|LuToBo)#[0-9]{4}"/);
-    expect(html).toContain("Erweiterte Testdaten");
+    expect(html).toContain("'s Raum");
+    expect(html).not.toContain("Erweiterte Testdaten");
+    expect(html).toContain("Bei Keycloak registrieren");
     expect(html).toContain('id="onboarding-dialog"');
     expect(html).not.toContain("Invite-Code erstellen");
   });
@@ -130,7 +147,7 @@ describe("web foundation", () => {
     const html = renderInviteDialog();
 
     expect(html).toContain("Personen einladen");
-    expect(html).toContain("Invite-Code erstellen");
+    expect(html).toContain("Invite-Link kopieren");
     expect(html).toContain('id="invite-dialog"');
     expect(html).toContain('id="invite-link"');
   });

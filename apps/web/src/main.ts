@@ -8,26 +8,57 @@ import { mountBrowserNotifications } from "./notifications.js";
 import { mountVoiceControls, type VoiceParticipantView } from "./voice/voice-client.js";
 
 const DEFAULT_PASSWORD = "very-secure-password";
+const DEFAULT_CHANNEL_NAME = "Windfang";
+const UI_PREFERENCES_STORAGE_KEY = "openvoice.uiPreferences";
+
+export type LayoutMode = "compact" | "meeting";
+export type StageMode = "focus" | "fullscreen" | "grid";
+export type OverlayVisibility = "docked" | "hidden" | "overlay";
+export type UiScale = "0.8" | "1" | "1.2" | "1.5";
+export type TileSize = "auto" | "large" | "medium" | "small";
+export type Compactness = "dense" | "normal" | "relaxed";
+
+export interface UiPreferences {
+  readonly chatVisibility: OverlayVisibility;
+  readonly channelVisibility: OverlayVisibility;
+  readonly compactness: Compactness;
+  readonly layoutMode: LayoutMode;
+  readonly stageMode: StageMode;
+  readonly tileSize: TileSize;
+  readonly uiScale: UiScale;
+}
+
+export const DEFAULT_UI_PREFERENCES: UiPreferences = {
+  chatVisibility: "docked",
+  channelVisibility: "docked",
+  compactness: "normal",
+  layoutMode: "meeting",
+  stageMode: "grid",
+  tileSize: "auto",
+  uiScale: "1",
+};
 
 export function formatWebTitle(phase: typeof OPENVOICE_PHASE): string {
   return `OpenVoice Phase ${phase}`;
 }
 
 export function renderOnboardingDialog(): string {
+  const displayName = currentStoredDisplayName() || createDefaultDisplayName();
   return `
     <dialog id="onboarding-dialog" class="onboarding-dialog" aria-labelledby="onboarding-title">
       <header class="dialog-header">
         <div>
-          <p class="eyebrow">Lokaler Testmodus</p>
+          <p class="eyebrow">OpenVoice</p>
           <h2 id="onboarding-title">Workspace starten</h2>
-          <p>Erstelle einen neuen Workspace oder tritt einem bestehenden Workspace bei.</p>
+          <p>Mit Keycloak anmelden, eigenen Raum starten oder einer Einladung folgen.</p>
         </div>
         <button id="onboarding-close" class="icon-button" type="button" aria-label="Dialog schliessen" title="Dialog schliessen">×</button>
       </header>
+      <button class="primary-action primary-action--keycloak" type="button" data-oidc-login>Mit Keycloak anmelden</button>
       <div class="onboarding-tabs" role="tablist" aria-label="Workspace starten">
         <button id="onboarding-create-tab" class="onboarding-tab is-active" type="button" data-onboarding-tab="create" role="tab" aria-controls="onboarding-create-panel" aria-selected="true">
           <strong>Erstellen</strong>
-          <span>Eigenen Workspace starten</span>
+          <span>${escapeHtml(defaultWorkspaceName(displayName))}</span>
         </button>
         <button id="onboarding-join-tab" class="onboarding-tab" type="button" data-onboarding-tab="join" role="tab" aria-controls="onboarding-join-panel" aria-selected="false">
           <strong>Beitreten</strong>
@@ -36,63 +67,34 @@ export function renderOnboardingDialog(): string {
       </div>
       <section id="onboarding-create-panel" class="onboarding-panel" data-onboarding-panel="create" role="tabpanel" aria-labelledby="onboarding-create-tab">
         <form id="workspace-create-form" class="onboarding-form">
-          <label>
-            <span>Anzeigename</span>
-            <input id="create-display-name" name="displayName" autocomplete="name" value="${escapeAttribute(createDefaultDisplayName())}" />
-          </label>
+          <input id="create-display-name" name="displayName" type="hidden" value="${escapeAttribute(displayName)}" />
+          <input id="create-email" name="email" type="hidden" value="test-${crypto.randomUUID()}@example.com" />
+          <input id="create-password" name="password" type="hidden" value="${DEFAULT_PASSWORD}" />
+          <input id="create-channel-type" name="channelType" type="hidden" value="combined" />
           <label>
             <span>Workspace-Name</span>
-            <input id="create-workspace" name="workspace" value="Privater Raum" />
+            <input id="create-workspace" name="workspace" value="${escapeAttribute(defaultWorkspaceName(displayName))}" />
           </label>
           <label>
-            <span>Erster Channel</span>
-            <input id="create-channel" name="channel" value="Windfang" />
+            <span>Erster Chat + Voice Channel</span>
+            <input id="create-channel" name="channel" value="${DEFAULT_CHANNEL_NAME}" />
           </label>
-          <label>
-            <span>Channel-Typ</span>
-            <select id="create-channel-type" name="channelType">
-              <option value="combined">Chat + Voice</option>
-              <option value="text">Chat</option>
-              <option value="voice">Voice</option>
-            </select>
-          </label>
-          <details class="advanced-test-data">
-            <summary>Erweiterte Testdaten</summary>
-            <label>
-              <span>E-Mail</span>
-              <input id="create-email" name="email" autocomplete="email" value="test-${crypto.randomUUID()}@example.com" />
-            </label>
-            <label>
-              <span>Passwort</span>
-              <input id="create-password" name="password" type="password" autocomplete="new-password" value="${DEFAULT_PASSWORD}" />
-            </label>
-          </details>
+          <p class="onboarding-hint">Channels sind in OpenVoice immer Chat + Voice: schreiben, sprechen, Kamera und Screen in einem Raum.</p>
           <button class="primary-action" type="submit">Workspace erstellen</button>
           <p id="workspace-create-status" class="form-status" role="status"></p>
         </form>
       </section>
       <section id="onboarding-join-panel" class="onboarding-panel" data-onboarding-panel="join" role="tabpanel" aria-labelledby="onboarding-join-tab" hidden>
         <form id="workspace-join-form" class="onboarding-form">
-          <label>
-            <span>Anzeigename</span>
-            <input id="join-display-name" name="displayName" autocomplete="name" value="${escapeAttribute(createDefaultDisplayName())}" />
-          </label>
+          <input id="join-display-name" name="displayName" type="hidden" value="${escapeAttribute(displayName)}" />
+          <input id="join-email" name="email" type="hidden" value="join-${crypto.randomUUID()}@example.com" />
+          <input id="join-password" name="password" type="hidden" value="${DEFAULT_PASSWORD}" />
           <label>
             <span>Invite-Code</span>
             <input id="join-invite-code" name="code" autocomplete="off" />
           </label>
-          <details class="advanced-test-data">
-            <summary>Erweiterte Testdaten</summary>
-            <label>
-              <span>E-Mail</span>
-              <input id="join-email" name="email" autocomplete="email" value="join-${crypto.randomUUID()}@example.com" />
-            </label>
-            <label>
-              <span>Passwort</span>
-              <input id="join-password" name="password" type="password" autocomplete="new-password" value="${DEFAULT_PASSWORD}" />
-            </label>
-          </details>
           <button class="primary-action" type="submit">Workspace beitreten</button>
+          <button class="primary-action primary-action--keycloak onboarding-keycloak-register" type="button" data-oidc-login>Bei Keycloak registrieren</button>
           <p id="workspace-join-status" class="form-status" role="status"></p>
         </form>
       </section>
@@ -120,7 +122,7 @@ export function renderInviteDialog(): string {
           <span>Invite-Link</span>
           <input id="invite-link" name="link" autocomplete="off" readonly />
         </label>
-        <button id="invite-create" class="primary-action" type="button">Invite-Code erstellen</button>
+        <button id="invite-create" class="primary-action" type="button">Invite-Link kopieren</button>
         <p id="invite-status" class="form-status" role="status"></p>
       </div>
     </dialog>
@@ -139,6 +141,76 @@ export function renderOperationsLinks(): string {
         <a href="http://localhost:3001" target="_blank" rel="noreferrer">Grafana</a>
       </div>
     </details>
+  `;
+}
+
+export function renderModeControls(preferences: UiPreferences = DEFAULT_UI_PREFERENCES): string {
+  return `
+    <section class="mode-controls" aria-label="Ansicht">
+      <div class="mode-segment" role="group" aria-label="Layout Modus">
+        <button class="mode-button${preferences.layoutMode === "meeting" ? " is-active" : ""}" type="button" data-layout-mode="meeting" aria-pressed="${preferences.layoutMode === "meeting"}" title="Meeting Mode">Meeting</button>
+        <button class="mode-button${preferences.layoutMode === "compact" ? " is-active" : ""}" type="button" data-layout-mode="compact" aria-pressed="${preferences.layoutMode === "compact"}" title="Compact Mode">Compact</button>
+      </div>
+      <div class="mode-segment" role="group" aria-label="Stage Modus">
+        <button class="mode-button${preferences.stageMode === "grid" ? " is-active" : ""}" type="button" data-stage-mode="grid" aria-pressed="${preferences.stageMode === "grid"}" title="Grid">Grid</button>
+        <button class="mode-button${preferences.stageMode === "focus" ? " is-active" : ""}" type="button" data-stage-mode="focus" aria-pressed="${preferences.stageMode === "focus"}" title="Focus">Focus</button>
+        <button class="mode-button${preferences.stageMode === "fullscreen" ? " is-active" : ""}" type="button" data-stage-mode="fullscreen" aria-pressed="${preferences.stageMode === "fullscreen"}" title="Fullscreen Grid">Fullscreen</button>
+      </div>
+      ${renderVisibilitySegment("Channels", "channelVisibility", preferences.channelVisibility)}
+      ${renderVisibilitySegment("Chat", "chatVisibility", preferences.chatVisibility)}
+      <details class="mode-settings">
+        <summary aria-label="Ansicht einstellen" title="Ansicht einstellen">⚙</summary>
+        <div class="mode-settings__panel">
+          <label class="mode-field">
+            <span>UI Scale</span>
+            <select id="ui-scale" data-ui-preference="uiScale">
+              <option value="0.8"${preferences.uiScale === "0.8" ? " selected" : ""}>0.8x</option>
+              <option value="1"${preferences.uiScale === "1" ? " selected" : ""}>1.0x</option>
+              <option value="1.2"${preferences.uiScale === "1.2" ? " selected" : ""}>1.2x</option>
+              <option value="1.5"${preferences.uiScale === "1.5" ? " selected" : ""}>1.5x</option>
+            </select>
+          </label>
+          <label class="mode-field">
+            <span>Tile Size</span>
+            <select id="tile-size" data-ui-preference="tileSize">
+              <option value="auto"${preferences.tileSize === "auto" ? " selected" : ""}>Auto</option>
+              <option value="small"${preferences.tileSize === "small" ? " selected" : ""}>Small</option>
+              <option value="medium"${preferences.tileSize === "medium" ? " selected" : ""}>Medium</option>
+              <option value="large"${preferences.tileSize === "large" ? " selected" : ""}>Large</option>
+            </select>
+          </label>
+          <label class="mode-field">
+            <span>Compactness</span>
+            <select id="compactness" data-ui-preference="compactness">
+              <option value="relaxed"${preferences.compactness === "relaxed" ? " selected" : ""}>Relaxed</option>
+              <option value="normal"${preferences.compactness === "normal" ? " selected" : ""}>Normal</option>
+              <option value="dense"${preferences.compactness === "dense" ? " selected" : ""}>Dense</option>
+            </select>
+          </label>
+        </div>
+      </details>
+    </section>
+  `;
+}
+
+function renderVisibilitySegment(
+  label: string,
+  key: "channelVisibility" | "chatVisibility",
+  activeValue: OverlayVisibility,
+): string {
+  const options: readonly OverlayVisibility[] = ["hidden", "overlay", "docked"];
+  return `
+    <div class="mode-combo" role="group" aria-label="${label}">
+      <span>${label}</span>
+      <div class="mode-segment mode-segment--subtle">
+        ${options
+          .map(
+            (value) =>
+              `<button class="mode-button mode-button--icon${activeValue === value ? " is-active" : ""}" type="button" data-ui-choice="${value}" data-ui-preference="${key}" aria-pressed="${activeValue === value}" title="${label}: ${visibilityLabel(value)}">${visibilityIcon(value)}</button>`,
+          )
+          .join("")}
+      </div>
+    </div>
   `;
 }
 
@@ -173,12 +245,12 @@ export function renderWorkspaceSwitcher(
       <header class="section-header">
         <div>
           <h2>Workspaces</h2>
-          <p>Ebene 1: Server und Mitglieder.</p>
+          <p>Server, Mitglieder und Einladungen.</p>
         </div>
         <div class="section-header__actions">
-          <button class="ghost-button compact" type="button" data-open-onboarding="create">Neu</button>
+          <button class="ghost-button compact" type="button" data-open-onboarding="create" aria-label="Neu" title="Workspace erstellen">+</button>
           <button class="ghost-button compact" type="button" data-open-onboarding="join">Beitreten</button>
-          <button id="workspace-refresh" class="ghost-button compact" type="button">Aktualisieren</button>
+          <button id="workspace-refresh" class="ghost-button compact" type="button" aria-label="Workspaces aktualisieren" title="Workspaces aktualisieren">↻</button>
         </div>
       </header>
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
@@ -192,11 +264,13 @@ export function mountWebApp(app: HTMLDivElement | null): void {
     return;
   }
   hydrateSessionFromCookies();
+  const uiPreferences = readUiPreferences();
 
   app.innerHTML = `
     <main class="app-shell">
       <aside class="channel-sidebar" aria-label="Workspace Navigation">
         <header class="sidebar-header">
+          <span class="sidebar-logo" aria-hidden="true">OV</span>
           <div>
             <h1>OpenVoice</h1>
             <p id="current-user-label">Nicht angemeldet</p>
@@ -210,9 +284,9 @@ export function mountWebApp(app: HTMLDivElement | null): void {
           <header class="section-header">
             <div>
               <h2>Channels</h2>
-              <p>Ebene 2: Räume im gewählten Workspace.</p>
+              <p>Chat, Voice und Screen-Räume.</p>
             </div>
-            <button id="invite-dialog-open" class="ghost-button" type="button">Personen einladen</button>
+            <button id="invite-dialog-open" class="ghost-button compact" type="button">Einladen</button>
           </header>
           <nav id="channel-tree" class="channel-tree" aria-label="Channel Tree"></nav>
           <section id="sidebar-participants" class="sidebar-participants" aria-label="Teilnehmer"></section>
@@ -228,12 +302,21 @@ export function mountWebApp(app: HTMLDivElement | null): void {
       </aside>
       <section id="workspace-panel" class="workspace-panel" aria-label="Voice Stage">
         <header class="workspace-topbar">
-          <div>
-            <p id="active-workspace-label" class="eyebrow">Kein Workspace</p>
-            <h2 id="active-channel-title">Channel auswählen</h2>
-            <p id="hierarchy-label" class="hierarchy-label">Workspace → Channel → Teilnehmer</p>
+          <div class="topbar-context">
+            <span class="topbar-room-avatar" aria-hidden="true">◉</span>
+            <div>
+              <p id="active-workspace-label" class="topbar-workspace">Kein Workspace</p>
+              <h2 id="active-channel-title">Channel auswählen</h2>
+              <p id="hierarchy-label" class="hierarchy-label">Workspace / Channel / Teilnehmer</p>
+            </div>
           </div>
-          ${renderDesktopQrPanel()}
+          <div class="topbar-center">
+            ${renderModeControls(uiPreferences)}
+          </div>
+          <div class="topbar-actions">
+            <span id="topbar-participant-count" class="topbar-participant-count" title="Teilnehmer im aktiven Channel">0</span>
+            ${renderDesktopQrPanel()}
+          </div>
         </header>
       </section>
       <aside id="chat-column" class="chat-column" aria-label="Chat"></aside>
@@ -252,6 +335,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   bindOidcLogin(app);
   bindParticipantUpdates(app);
   bindThemeToggle(app);
+  bindModeControls(app);
   bindLogout(app);
   mountBrowserNotifications(app);
 
@@ -265,6 +349,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
 
   processInviteDeepLink(app);
   updateCurrentUserLabel(app);
+  applyUiPreferences(app, uiPreferences);
 }
 
 if (typeof document !== "undefined") {
@@ -288,7 +373,7 @@ function bindOnboarding(root: HTMLElement): void {
       return;
     }
 
-    setOnboardingTab(root, tab);
+    prepareOnboarding(root, tab);
     openDialog(dialog);
   });
 
@@ -306,7 +391,9 @@ function bindOnboarding(root: HTMLElement): void {
     setButtonLoading(submit, true);
     void createWorkspaceFlow(input)
       .then((result) => {
-        persistSession(input.displayName, { authMode: "local", csrfToken: result.csrfToken });
+        if (localStorage.getItem("openvoice.authMode") !== "keycloak") {
+          persistSession(input.displayName, { authMode: "local", csrfToken: result.csrfToken });
+        }
         selectChannel(root, toTreeNode(result.channel, result.workspace.id));
         void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
         setFormStatus(status, "Workspace erstellt.", "success");
@@ -331,13 +418,19 @@ function bindOnboarding(root: HTMLElement): void {
 
     setFormStatus(status, "Workspace wird betreten.", "loading");
     setButtonLoading(submit, true);
-    void joinWorkspaceFlow(input)
-      .then((result) => {
-        persistInviteSession(input.displayName, result);
-        setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
-        void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
-        updateCurrentUserLabel(root);
-        closeDialog(dialog);
+    void loadAuthConfig()
+      .then((config) => {
+        if (!hasStoredSession() && !config.localPasswordAuthEnabled) {
+          setFormStatus(status, "Weiter zu Keycloak. Die Einladung bleibt im Link erhalten.", "loading");
+          return startOidcLogin();
+        }
+        return joinWorkspaceFlow(input).then((result) => {
+          persistInviteSession(input.displayName, result);
+          setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
+          void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
+          updateCurrentUserLabel(root);
+          closeDialog(dialog);
+        });
       })
       .catch((error: unknown) =>
         setFormStatus(
@@ -348,6 +441,26 @@ function bindOnboarding(root: HTMLElement): void {
       )
       .finally(() => setButtonLoading(submit, false));
   });
+}
+
+function prepareOnboarding(root: HTMLElement, tab = "create"): void {
+  root.querySelector<HTMLDialogElement>("#onboarding-dialog")?.classList.remove(
+    "is-invite-keycloak",
+  );
+  const displayName = currentStoredDisplayName() || createDefaultDisplayName();
+  const workspaceInput = root.querySelector<HTMLInputElement>("#create-workspace");
+  const createDisplayName = root.querySelector<HTMLInputElement>("#create-display-name");
+  const joinDisplayName = root.querySelector<HTMLInputElement>("#join-display-name");
+  if (createDisplayName) {
+    createDisplayName.value = displayName;
+  }
+  if (joinDisplayName) {
+    joinDisplayName.value = displayName;
+  }
+  if (workspaceInput && (!workspaceInput.value || workspaceInput.value === "Dein Raum")) {
+    workspaceInput.value = defaultWorkspaceName(displayName);
+  }
+  setOnboardingTab(root, tab);
 }
 
 function bindInviteDialog(root: HTMLElement): void {
@@ -409,18 +522,31 @@ function processInviteDeepLink(root: HTMLElement): void {
   if (codeInput) {
     codeInput.value = code;
   }
-  setOnboardingTab(root, "join");
+  prepareOnboarding(root, "join");
   setFormStatus(status, "Invite-Link wird geoeffnet.", "loading");
 
   const input = readJoinWorkspaceForm(root);
-  void joinWorkspaceFlow(input)
-    .then((result) => {
-      persistInviteSession(input.displayName, result);
-      setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
-      void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
-      updateCurrentUserLabel(root);
-      clearInviteCodeFromLocation();
-      closeDialog(dialog);
+  void loadAuthConfig()
+    .then((config) => {
+      if (!hasStoredSession() && !config.localPasswordAuthEnabled) {
+        dialog?.classList.add("is-invite-keycloak");
+        openDialog(dialog);
+        setFormStatus(
+          status,
+          "Einladung erkannt. Registriere dich bei Keycloak, danach wirst du direkt verbunden.",
+          "loading",
+        );
+        return undefined;
+      }
+
+      return joinWorkspaceFlow(input).then((result) => {
+        persistInviteSession(input.displayName, result);
+        setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
+        void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
+        updateCurrentUserLabel(root);
+        clearInviteCodeFromLocation();
+        closeDialog(dialog);
+      });
     })
     .catch((error: unknown) => {
       openDialog(dialog);
@@ -492,7 +618,8 @@ function bindOidcLogin(root: HTMLElement): void {
 }
 
 async function startOidcLogin(): Promise<void> {
-  const returnTo = encodeURIComponent(window.location.pathname || "/");
+  const returnPath = `${window.location.pathname || "/"}${window.location.search || ""}`;
+  const returnTo = encodeURIComponent(returnPath);
   const accessToken = localStorage.getItem("openvoice.accessToken");
   if (!accessToken) {
     window.location.href = `/api/v1/auth/oidc/login?returnTo=${returnTo}`;
@@ -519,6 +646,7 @@ function bindParticipantUpdates(root: HTMLElement): void {
       event as CustomEvent<{ readonly participants: readonly VoiceParticipantView[] }>
     ).detail;
     renderSidebarParticipants(root, detail?.participants ?? []);
+    renderTopbarParticipantCount(root, detail?.participants.length ?? 0);
   });
 }
 
@@ -532,6 +660,217 @@ function bindThemeToggle(root: HTMLElement): void {
     localStorage.setItem("openvoice.theme", nextTheme);
     applyTheme(nextTheme, button);
   });
+}
+
+function bindModeControls(root: HTMLElement): void {
+  let preferences = readUiPreferences();
+  applyUiPreferences(root, preferences);
+
+  root.addEventListener("click", (event) => {
+    const layoutButton = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-layout-mode]",
+    );
+    if (layoutButton?.dataset.layoutMode) {
+      preferences = {
+        ...preferences,
+        layoutMode: toLayoutMode(layoutButton.dataset.layoutMode),
+        ...(layoutButton.dataset.layoutMode === "compact"
+          ? { channelVisibility: "docked" as const, chatVisibility: "overlay" as const }
+          : {}),
+      };
+      writeUiPreferences(preferences);
+      applyUiPreferences(root, preferences);
+      return;
+    }
+
+    const stageButton = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-stage-mode]",
+    );
+    if (stageButton?.dataset.stageMode) {
+      preferences = { ...preferences, stageMode: toStageMode(stageButton.dataset.stageMode) };
+      writeUiPreferences(preferences);
+      applyUiPreferences(root, preferences);
+      if (preferences.stageMode === "fullscreen") {
+        void requestAppFullscreen(root);
+      }
+    }
+
+    const choiceButton = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-ui-choice]",
+    );
+    if (choiceButton?.dataset.uiChoice) {
+      preferences = updateUiPreference(
+        preferences,
+        choiceButton.dataset.uiPreference,
+        choiceButton.dataset.uiChoice,
+      );
+      writeUiPreferences(preferences);
+      applyUiPreferences(root, preferences);
+    }
+  });
+
+  root.addEventListener("change", (event) => {
+    const select = (event.target as Element | null)?.closest<HTMLSelectElement>(
+      "[data-ui-preference]",
+    );
+    if (!select) {
+      return;
+    }
+
+    preferences = updateUiPreference(preferences, select.dataset.uiPreference, select.value);
+    writeUiPreferences(preferences);
+    applyUiPreferences(root, preferences);
+  });
+
+  document.addEventListener("fullscreenchange", () => {
+    if (!document.fullscreenElement && readUiPreferences().stageMode === "fullscreen") {
+      preferences = { ...readUiPreferences(), stageMode: "grid" };
+      writeUiPreferences(preferences);
+      applyUiPreferences(root, preferences);
+    }
+  });
+}
+
+function readUiPreferences(): UiPreferences {
+  if (typeof localStorage === "undefined") {
+    return DEFAULT_UI_PREFERENCES;
+  }
+
+  const raw = localStorage.getItem(UI_PREFERENCES_STORAGE_KEY);
+  if (!raw) {
+    return DEFAULT_UI_PREFERENCES;
+  }
+
+  try {
+    const parsed = JSON.parse(raw) as Partial<UiPreferences>;
+    return {
+      chatVisibility: toChatVisibility(parsed.chatVisibility),
+      channelVisibility: toChatVisibility(parsed.channelVisibility),
+      compactness: toCompactness(parsed.compactness),
+      layoutMode: toLayoutMode(parsed.layoutMode),
+      stageMode: toStageMode(parsed.stageMode),
+      tileSize: toTileSize(parsed.tileSize),
+      uiScale: toUiScale(parsed.uiScale),
+    };
+  } catch {
+    return DEFAULT_UI_PREFERENCES;
+  }
+}
+
+function writeUiPreferences(preferences: UiPreferences): void {
+  localStorage.setItem(UI_PREFERENCES_STORAGE_KEY, JSON.stringify(preferences));
+}
+
+function applyUiPreferences(root: HTMLElement, preferences: UiPreferences): void {
+  const shell = root.querySelector<HTMLElement>(".app-shell");
+  if (!shell) {
+    return;
+  }
+
+  shell.dataset.layoutMode = preferences.layoutMode;
+  shell.dataset.stageMode = preferences.stageMode;
+  shell.dataset.channelVisibility = preferences.channelVisibility;
+  shell.dataset.chatVisibility = preferences.chatVisibility;
+  shell.dataset.uiScale = preferences.uiScale;
+  shell.dataset.tileSize = preferences.tileSize;
+  shell.dataset.compactness = preferences.compactness;
+  syncModeControls(root, preferences);
+}
+
+function syncModeControls(root: HTMLElement, preferences: UiPreferences): void {
+  root.querySelectorAll<HTMLButtonElement>("[data-layout-mode]").forEach((button) => {
+    const active = button.dataset.layoutMode === preferences.layoutMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-stage-mode]").forEach((button) => {
+    const active = button.dataset.stageMode === preferences.stageMode;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  root.querySelectorAll<HTMLButtonElement>("[data-ui-choice]").forEach((button) => {
+    const key = button.dataset.uiPreference;
+    const expected =
+      key === "channelVisibility" ? preferences.channelVisibility : preferences.chatVisibility;
+    const active = button.dataset.uiChoice === expected;
+    button.classList.toggle("is-active", active);
+    button.setAttribute("aria-pressed", String(active));
+  });
+  setSelectValue(root, "#ui-scale", preferences.uiScale);
+  setSelectValue(root, "#tile-size", preferences.tileSize);
+  setSelectValue(root, "#compactness", preferences.compactness);
+}
+
+function updateUiPreference(
+  preferences: UiPreferences,
+  key: string | undefined,
+  value: string,
+): UiPreferences {
+  switch (key) {
+    case "channelVisibility":
+      return { ...preferences, channelVisibility: toChatVisibility(value) };
+    case "chatVisibility":
+      return { ...preferences, chatVisibility: toChatVisibility(value) };
+    case "uiScale":
+      return { ...preferences, uiScale: toUiScale(value) };
+    case "tileSize":
+      return { ...preferences, tileSize: toTileSize(value) };
+    case "compactness":
+      return { ...preferences, compactness: toCompactness(value) };
+    default:
+      return preferences;
+  }
+}
+
+function setSelectValue(root: HTMLElement, selector: string, value: string): void {
+  const select = root.querySelector<HTMLSelectElement>(selector);
+  if (select) {
+    select.value = value;
+  }
+}
+
+async function requestAppFullscreen(root: HTMLElement): Promise<void> {
+  const target = root.querySelector<HTMLElement>(".workspace-panel") ?? document.documentElement;
+  await target.requestFullscreen?.().catch(() => undefined);
+}
+
+function toLayoutMode(value: unknown): LayoutMode {
+  return value === "compact" ? "compact" : "meeting";
+}
+
+function toStageMode(value: unknown): StageMode {
+  if (value === "focus" || value === "fullscreen") {
+    return value;
+  }
+  return "grid";
+}
+
+function toChatVisibility(value: unknown): OverlayVisibility {
+  if (value === "overlay" || value === "docked") {
+    return value;
+  }
+  return "hidden";
+}
+
+function toUiScale(value: unknown): UiScale {
+  if (value === "0.8" || value === "1.2" || value === "1.5") {
+    return value;
+  }
+  return "1";
+}
+
+function toTileSize(value: unknown): TileSize {
+  if (value === "small" || value === "medium" || value === "large") {
+    return value;
+  }
+  return "auto";
+}
+
+function toCompactness(value: unknown): Compactness {
+  if (value === "relaxed" || value === "dense") {
+    return value;
+  }
+  return "normal";
 }
 
 function bindLogout(root: HTMLElement): void {
@@ -605,6 +944,10 @@ interface WorkspaceFlowResult {
 
 interface WorkspaceListResponse {
   readonly workspaces: readonly PublicWorkspace[];
+}
+
+interface WorkspaceListRenderOptions {
+  readonly localPasswordAuthEnabled?: boolean;
 }
 
 interface WorkspaceTreeResponse {
@@ -780,9 +1123,12 @@ async function loadWorkspaces(root: HTMLElement, activeWorkspaceId = ""): Promis
     headers: authHeader(),
   });
   if (response.status === 401) {
-    renderWorkspaceList(root, [], activeWorkspaceId);
+    const config = await loadAuthConfig();
+    renderWorkspaceList(root, [], activeWorkspaceId, {
+      localPasswordAuthEnabled: config.localPasswordAuthEnabled,
+    });
     renderWorkspaceEmptyState(root);
-    setWorkspaceStatus(root, "Nicht angemeldet.", "error");
+    setWorkspaceStatus(root, "Bitte mit Keycloak anmelden.", "loading");
     return;
   }
   if (!response.ok) {
@@ -879,7 +1225,8 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
   }
   markActiveWorkspace(root, workspaceId);
   const workspaceName =
-    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active span")?.textContent ??
+    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active .workspace-switcher__name")
+      ?.textContent ??
     "Workspace";
   updateWorkspaceHeader(root, workspaceName, "Channel auswählen", null);
   updateInviteContext(root, workspaceName);
@@ -895,29 +1242,32 @@ function renderWorkspaceList(
   root: HTMLElement,
   workspaces: readonly PublicWorkspace[],
   activeWorkspaceId: string,
+  options: WorkspaceListRenderOptions = {},
 ): void {
   const list = root.querySelector<HTMLElement>("#workspace-list");
   if (list) {
-    list.innerHTML = renderWorkspaceListItems(workspaces, activeWorkspaceId);
+    list.innerHTML = renderWorkspaceListItems(workspaces, activeWorkspaceId, options);
   }
 }
 
 function renderWorkspaceListItems(
   workspaces: readonly PublicWorkspace[],
   activeWorkspaceId: string,
+  options: WorkspaceListRenderOptions = {},
 ): string {
   if (workspaces.length === 0) {
+    const canUseLocalCreate = options.localPasswordAuthEnabled === true;
     return `
       <div class="workspace-empty">
         <strong>Noch kein Workspace</strong>
-        <span>Erstelle einen Workspace oder tritt einem bestehenden per Invite-Code bei.</span>
-        <button class="primary-action compact" type="button" data-open-onboarding="create">Workspace erstellen</button>
+        <span>Melde dich mit Keycloak an. Danach kannst du deinen Raum erstellen oder einem Invite beitreten.</span>
         ${
           hasStoredSession()
-            ? ""
-            : '<button class="ghost-button" type="button" data-oidc-login>Mit Keycloak anmelden</button>'
+            ? '<button class="primary-action compact" type="button" data-open-onboarding="create">Workspace erstellen</button>'
+            : '<button class="primary-action primary-action--keycloak" type="button" data-oidc-login>Mit Keycloak anmelden</button>'
         }
-        <button class="ghost-button" type="button" data-open-onboarding="join">Workspace beitreten</button>
+        ${canUseLocalCreate ? '<button class="ghost-button" type="button" data-open-onboarding="create" aria-label="Workspace erstellen">Lokalen Test-Workspace erstellen</button>' : ""}
+        <button class="ghost-button" type="button" data-open-onboarding="join">Invite-Code verwenden</button>
       </div>
     `;
   }
@@ -929,8 +1279,11 @@ function renderWorkspaceListItems(
           <button class="workspace-switcher__item${
             workspace.id === activeWorkspaceId ? " is-active" : ""
           }" type="button" data-workspace-id="${escapeAttribute(workspace.id)}">
-            <span>${escapeHtml(workspace.name)}${workspace.accessMode === "global_authenticated" ? ' <small class="workspace-switcher__badge">Global</small>' : ""}</span>
-            <small>${escapeHtml(formatWorkspaceMembers(workspace))} · ${workspace.accessMode === "global_authenticated" ? "Keycloak-Workspace" : `Owner ${escapeHtml(workspace.ownerId.slice(0, 8))}`}</small>
+            <span class="workspace-switcher__avatar" aria-hidden="true">${escapeHtml(initials(workspace.name))}</span>
+            <span class="workspace-switcher__content">
+              <span class="workspace-switcher__name">${escapeHtml(workspace.name)}${workspace.accessMode === "global_authenticated" ? ' <small class="workspace-switcher__badge">Global</small>' : ""}</span>
+              <small>${escapeHtml(formatWorkspaceMembers(workspace))} · ${workspace.accessMode === "global_authenticated" ? "Keycloak" : `Privat`}</small>
+            </span>
           </button>
         </li>
       `,
@@ -954,7 +1307,8 @@ function markActiveWorkspace(root: HTMLElement, workspaceId: string): void {
 
 function readActiveWorkspaceName(root: HTMLElement): string {
   return (
-    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active span")?.textContent ??
+    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active .workspace-switcher__name")
+      ?.textContent ??
     "kein Workspace"
   );
 }
@@ -998,7 +1352,8 @@ function selectChannel(root: HTMLElement, channel: ChannelTreeNode): void {
   });
 
   const workspaceName =
-    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active span")?.textContent ??
+    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active .workspace-switcher__name")
+      ?.textContent ??
     "Workspace";
   updateWorkspaceHeader(root, workspaceName, channel.name, channel.type);
   updateInviteContext(root, workspaceName);
@@ -1044,6 +1399,16 @@ function renderSidebarParticipants(
   `;
 }
 
+function renderTopbarParticipantCount(root: HTMLElement, count: number): void {
+  const target = root.querySelector<HTMLElement>("#topbar-participant-count");
+  if (!target) {
+    return;
+  }
+
+  target.textContent = String(count);
+  target.setAttribute("aria-label", `${count} Teilnehmer im aktiven Channel`);
+}
+
 function findFirstSelectableChannel(nodes: readonly ChannelTreeNode[]): ChannelTreeNode | null {
   for (const node of nodes) {
     if (node.type !== ChannelType.CATEGORY) {
@@ -1085,11 +1450,13 @@ function updateWorkspaceHeader(
     workspace.textContent = workspaceName;
   }
   if (channel) {
-    channel.textContent = channelType ? `${channelIcon(channelType)} ${channelName}` : channelName;
+    channel.innerHTML = channelType
+      ? `<span class="channel-title-icon" aria-hidden="true">${escapeHtml(channelIcon(channelType))}</span>${escapeHtml(channelName)}`
+      : escapeHtml(channelName);
   }
   const hierarchy = root.querySelector<HTMLElement>("#hierarchy-label");
   if (hierarchy) {
-    hierarchy.textContent = `${workspaceName} → ${channelName} → Teilnehmer`;
+    hierarchy.textContent = `${workspaceName} / ${channelName} / Teilnehmer`;
   }
 }
 
@@ -1139,11 +1506,33 @@ function channelIcon(type: ChannelType): string {
     case ChannelType.TEXT:
       return "#";
     case ChannelType.VOICE:
-      return "Voice";
+      return "◉";
     case ChannelType.COMBINED:
-      return "# Voice";
+      return "# ◉";
     case ChannelType.CATEGORY:
       return "";
+  }
+}
+
+function visibilityIcon(value: OverlayVisibility): string {
+  switch (value) {
+    case "hidden":
+      return "–";
+    case "overlay":
+      return "◱";
+    case "docked":
+      return "▣";
+  }
+}
+
+function visibilityLabel(value: OverlayVisibility): string {
+  switch (value) {
+    case "hidden":
+      return "Hidden";
+    case "overlay":
+      return "Overlay";
+    case "docked":
+      return "Docked";
   }
 }
 
@@ -1400,6 +1789,19 @@ function currentPageUrl(): string {
   }
 
   return window.location.href;
+}
+
+function currentStoredDisplayName(): string {
+  if (typeof localStorage === "undefined") {
+    return "";
+  }
+
+  return localStorage.getItem("openvoice.displayName")?.trim() ?? "";
+}
+
+function defaultWorkspaceName(displayName: string): string {
+  const normalized = displayName.trim() || "Dein";
+  return `${normalized}'s Raum`;
 }
 
 function createDefaultDisplayName(): string {

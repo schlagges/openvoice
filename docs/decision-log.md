@@ -286,3 +286,13 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - Request and WebSocket rate limits remain enabled by default, but can be disabled with
   `RATE_LIMITS_ENABLED=false` for local and E2E runs. This avoids false negatives while preserving
   production protection unless explicitly opted out.
+
+## 2026-05-06: Invite Guests Use Core Workspace Tools
+
+- Invite links are meant to drop a guest directly into the target user's workspace for the core
+  OpenVoice use cases: chat, voice, camera and screenshare. The default `guest` role therefore
+  includes channel visibility, message history, sending/editing/deleting own messages, voice
+  connect/speak and basic media publish permissions.
+- Guest permissions still exclude workspace administration, invite management, moderation and
+  audit access. Global workspaces remain blocked for guests; they can only enter workspaces through
+  explicit short-lived invite links.

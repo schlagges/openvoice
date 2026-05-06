@@ -40,7 +40,6 @@ test("workspace create retry logs into the already registered local test user", 
   await createWorkspace(page, workspaceName, `retry-general-${suffix}`);
 
   await page.getByRole("button", { name: "Neu" }).click();
-  await page.locator("#create-display-name").fill("Retry Test");
   await page.locator("#create-workspace").fill(workspaceName);
   await page.locator("#create-channel").fill(`retry-duplicate-${suffix}`);
   await page
@@ -82,10 +81,8 @@ async function createWorkspace(
   channelName: string,
 ): Promise<void> {
   await page.getByRole("button", { name: "Workspace erstellen" }).click();
-  await page.locator("#create-display-name").fill("UI Test");
   await page.locator("#create-workspace").fill(workspaceName);
   await page.locator("#create-channel").fill(channelName);
-  await page.locator("#create-channel-type").selectOption("text");
   await page
     .locator("#onboarding-dialog")
     .getByRole("button", { name: "Workspace erstellen" })

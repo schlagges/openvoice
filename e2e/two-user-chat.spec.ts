@@ -12,10 +12,8 @@ test("two browser contexts can join one workspace and sync chat messages", async
 
   await owner.goto(`/?e2e=${suffix}-owner`);
   await owner.getByRole("button", { name: "Workspace erstellen" }).click();
-  await owner.locator("#create-display-name").fill("Owner Test");
   await owner.locator("#create-workspace").fill(workspaceName);
   await owner.locator("#create-channel").fill(channelName);
-  await owner.locator("#create-channel-type").selectOption("text");
   await owner
     .locator("#onboarding-dialog")
     .getByRole("button", { name: "Workspace erstellen" })
@@ -24,8 +22,8 @@ test("two browser contexts can join one workspace and sync chat messages", async
   await expect(owner.locator("#onboarding-dialog")).not.toBeVisible();
   await expect(owner.getByRole("button", { name: new RegExp(channelName) })).toBeVisible();
 
-  await owner.getByRole("button", { name: "Personen einladen" }).click();
-  await owner.getByRole("button", { name: "Invite-Code erstellen" }).click();
+  await owner.getByRole("button", { name: "Einladen" }).click();
+  await owner.getByRole("button", { name: "Invite-Link kopieren" }).click();
   await expect(owner.locator("#invite-code")).toHaveValue(/^[A-Za-z0-9_-]{16,64}$/);
   await expect(owner.locator("#invite-link")).toHaveValue(/invite=/);
   const inviteLink = await owner.locator("#invite-link").inputValue();

@@ -130,6 +130,53 @@ describe("Phase 3 message API", () => {
     unsubscribe();
   });
 
+  it("lets an invite guest use chat in the invited workspace", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "invite-chat-owner@example.com");
+    const workspace = await createWorkspace(app, owner);
+    const channel = await createChannel(app, owner, workspace.id, {
+      name: "Windfang",
+      type: "combined",
+    });
+    const invite = await createInvite(app, owner, workspace.id);
+    const guestJoinResponse = await app.handler(
+      jsonRequest(`/api/v1/invites/${invite.code}/guest-join`, {
+        displayName: "Guest Chat",
+      }),
+    );
+    const guestJoinBody = (await guestJoinResponse.json()) as { accessToken: string };
+
+    expect(guestJoinResponse.status).toBe(200);
+    expect(guestJoinBody.accessToken).toBeTruthy();
+
+    const createResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/channels/${channel.id}/messages`,
+        {
+          clientMessageId: randomUUID(),
+          content: "guest can chat from invite link",
+        },
+        { Authorization: `Bearer ${guestJoinBody.accessToken}` },
+      ),
+    );
+    const createBody = (await createResponse.json()) as { message: Message };
+
+    expect(createResponse.status).toBe(201);
+    expect(createBody.message.content).toBe("guest can chat from invite link");
+
+    const historyResponse = await app.handler(
+      new Request(`http://local.test/api/v1/channels/${channel.id}/messages`, {
+        headers: { Authorization: `Bearer ${guestJoinBody.accessToken}` },
+      }),
+    );
+    const historyBody = (await historyResponse.json()) as { messages: Message[] };
+
+    expect(historyResponse.status).toBe(200);
+    expect(historyBody.messages.map((message) => message.content)).toContain(
+      "guest can chat from invite link",
+    );
+  });
+
   it("enforces channel type, message permissions, and send rate limits", async () => {
     const app = createTestApp();
     const owner = await register(app, "owner@example.com");
@@ -326,6 +373,20 @@ async function createChannel(
 
   expect(response.status).toBe(201);
   return responseBody.channel;
+}
+
+async function createInvite(
+  app: TestApp,
+  session: TestSession,
+  workspaceId: string,
+): Promise<{ readonly code: string }> {
+  const response = await app.handler(
+    jsonRequest(`/api/v1/workspaces/${workspaceId}/invites`, {}, authHeaders(session)),
+  );
+  const body = (await response.json()) as { code: string };
+
+  expect(response.status).toBe(201);
+  return body;
 }
 
 async function createMessage(

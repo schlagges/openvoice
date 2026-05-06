@@ -991,10 +991,13 @@ export function renderVoiceControlsPanel(): string {
       <section class="voice-panel" aria-label="Voice Stage">
         <header class="voice-panel__header">
           <div>
-            <p class="eyebrow">Voice Channel</p>
-            <h2>Stage</h2>
+            <p class="eyebrow">Live Session</p>
+            <h2>Voice, Kamera und Screen</h2>
           </div>
-          <output id="voice-status" class="voice-panel__status">Nicht verbunden</output>
+          <div class="voice-panel__header-status">
+            <span class="voice-shortcuts" title="Shortcuts: M mute, D deafen, B beides">M / D / B</span>
+            <output id="voice-status" class="voice-panel__status">Nicht verbunden</output>
+          </div>
         </header>
         <div id="voice-audio-host" class="voice-audio-host" aria-hidden="true" hidden></div>
         <div id="voice-participant-stage" class="voice-participant-stage" aria-label="Teilnehmer"></div>
@@ -1257,6 +1260,7 @@ export function renderVideoGrid(root: HTMLElement, room: Room): void {
   clearAttachedVideos(root);
 
   const tiles = collectVideoTiles(room);
+  root.dataset.tileCount = String(tiles.length);
   if (tiles.length === 0) {
     delete root.dataset.focusedTrack;
     root.replaceChildren();
@@ -1271,7 +1275,7 @@ export function renderVideoGrid(root: HTMLElement, room: Room): void {
     element.dataset.trackKey = tile.key;
     element.type = "button";
     element.setAttribute("aria-label", tile.label);
-    if (focusedKey === tile.key) {
+    if (focusedKey === tile.key || shouldFocusFirstTile(root, tile.key, tiles)) {
       element.classList.add("is-focused");
     }
 
@@ -1286,7 +1290,11 @@ export function renderVideoGrid(root: HTMLElement, room: Room): void {
     caption.className = "voice-video-grid__caption";
     caption.textContent = tile.label;
 
-    element.append(video, caption);
+    const pin = document.createElement("span");
+    pin.className = "voice-video-grid__pin";
+    pin.textContent = focusedKey === tile.key ? "Pinned" : "Pin";
+
+    element.append(video, caption, pin);
     element.addEventListener("click", () => {
       if (root.dataset.focusedTrack === tile.key) {
         delete root.dataset.focusedTrack;
@@ -1314,10 +1322,15 @@ export function renderVoiceParticipantStage(participants: readonly VoiceParticip
   }
 
   return `
-    <ol class="voice-participant-grid">
+    <ol class="voice-participant-grid" data-participant-count="${participants.length}">
       ${participants.map(renderVoiceParticipantCard).join("")}
     </ol>
   `;
+}
+
+function shouldFocusFirstTile(root: HTMLElement, tileKey: string, tiles: readonly VideoTile[]): boolean {
+  const stageMode = root.closest<HTMLElement>(".app-shell")?.dataset.stageMode;
+  return stageMode === "focus" && !root.dataset.focusedTrack && tiles[0]?.key === tileKey;
 }
 
 export function collectVoiceParticipants(
@@ -1405,7 +1418,7 @@ function renderVoiceParticipantCard(participant: VoiceParticipantView): string {
     <li class="voice-participant-card${participant.isSpeaking ? " is-speaking" : ""}">
       <span class="participant-avatar">${escapeHtml(initials(participant.name))}</span>
       <strong>${escapeHtml(participant.name)}</strong>
-      <span>${participant.isLocal ? "Du" : "Verbunden"}</span>
+      <span class="participant-role-chip">${participant.isLocal ? "Du" : "Verbunden"}</span>
       <span class="participant-status-icons" aria-label="${escapeHtml(participant.statusLabel)}">
         ${participant.selfMuted ? '<span title="Mikrofon stumm">Mic aus</span>' : '<span title="Mikrofon aktiv">Mic</span>'}
         ${participant.selfDeafened ? '<span title="Audio aus">Deaf</span>' : ""}
