@@ -6,7 +6,6 @@ stages:
 
 variables:
   DOCKER_BUILDKIT: "1"
-  NODE_CI_IMAGE: "node:22-bookworm"
   PNPM_HOME: "$CI_PROJECT_DIR/.pnpm-home"
   PNPM_STORE_PATH: "$CI_PROJECT_DIR/.pnpm-store"
   VITE_API_BASE_URL: "/api/v1"
@@ -20,10 +19,14 @@ cache:
     - .pnpm-home/
 
 .node_job:
+  image: node:22-bookworm
   tags:
     - ki-maschine
   before_script:
-    - docker pull "$NODE_CI_IMAGE"
+    - corepack enable
+    - corepack prepare pnpm@10.33.2 --activate
+    - pnpm config set store-dir "$PNPM_STORE_PATH"
+    - pnpm install --frozen-lockfile
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
@@ -32,34 +35,35 @@ format:
   extends: .node_job
   stage: validate
   script:
-    - docker run --rm --user "$(id -u):$(id -g)" -e HOME=/work/.ci-home -e PNPM_HOME=/work/.pnpm-home -e PNPM_STORE_PATH=/work/.pnpm-store -v "$CI_PROJECT_DIR:/work" -w /work "$NODE_CI_IMAGE" sh -lc 'corepack enable && corepack prepare pnpm@10.33.2 --activate && pnpm config set store-dir "$PNPM_STORE_PATH" && pnpm install --frozen-lockfile && pnpm format:check'
+    - pnpm format:check
 
 lint:
   extends: .node_job
   stage: validate
   script:
-    - docker run --rm --user "$(id -u):$(id -g)" -e HOME=/work/.ci-home -e PNPM_HOME=/work/.pnpm-home -e PNPM_STORE_PATH=/work/.pnpm-store -v "$CI_PROJECT_DIR:/work" -w /work "$NODE_CI_IMAGE" sh -lc 'corepack enable && corepack prepare pnpm@10.33.2 --activate && pnpm config set store-dir "$PNPM_STORE_PATH" && pnpm install --frozen-lockfile && pnpm lint'
+    - pnpm lint
 
 license:
   extends: .node_job
   stage: validate
   script:
-    - docker run --rm --user "$(id -u):$(id -g)" -e HOME=/work/.ci-home -e PNPM_HOME=/work/.pnpm-home -e PNPM_STORE_PATH=/work/.pnpm-store -v "$CI_PROJECT_DIR:/work" -w /work "$NODE_CI_IMAGE" sh -lc 'corepack enable && corepack prepare pnpm@10.33.2 --activate && pnpm config set store-dir "$PNPM_STORE_PATH" && pnpm install --frozen-lockfile && pnpm license:check'
+    - pnpm license:check
 
 unit_tests:
   extends: .node_job
   stage: test
   script:
-    - docker run --rm --user "$(id -u):$(id -g)" -e HOME=/work/.ci-home -e PNPM_HOME=/work/.pnpm-home -e PNPM_STORE_PATH=/work/.pnpm-store -v "$CI_PROJECT_DIR:/work" -w /work "$NODE_CI_IMAGE" sh -lc 'corepack enable && corepack prepare pnpm@10.33.2 --activate && pnpm config set store-dir "$PNPM_STORE_PATH" && pnpm install --frozen-lockfile && pnpm test'
+    - pnpm test
 
 build_app:
   extends: .node_job
   stage: build
   script:
-    - docker run --rm --user "$(id -u):$(id -g)" -e HOME=/work/.ci-home -e PNPM_HOME=/work/.pnpm-home -e PNPM_STORE_PATH=/work/.pnpm-store -v "$CI_PROJECT_DIR:/work" -w /work "$NODE_CI_IMAGE" sh -lc 'corepack enable && corepack prepare pnpm@10.33.2 --activate && pnpm config set store-dir "$PNPM_STORE_PATH" && pnpm install --frozen-lockfile && pnpm build'
+    - pnpm build
 
 build_images:
   stage: build
+  image: docker:27-cli
   tags:
     - ki-maschine
   needs:
@@ -78,6 +82,7 @@ build_images:
 
 deploy_prod:
   stage: deploy
+  image: docker:27-cli
   tags:
     - ki-maschine
   needs:
