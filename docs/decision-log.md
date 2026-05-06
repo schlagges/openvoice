@@ -213,3 +213,12 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
   join requires an authenticated session, CSRF, and no active workspace ban.
 - Joined users receive the default `member` role. Full invite management, revocation UI and member
   administration remain future surfaces beyond this small RTC-test enabler.
+
+## 2026-05-06: Chat Sync and Workspace Name Uniqueness
+
+- The chat UI now keeps channel history and live message events chronologically ordered in the
+  browser. The API pagination can continue returning newest-first pages for cursor efficiency while
+  the visible chat timeline is oldest-to-newest.
+- Workspace creation rejects duplicate normalized names at the service layer. A database unique
+  constraint is intentionally deferred because existing local/test databases may already contain
+  repeated manual-test names; adding a hard migration now would risk breaking current test stacks.

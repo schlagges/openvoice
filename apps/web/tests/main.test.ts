@@ -150,6 +150,43 @@ describe("web foundation", () => {
     expect(html).toContain("bearbeitet");
   });
 
+  it("renders chat messages chronologically", () => {
+    const old = "2026-05-06T08:00:00.000Z";
+    const newer = "2026-05-06T08:01:00.000Z";
+    const html = renderChatPanel([
+      {
+        authorId: "author",
+        channelId: "channel",
+        clientMessageId: "newer",
+        content: "newer",
+        contentFormat: MessageContentFormat.MARKDOWN,
+        createdAt: newer,
+        deletedAt: null,
+        deletedBy: null,
+        editedAt: null,
+        id: "message-newer",
+        updatedAt: newer,
+        workspaceId: "workspace",
+      },
+      {
+        authorId: "author",
+        channelId: "channel",
+        clientMessageId: "old",
+        content: "old",
+        contentFormat: MessageContentFormat.MARKDOWN,
+        createdAt: old,
+        deletedAt: null,
+        deletedBy: null,
+        editedAt: null,
+        id: "message-old",
+        updatedAt: old,
+        workspaceId: "workspace",
+      },
+    ]);
+
+    expect(html.indexOf("old")).toBeLessThan(html.indexOf("newer"));
+  });
+
   it("renders an actionable chat empty state", () => {
     const html = renderChatPanel([]);
 

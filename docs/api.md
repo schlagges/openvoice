@@ -84,6 +84,7 @@ POST   /api/v1/invites/join
 `GET /workspaces` benötigt Auth und liefert nur Workspaces, in denen der aktuelle User Mitglied
 ist. Es gibt absichtlich keine serverweite Workspace-Auflistung, damit private Workspace-Namen
 nicht an andere eingeloggte User leaken.
+`POST /workspaces` lehnt neue Workspaces ab, wenn der normalisierte Name bereits existiert.
 
 `GET /audit-log` benötigt `VIEW_AUDIT_LOG` und liefert die neuesten Einträge mit `limit` 1-100.
 `POST /workspaces/:workspaceId/invites` benötigt `MANAGE_INVITES` und gibt den Invite-Code nur

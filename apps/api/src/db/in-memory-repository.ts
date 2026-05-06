@@ -235,6 +235,14 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     };
   }
 
+  public async findWorkspaceByNameNormalized(nameNormalized: string): Promise<Workspace | null> {
+    return (
+      this.workspaces.find(
+        (workspace) => normalizeWorkspaceName(workspace.name) === nameNormalized,
+      ) ?? null
+    );
+  }
+
   public async findWorkspaceAccessContext(
     workspaceId: string,
     userId: string,
@@ -1152,6 +1160,10 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     this.auditLogEntries.push(entry);
     return entry;
   }
+}
+
+function normalizeWorkspaceName(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 function compareMessagesDesc(left: MessageRecord, right: MessageRecord): number {

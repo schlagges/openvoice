@@ -156,6 +156,26 @@ describe("Phase 1 API", () => {
     ).toHaveLength(5);
   });
 
+  it("rejects duplicate workspace names", async () => {
+    const app = createTestApp();
+    const firstOwner = await register(app, "duplicate-owner@example.com");
+    const secondOwner = await register(app, "duplicate-other@example.com");
+
+    await createWorkspace(app, firstOwner, "Shared Name");
+    const duplicate = await app.handler(
+      jsonRequest(
+        "/api/v1/workspaces",
+        { name: " shared name " },
+        {
+          cookie: secondOwner.cookie,
+          "x-openvoice-csrf-token": secondOwner.csrfToken,
+        },
+      ),
+    );
+
+    expect(duplicate.status).toBe(409);
+  });
+
   it("lists only workspaces the authenticated user belongs to", async () => {
     const app = createTestApp();
     const owner = await register(app, "owner@example.com");

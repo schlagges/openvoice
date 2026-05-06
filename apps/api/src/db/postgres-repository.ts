@@ -420,6 +420,15 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows[0] ? mapWorkspaceMember(result.rows[0]) : null;
   }
 
+  public async findWorkspaceByNameNormalized(nameNormalized: string): Promise<Workspace | null> {
+    const result = await this.pool.query<WorkspaceRow>(
+      "SELECT * FROM workspaces WHERE lower(trim(name)) = $1 LIMIT 1",
+      [nameNormalized],
+    );
+
+    return result.rows[0] ? mapWorkspace(result.rows[0]) : null;
+  }
+
   public async findActiveWorkspaceBan(
     workspaceId: string,
     userId: string,

@@ -69,6 +69,7 @@ export interface OpenVoiceRepository {
   findRoleById(roleId: string): Promise<Role | null>;
   findUserByEmailNormalized(emailNormalized: string): Promise<User | null>;
   findUserById(userId: string): Promise<User | null>;
+  findWorkspaceByNameNormalized(nameNormalized: string): Promise<Workspace | null>;
   findActiveWorkspaceBan(workspaceId: string, userId: string): Promise<WorkspaceBanRecord | null>;
   findActiveWorkspaceInvite(codeHash: string, now: Date): Promise<WorkspaceInvite | null>;
   findActiveWorkspaceTimeout(

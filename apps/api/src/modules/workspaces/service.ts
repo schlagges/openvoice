@@ -10,7 +10,7 @@ import {
 
 import type { CreateWorkspaceResult, Role, Workspace, WorkspaceMember } from "../../db/models.js";
 import type { OpenVoiceRepository } from "../../db/repository.js";
-import { forbidden, notFound } from "../../http/errors.js";
+import { conflict, forbidden, notFound } from "../../http/errors.js";
 import type { GatewayEventPublisher } from "../gateway/events.js";
 
 export interface WorkspaceServiceOptions {
@@ -73,6 +73,13 @@ export class WorkspaceService {
     readonly name: string;
     readonly ownerId: string;
   }): Promise<WorkspaceCreationResponse> {
+    const existing = await this.repository.findWorkspaceByNameNormalized(
+      normalizeWorkspaceName(input.name),
+    );
+    if (existing) {
+      throw conflict("Workspace name is already in use.", { field: "name" });
+    }
+
     const result = await this.repository.createWorkspaceWithDefaults(input);
     const response = toWorkspaceCreationResponse(result);
     await this.eventPublisher?.publish({
@@ -219,6 +226,10 @@ function createInviteCode(): string {
 
 function hashInviteCode(code: string): string {
   return createHash("sha256").update(code, "utf8").digest("hex");
+}
+
+function normalizeWorkspaceName(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 export function assertDefaultRolesCreated(roles: readonly Role[]): void {
