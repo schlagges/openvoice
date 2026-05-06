@@ -62,6 +62,7 @@ export function mountBrowserNotifications(root: ParentNode = document): void {
   mounted = true;
   window.addEventListener("pointerdown", unlockAudioOnce, { once: true });
   window.addEventListener("keydown", unlockAudioOnce, { once: true });
+  window.addEventListener("openvoice:unlock-audio", unlockAudioOnce);
   window.addEventListener("openvoice:chat-message-created", (event) => {
     const detail = (event as CustomEvent<ChatMessageEventDetail>).detail;
     if (!detail || !shouldNotifyMessage(detail.message, detail.isOwn)) {
@@ -226,13 +227,19 @@ function messageNotificationBody(message: Message): string {
 }
 
 function playNotificationSound(sound: NotificationSound): void {
-  if (!audioUnlocked) {
+  if (
+    !audioUnlocked &&
+    (typeof document === "undefined" || document.visibilityState !== "visible")
+  ) {
     return;
   }
 
   const context = currentAudioContext();
   if (!context) {
     return;
+  }
+  if (context.state === "suspended") {
+    void context.resume().catch(() => undefined);
   }
 
   const sequence = soundSequence(sound);

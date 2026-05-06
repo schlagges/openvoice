@@ -39,6 +39,7 @@ import {
   createScreenSharePublishOptions,
 } from "../src/voice/media-profiles";
 import {
+  collectRemoteAudioTracks,
   collectVoiceParticipants,
   collectVideoTiles,
   formatVoiceRequestError,
@@ -140,6 +141,7 @@ describe("web foundation", () => {
     expect(html).toContain('id="voice-camera"');
     expect(html).toContain('id="voice-audio-input"');
     expect(html).toContain('id="voice-audio-output"');
+    expect(html).toContain('id="voice-audio-host"');
     expect(html).toContain('id="voice-video-input"');
     expect(html).toContain('type="button" disabled aria-label="Kamera einschalten"');
     expect(html).toContain("Media Einstellungen");
@@ -602,6 +604,26 @@ describe("web foundation", () => {
 
     expect(collectVideoTiles(room)).toHaveLength(1);
     expect(collectVideoTiles(room)[0]?.key).toBe("local:active");
+  });
+
+  it("collects only active remote audio tracks for playback attachment", () => {
+    const activeTrack = { attach: () => undefined, detach: () => undefined };
+    const mutedTrack = { attach: () => undefined, detach: () => undefined };
+    const room = {
+      remoteParticipants: new Map([
+        [
+          "remote",
+          {
+            audioTrackPublications: new Map([
+              ["active", { audioTrack: activeTrack, isMuted: false }],
+              ["muted", { audioTrack: mutedTrack, isMuted: true }],
+            ]),
+          },
+        ],
+      ]),
+    } as unknown as Room;
+
+    expect(collectRemoteAudioTracks(room)).toEqual([activeTrack]);
   });
 });
 

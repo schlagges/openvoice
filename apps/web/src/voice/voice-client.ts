@@ -39,6 +39,7 @@ import {
 } from "./media-profiles.js";
 
 const videoGridTracks = new WeakMap<HTMLElement, VideoTile["track"][]>();
+const remoteAudioTracks = new WeakMap<HTMLElement, RemoteAudioTrack[]>();
 const AUDIO_INPUT_DEVICE_STORAGE_KEY = "openvoice.audioInputDeviceId";
 const AUDIO_OUTPUT_DEVICE_STORAGE_KEY = "openvoice.audioOutputDeviceId";
 const VIDEO_INPUT_DEVICE_STORAGE_KEY = "openvoice.videoInputDeviceId";
@@ -643,6 +644,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   const screenQuality = root.querySelector<HTMLSelectElement>("#voice-screen-quality");
   const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
   const status = root.querySelector<HTMLOutputElement>("#voice-status");
+  const audioHost = root.querySelector<HTMLElement>("#voice-audio-host");
   const videoGrid = root.querySelector<HTMLElement>("#voice-video-grid");
   const participantStage = root.querySelector<HTMLElement>("#voice-participant-stage");
   const leaveButton = root.querySelector<HTMLButtonElement>("#voice-leave");
@@ -666,6 +668,9 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   };
   if (videoGrid) {
     mountVideoGrid(videoGrid, client.liveKitRoom, renderParticipants);
+  }
+  if (audioHost) {
+    mountRemoteAudio(audioHost, client.liveKitRoom, () => audioOutput?.value ?? "");
   }
   window.addEventListener("openvoice:voice-participants-refreshed", renderParticipants);
   void refreshMediaDeviceSelects({ audioInput, audioOutput, videoInput });
@@ -711,6 +716,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   let joiningChannelId: string | null = null;
 
   const joinChannel = (channelId: string, channelName: string): void => {
+    dispatchAudioUnlock();
     if (!channelId) {
       setStatus("Channel fehlt");
       return;
@@ -735,6 +741,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
           setVoiceActionsEnabled(true);
           setStatus(client.lastMicrophoneError ?? `Verbunden: ${result.roomName}`);
           updateControlStates();
+          applyAttachedAudioSinkId(audioHost, audioOutput?.value ?? "");
           void refreshMediaDeviceSelects({ audioInput, audioOutput, videoInput });
           void client
             .refreshParticipants()
@@ -773,6 +780,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   });
 
   leaveButton?.addEventListener("click", () => {
+    dispatchAudioUnlock();
     void client
       .leave()
       .then(() => {
@@ -787,6 +795,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       });
   });
   muteButton?.addEventListener("click", () => {
+    dispatchAudioUnlock();
     const nextMuted = !client.currentState?.selfMuted;
     void client.setSelfMuted(nextMuted).then((state) => {
       setStatus(client.lastMicrophoneError ?? (state.selfMuted ? "Stumm" : "Mic an"));
@@ -802,11 +811,13 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       );
   });
   audioOutput?.addEventListener("change", () => {
+    dispatchAudioUnlock();
     void client
       .setAudioOutputDevice(audioOutput.value)
-      .then(() =>
-        setStatus(audioOutput.value ? "Ausgabegeraet gewechselt" : "Standard-Ausgabe aktiv"),
-      )
+      .then(() => {
+        applyAttachedAudioSinkId(audioHost, audioOutput.value);
+        setStatus(audioOutput.value ? "Ausgabegeraet gewechselt" : "Standard-Ausgabe aktiv");
+      })
       .catch((error: unknown) =>
         setStatus(
           error instanceof Error ? error.message : "Ausgabegeraet konnte nicht gewechselt werden",
@@ -822,6 +833,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       );
   });
   deafenButton?.addEventListener("click", () => {
+    dispatchAudioUnlock();
     const nextDeafened = !client.currentState?.selfDeafened;
     void client.setSelfDeafened(nextDeafened).then((state) => {
       setStatus(state.selfDeafened ? "Taub" : "Audio an");
@@ -829,6 +841,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
     });
   });
   cameraButton?.addEventListener("click", () => {
+    dispatchAudioUnlock();
     const nextEnabled = !client.currentState?.cameraEnabled;
     void client
       .setCameraEnabled(nextEnabled, parseQualitySelection(cameraQuality, VideoQualityProfile.P720))
@@ -841,6 +854,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       );
   });
   screenButton?.addEventListener("click", () => {
+    dispatchAudioUnlock();
     const nextEnabled = !client.currentState?.screenShareEnabled;
     void client
       .setScreenShareEnabled(
@@ -883,6 +897,7 @@ export function renderVoiceControlsPanel(): string {
           </div>
           <output id="voice-status" class="voice-panel__status">Nicht verbunden</output>
         </header>
+        <div id="voice-audio-host" class="voice-audio-host" aria-hidden="true" hidden></div>
         <div id="voice-participant-stage" class="voice-participant-stage" aria-label="Teilnehmer"></div>
         <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
         <div class="voice-panel__actions" aria-label="Voice Aktionen">
@@ -992,6 +1007,96 @@ export function mountVideoGrid(root: HTMLElement, room: Room, onRender?: () => v
     room.off(RoomEvent.ParticipantDisconnected, render);
     clearAttachedVideos(root);
   };
+}
+
+export function mountRemoteAudio(
+  root: HTMLElement,
+  room: Room,
+  selectedOutputDeviceId: () => string,
+): () => void {
+  const render = (): void => {
+    renderRemoteAudio(root, room, selectedOutputDeviceId());
+  };
+
+  room.on(RoomEvent.TrackSubscribed, render);
+  room.on(RoomEvent.TrackUnsubscribed, render);
+  room.on(RoomEvent.TrackPublished, render);
+  room.on(RoomEvent.TrackUnpublished, render);
+  room.on(RoomEvent.TrackMuted, render);
+  room.on(RoomEvent.TrackUnmuted, render);
+  room.on(RoomEvent.ParticipantConnected, render);
+  room.on(RoomEvent.ParticipantDisconnected, render);
+  render();
+
+  return () => {
+    room.off(RoomEvent.TrackSubscribed, render);
+    room.off(RoomEvent.TrackUnsubscribed, render);
+    room.off(RoomEvent.TrackPublished, render);
+    room.off(RoomEvent.TrackUnpublished, render);
+    room.off(RoomEvent.TrackMuted, render);
+    room.off(RoomEvent.TrackUnmuted, render);
+    room.off(RoomEvent.ParticipantConnected, render);
+    room.off(RoomEvent.ParticipantDisconnected, render);
+    clearAttachedRemoteAudio(root);
+  };
+}
+
+export function renderRemoteAudio(root: HTMLElement, room: Room, outputDeviceId = ""): void {
+  clearAttachedRemoteAudio(root);
+
+  const fragment = document.createDocumentFragment();
+  const attachedTracks: RemoteAudioTrack[] = [];
+  for (const track of collectRemoteAudioTracks(room)) {
+    const audio = document.createElement("audio");
+    audio.autoplay = true;
+    audio.hidden = true;
+    audio.dataset.openvoiceRemoteAudio = "true";
+    track.attach(audio);
+    attachedTracks.push(track);
+    setAudioElementSinkId(audio, outputDeviceId);
+    void audio.play().catch(() => undefined);
+    fragment.append(audio);
+  }
+
+  remoteAudioTracks.set(root, attachedTracks);
+  root.replaceChildren(fragment);
+}
+
+export function collectRemoteAudioTracks(room: Room): RemoteAudioTrack[] {
+  const tracks: RemoteAudioTrack[] = [];
+  for (const participant of room.remoteParticipants.values()) {
+    for (const publication of participant.audioTrackPublications.values()) {
+      if (publication.audioTrack && !publication.isMuted) {
+        tracks.push(publication.audioTrack as RemoteAudioTrack);
+      }
+    }
+  }
+  return tracks;
+}
+
+function clearAttachedRemoteAudio(root: HTMLElement): void {
+  const attachedTracks = remoteAudioTracks.get(root) ?? [];
+  for (const track of attachedTracks) {
+    track.detach();
+  }
+  remoteAudioTracks.delete(root);
+  root.querySelectorAll<HTMLAudioElement>("audio[data-openvoice-remote-audio]").forEach((audio) => {
+    audio.srcObject = null;
+  });
+}
+
+function applyAttachedAudioSinkId(root: HTMLElement | null, outputDeviceId: string): void {
+  root
+    ?.querySelectorAll<HTMLAudioElement>("audio[data-openvoice-remote-audio]")
+    .forEach((audio) => setAudioElementSinkId(audio, outputDeviceId));
+}
+
+function setAudioElementSinkId(audio: HTMLAudioElement, outputDeviceId: string): void {
+  if (!("setSinkId" in audio)) {
+    return;
+  }
+
+  void audio.setSinkId(outputDeviceId || "default").catch(() => undefined);
 }
 
 export function renderVideoGrid(root: HTMLElement, room: Room): void {
@@ -1323,6 +1428,14 @@ function storeDeviceId(key: string, deviceId: string | null): void {
   }
 
   localStorage.removeItem(key);
+}
+
+function dispatchAudioUnlock(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  window.dispatchEvent(new Event("openvoice:unlock-audio"));
 }
 
 function authHeader(): Record<string, string> {
