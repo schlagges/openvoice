@@ -34,6 +34,7 @@ import {
   createScreenShareCaptureOptions,
   createScreenSharePublishOptions,
 } from "./media-profiles.js";
+import { readSessionCsrfToken, readSessionDisplayName } from "../session.js";
 
 const videoGridTracks = new WeakMap<HTMLElement, VideoTile["track"][]>();
 
@@ -741,8 +742,7 @@ export function collectVoiceParticipants(
     return [];
   }
 
-  const storedDisplayName =
-    typeof localStorage === "undefined" ? null : localStorage.getItem("openvoice.displayName");
+  const storedDisplayName = readSessionDisplayName();
   const localName = room.localParticipant.name || storedDisplayName;
   const participants: VoiceParticipantView[] = [
     {
@@ -928,11 +928,7 @@ function defaultApiBaseUrl(): string {
 }
 
 function readStoredCsrfToken(): string | null {
-  if (typeof localStorage === "undefined") {
-    return null;
-  }
-
-  return localStorage.getItem("openvoice.csrfToken");
+  return readSessionCsrfToken();
 }
 
 function firstLocalAudioTrack(room: Room): LocalAudioTrack | null {
