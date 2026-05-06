@@ -39,6 +39,10 @@ export interface Workspace {
   readonly updatedAt: Date;
 }
 
+export interface WorkspaceWithMemberCount extends Workspace {
+  readonly memberCount: number;
+}
+
 export interface WorkspaceMember {
   readonly createdAt: Date;
   readonly id: string;

@@ -190,12 +190,13 @@ describe("Phase 1 API", () => {
       }),
     );
     const body = (await response.json()) as {
-      workspaces: Array<{ name: string; ownerId: string }>;
+      workspaces: Array<{ memberCount: number; name: string; ownerId: string }>;
     };
 
     expect(response.status).toBe(200);
     expect(body.workspaces).toHaveLength(1);
     expect(body.workspaces[0]).toMatchObject({
+      memberCount: 1,
       name: "Owner Workspace",
       ownerId: owner.user.id,
     });
@@ -251,9 +252,11 @@ describe("Phase 1 API", () => {
         headers: { cookie: invited.cookie },
       }),
     );
-    const listedBody = (await listed.json()) as { workspaces: Array<{ id: string }> };
+    const listedBody = (await listed.json()) as {
+      workspaces: Array<{ id: string; memberCount: number }>;
+    };
     expect(listedBody.workspaces).toContainEqual(
-      expect.objectContaining({ id: workspace.workspace.id }),
+      expect.objectContaining({ id: workspace.workspace.id, memberCount: 2 }),
     );
   });
 

@@ -57,13 +57,14 @@ describe("web foundation", () => {
 
   it("renders visible workspaces with active state", () => {
     const html = renderWorkspaceSwitcher(
-      [{ id: "workspace-1", name: "Team Voice", ownerId: "owner-user-id" }],
+      [{ id: "workspace-1", memberCount: 3, name: "Team Voice", ownerId: "owner-user-id" }],
       "workspace-1",
     );
 
     expect(html).toContain("Team Voice");
     expect(html).toContain("is-active");
-    expect(html).toContain("Ein Workspace ist dein gemeinsamer Server");
+    expect(html).toContain("Ebene 1: Server und Mitglieder");
+    expect(html).toContain("3 Mitglieder");
     expect(html).not.toContain("Invite erstellen");
   });
 

@@ -45,7 +45,7 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
       }
       <form class="chat-composer">
         <label class="chat-composer__label" for="chat-message-input">Nachricht</label>
-        <textarea id="chat-message-input" class="chat-composer__input" name="message" rows="2" placeholder="Nachricht schreiben"></textarea>
+        <textarea id="chat-message-input" class="chat-composer__input" name="message" rows="1" placeholder="Nachricht schreiben"></textarea>
         <p id="chat-composer-status" class="chat-composer__status" role="status"></p>
         <button class="chat-composer__send" type="submit" aria-label="Nachricht senden" title="Nachricht senden">➤</button>
       </form>

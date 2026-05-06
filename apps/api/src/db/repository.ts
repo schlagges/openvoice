@@ -39,6 +39,7 @@ import type {
   User,
   VoiceStateRecord,
   Workspace,
+  WorkspaceWithMemberCount,
   WorkspaceBanRecord,
   WorkspaceInvite,
   WorkspaceMember,
@@ -93,7 +94,7 @@ export interface OpenVoiceRepository {
   findVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
   findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null>;
   listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]>;
-  listWorkspacesForUser(userId: string): Promise<readonly Workspace[]>;
+  listWorkspacesForUser(userId: string): Promise<readonly WorkspaceWithMemberCount[]>;
   moveVoiceMember(input: MoveVoiceMemberInput): Promise<MoveVoiceMemberResult | null>;
   disconnectVoiceMember(
     input: DisconnectVoiceMemberInput,

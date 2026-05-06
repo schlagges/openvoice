@@ -58,6 +58,7 @@ import type {
   WorkspaceBanRecord,
   WorkspaceInvite,
   WorkspaceMember,
+  WorkspaceWithMemberCount,
   WorkspaceTimeoutRecord,
 } from "./models.js";
 import type { OpenVoiceRepository } from "./repository.js";
@@ -565,17 +566,22 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows.map(mapAuditLogEntry);
   }
 
-  public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
-    const result = await this.pool.query<WorkspaceRow>(
-      `SELECT w.*
+  public async listWorkspacesForUser(userId: string): Promise<readonly WorkspaceWithMemberCount[]> {
+    const result = await this.pool.query<WorkspaceRow & { readonly member_count: string }>(
+      `SELECT w.*, count(all_members.id) AS member_count
        FROM workspaces w
        JOIN workspace_members wm ON wm.workspace_id = w.id
+       LEFT JOIN workspace_members all_members ON all_members.workspace_id = w.id
        WHERE wm.user_id = $1
+       GROUP BY w.id
        ORDER BY w.created_at ASC`,
       [userId],
     );
 
-    return result.rows.map(mapWorkspace);
+    return result.rows.map((row) => ({
+      ...mapWorkspace(row),
+      memberCount: Number(row.member_count),
+    }));
   }
 
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {

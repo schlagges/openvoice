@@ -10,14 +10,14 @@
         --surface: #171b22;
         --surface-2: #1f2530;
         --surface-3: #252d39;
-        --panel: #f8fafc;
-        --panel-2: #eef2f7;
+        --panel: #141922;
+        --panel-2: #1b2230;
         --border: #2d3542;
-        --border-light: #d8dee8;
+        --border-light: #303948;
         --text: #eef4ff;
         --text-muted: #94a3b8;
-        --text-dark: #111827;
-        --text-dark-muted: #64748b;
+        --text-dark: #e5edf8;
+        --text-dark-muted: #94a3b8;
         --accent: #4f8cff;
         --accent-soft: #dbeafe;
         --success: #2fb87a;
@@ -37,6 +37,22 @@
           BlinkMacSystemFont,
           "Segoe UI",
           sans-serif;
+      }
+
+      body[data-theme="light"] {
+        --bg: #eef2f7;
+        --surface: #f8fafc;
+        --surface-2: #eef2f7;
+        --surface-3: #e2e8f0;
+        --panel: #ffffff;
+        --panel-2: #f1f5f9;
+        --border: #d8dee8;
+        --border-light: #d8dee8;
+        --text: #111827;
+        --text-muted: #64748b;
+        --text-dark: #111827;
+        --text-dark-muted: #64748b;
+        --accent-soft: #dbeafe;
       }
 
       html,
@@ -101,6 +117,13 @@
         margin: 0;
       }
 
+      .sidebar-header__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: end;
+      }
+
       .sidebar-header p,
       .section-header p,
       .dialog-header p {
@@ -137,6 +160,12 @@
       .primary-action.compact {
         font-size: 0.78rem;
         padding: 0 10px;
+      }
+
+      .ghost-button.compact {
+        font-size: 0.78rem;
+        min-height: 32px;
+        padding: 0 9px;
       }
 
       .ghost-button {
@@ -213,6 +242,12 @@
       .sidebar-participants__empty {
         color: var(--text-muted);
         font-size: 0.76rem;
+      }
+
+      .hierarchy-label {
+        color: var(--text-muted);
+        font-size: 0.8rem;
+        margin: 4px 0 0;
       }
 
       .workspace-empty {
@@ -339,7 +374,13 @@
       }
 
       .sidebar-footer {
+        display: grid;
+        gap: 10px;
         margin-top: auto;
+      }
+
+      .sidebar-logout {
+        width: 100%;
       }
 
       .ops-links {
@@ -667,7 +708,7 @@
 
       .chat-panel__header {
         border-bottom: 1px solid var(--border-light);
-        padding-bottom: 12px;
+        padding-bottom: 10px;
       }
 
       .chat-panel .eyebrow,
@@ -682,22 +723,27 @@
 
       .chat-messages {
         display: grid;
-        gap: 8px;
+        align-content: start;
+        gap: 2px;
         min-height: 0;
         overflow: auto;
-        padding: 12px 0;
+        padding: 8px 0;
       }
 
       .chat-message {
-        border-bottom: 1px solid var(--border-light);
-        padding: 8px 0;
+        border-radius: var(--radius-sm);
+        padding: 6px 8px;
+      }
+
+      .chat-message:hover {
+        background: var(--panel-2);
       }
 
       .chat-message__meta {
         color: var(--text-dark-muted);
         display: flex;
         flex-wrap: wrap;
-        font-size: 0.74rem;
+        font-size: 0.7rem;
         gap: 6px;
       }
 
@@ -707,7 +753,9 @@
       }
 
       .chat-message__body {
-        margin: 4px 0 0;
+        font-size: 0.88rem;
+        line-height: 1.35;
+        margin: 2px 0 0;
         overflow-wrap: anywhere;
         white-space: pre-wrap;
       }
@@ -726,31 +774,35 @@
         border: 1px solid var(--border-light);
         border-radius: var(--radius);
         display: grid;
-        gap: 8px;
-        padding: 10px;
+        gap: 6px;
+        grid-template-columns: minmax(0, 1fr) auto;
+        padding: 8px;
       }
 
       .chat-composer__label {
+        grid-column: 1 / -1;
         color: var(--text-dark-muted);
-        font-size: 0.74rem;
+        font-size: 0.7rem;
         font-weight: 800;
       }
 
       .chat-composer__input {
-        background: white;
+        background: var(--panel);
         border: 1px solid var(--border-light);
         border-radius: var(--radius-sm);
-        min-height: 54px;
+        color: var(--text-dark);
+        min-height: 38px;
         padding: 8px 10px;
         resize: vertical;
       }
 
       .chat-composer__status,
       .form-status {
+        grid-column: 1 / -1;
         color: var(--text-dark-muted);
         font-size: 0.76rem;
         margin: 0;
-        min-height: 18px;
+        min-height: 14px;
       }
 
       .chat-composer__send {
@@ -763,7 +815,6 @@
         font-weight: 900;
         height: 36px;
         justify-content: center;
-        justify-self: end;
         width: 44px;
       }
 
@@ -847,8 +898,10 @@
       .onboarding-form input,
       .onboarding-form select,
       .invite-result input {
+        background: var(--panel);
         border: 1px solid var(--border-light);
         border-radius: var(--radius-sm);
+        color: var(--text-dark);
         min-height: 40px;
         padding: 0 10px;
       }

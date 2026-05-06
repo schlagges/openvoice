@@ -8,7 +8,13 @@ import {
   serializePermissionMask,
 } from "@openvoice/shared";
 
-import type { CreateWorkspaceResult, Role, Workspace, WorkspaceMember } from "../../db/models.js";
+import type {
+  CreateWorkspaceResult,
+  Role,
+  Workspace,
+  WorkspaceMember,
+  WorkspaceWithMemberCount,
+} from "../../db/models.js";
 import type { OpenVoiceRepository } from "../../db/repository.js";
 import { conflict, forbidden, notFound } from "../../http/errors.js";
 import type { GatewayEventPublisher } from "../gateway/events.js";
@@ -50,6 +56,7 @@ export interface WorkspaceInviteJoinResponse {
 
 export interface PublicWorkspace {
   readonly id: string;
+  readonly memberCount?: number;
   readonly name: string;
   readonly ownerId: string;
 }
@@ -93,7 +100,7 @@ export class WorkspaceService {
 
   public async listWorkspacesForUser(userId: string): Promise<readonly PublicWorkspace[]> {
     const workspaces = await this.repository.listWorkspacesForUser(userId);
-    return workspaces.map(toPublicWorkspace);
+    return workspaces.map(toPublicWorkspaceWithMemberCount);
   }
 
   public async createInvite(input: {
@@ -198,6 +205,13 @@ export function toPublicWorkspace(workspace: Workspace): PublicWorkspace {
     id: workspace.id,
     name: workspace.name,
     ownerId: workspace.ownerId,
+  };
+}
+
+function toPublicWorkspaceWithMemberCount(workspace: WorkspaceWithMemberCount): PublicWorkspace {
+  return {
+    ...toPublicWorkspace(workspace),
+    memberCount: workspace.memberCount,
   };
 }
 

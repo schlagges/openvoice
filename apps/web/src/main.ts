@@ -106,7 +106,7 @@ export function renderInviteDialog(): string {
         <div>
           <p class="eyebrow">Workspace</p>
           <h2 id="invite-dialog-title">Personen einladen</h2>
-          <p>Erstelle einen Invite-Code fuer den aktiven Workspace.</p>
+          <p id="invite-workspace-context">Erstelle einen Invite-Code fuer den aktiven Workspace.</p>
         </div>
         <button id="invite-dialog-close" class="icon-button" type="button" aria-label="Dialog schliessen" title="Dialog schliessen">×</button>
       </header>
@@ -153,6 +153,7 @@ export function renderDesktopQrPanel(url: string = currentPageUrl()): string {
 
 interface PublicWorkspace {
   readonly id: string;
+  readonly memberCount?: number;
   readonly name: string;
   readonly ownerId: string;
 }
@@ -166,7 +167,7 @@ export function renderWorkspaceSwitcher(
       <header class="section-header">
         <div>
           <h2>Workspaces</h2>
-          <p>Ein Workspace ist dein gemeinsamer Server.</p>
+          <p>Ebene 1: Server und Mitglieder.</p>
         </div>
         <button id="workspace-refresh" class="ghost-button" type="button">Aktualisieren</button>
       </header>
@@ -189,14 +190,18 @@ export function mountWebApp(app: HTMLDivElement | null): void {
             <h1>OpenVoice</h1>
             <p id="current-user-label">Nicht angemeldet</p>
           </div>
-          <button id="onboarding-open" class="primary-action compact" type="button">Workspace starten</button>
+          <div class="sidebar-header__actions">
+            <button id="onboarding-open" class="primary-action compact" type="button" data-open-onboarding="create">Workspace starten</button>
+            <button class="ghost-button compact" type="button" data-open-onboarding="join">Beitreten</button>
+            <button id="theme-toggle" class="icon-button" type="button" aria-label="Dark Mode umschalten" title="Dark Mode umschalten">☾</button>
+          </div>
         </header>
         ${renderWorkspaceSwitcher()}
         <section class="channel-browser" aria-label="Channels">
           <header class="section-header">
             <div>
               <h2>Channels</h2>
-              <p>Chat, Voice oder beides.</p>
+              <p>Ebene 2: Räume im gewählten Workspace.</p>
             </div>
             <button id="invite-dialog-open" class="ghost-button" type="button">Personen einladen</button>
           </header>
@@ -207,6 +212,8 @@ export function mountWebApp(app: HTMLDivElement | null): void {
         ${renderInviteDialog()}
         <footer class="sidebar-footer">
           ${renderOperationsLinks()}
+          <button id="logout-button" class="ghost-button sidebar-logout" type="button">Abmelden</button>
+          <p id="logout-status" class="workspace-switcher__status" role="status"></p>
         </footer>
       </aside>
       <section id="workspace-panel" class="workspace-panel" aria-label="Voice Stage">
@@ -214,6 +221,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
           <div>
             <p id="active-workspace-label" class="eyebrow">Kein Workspace</p>
             <h2 id="active-channel-title">Channel auswählen</h2>
+            <p id="hierarchy-label" class="hierarchy-label">Workspace → Channel → Teilnehmer</p>
           </div>
           ${renderDesktopQrPanel()}
         </header>
@@ -231,6 +239,8 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   bindInviteDialog(app);
   bindWorkspaceNavigation(app);
   bindParticipantUpdates(app);
+  bindThemeToggle(app);
+  bindLogout(app);
 
   const workspacePanel = app.querySelector<HTMLElement>("#workspace-panel");
   const chatColumn = app.querySelector<HTMLElement>("#chat-column");
@@ -254,7 +264,10 @@ function bindOnboarding(root: HTMLElement): void {
   const createForm = root.querySelector<HTMLFormElement>("#workspace-create-form");
   const joinForm = root.querySelector<HTMLFormElement>("#workspace-join-form");
 
-  open?.addEventListener("click", () => openDialog(dialog));
+  open?.addEventListener("click", () => {
+    setOnboardingTab(root, "create");
+    openDialog(dialog);
+  });
   close?.addEventListener("click", () => closeDialog(dialog));
 
   root.addEventListener("click", (event) => {
@@ -360,7 +373,9 @@ function bindInviteDialog(root: HTMLElement): void {
       .catch((error: unknown) =>
         setFormStatus(
           status,
-          error instanceof Error ? error.message : "Invite konnte nicht erstellt werden.",
+          error instanceof Error
+            ? formatInviteError(error.message, readActiveWorkspaceName(root))
+            : "Invite konnte nicht erstellt werden.",
           "error",
         ),
       )
@@ -420,6 +435,44 @@ function bindParticipantUpdates(root: HTMLElement): void {
       event as CustomEvent<{ readonly participants: readonly VoiceParticipantView[] }>
     ).detail;
     renderSidebarParticipants(root, detail?.participants ?? []);
+  });
+}
+
+function bindThemeToggle(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>("#theme-toggle");
+  const storedTheme = localStorage.getItem("openvoice.theme");
+  applyTheme(storedTheme === "light" ? "light" : "dark", button);
+
+  button?.addEventListener("click", () => {
+    const nextTheme = document.body.dataset.theme === "dark" ? "light" : "dark";
+    localStorage.setItem("openvoice.theme", nextTheme);
+    applyTheme(nextTheme, button);
+  });
+}
+
+function bindLogout(root: HTMLElement): void {
+  const button = root.querySelector<HTMLButtonElement>("#logout-button");
+  const status = root.querySelector<HTMLElement>("#logout-status");
+
+  button?.addEventListener("click", () => {
+    setFormStatus(status, "Session wird beendet.", "loading");
+    setButtonLoading(button, true);
+    void fetch("/api/v1/auth/logout", {
+      credentials: "include",
+      headers: csrfHeader(),
+      method: "POST",
+    })
+      .catch(() => undefined)
+      .then(() => {
+        localStorage.removeItem("openvoice.csrfToken");
+        localStorage.removeItem("openvoice.displayName");
+        updateCurrentUserLabel(root);
+        renderWorkspaceList(root, [], "");
+        renderWorkspaceEmptyState(root);
+        setWorkspaceStatus(root, "Abgemeldet. Du kannst jetzt per Invite beitreten.", "success");
+        setFormStatus(status, "Abgemeldet.", "success");
+      })
+      .finally(() => setButtonLoading(button, false));
   });
 }
 
@@ -646,6 +699,7 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
     root.querySelector<HTMLElement>(".workspace-switcher__item.is-active span")?.textContent ??
     "Workspace";
   updateWorkspaceHeader(root, workspaceName, "Channel auswählen", null);
+  updateInviteContext(root, workspaceName);
   setWorkspaceStatus(root, "Workspace geladen.", "success");
 
   const firstChannel = findFirstSelectableChannel(body.channels);
@@ -688,7 +742,7 @@ function renderWorkspaceListItems(
             workspace.id === activeWorkspaceId ? " is-active" : ""
           }" type="button" data-workspace-id="${escapeAttribute(workspace.id)}">
             <span>${escapeHtml(workspace.name)}</span>
-            <small>Owner ${escapeHtml(workspace.ownerId.slice(0, 8))}</small>
+            <small>${escapeHtml(formatWorkspaceMembers(workspace))} · Owner ${escapeHtml(workspace.ownerId.slice(0, 8))}</small>
           </button>
         </li>
       `,
@@ -708,6 +762,13 @@ function markActiveWorkspace(root: HTMLElement, workspaceId: string): void {
   root.querySelectorAll<HTMLElement>(".workspace-switcher__item").forEach((item) => {
     item.classList.toggle("is-active", item.dataset.workspaceId === workspaceId);
   });
+}
+
+function readActiveWorkspaceName(root: HTMLElement): string {
+  return (
+    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active span")?.textContent ??
+    "kein Workspace"
+  );
 }
 
 function readActiveWorkspaceId(root: HTMLElement): string {
@@ -752,6 +813,7 @@ function selectChannel(root: HTMLElement, channel: ChannelTreeNode): void {
     root.querySelector<HTMLElement>(".workspace-switcher__item.is-active span")?.textContent ??
     "Workspace";
   updateWorkspaceHeader(root, workspaceName, channel.name, channel.type);
+  updateInviteContext(root, workspaceName);
   renderSidebarParticipants(root, []);
 
   window.dispatchEvent(
@@ -837,6 +899,17 @@ function updateWorkspaceHeader(
   if (channel) {
     channel.textContent = channelType ? `${channelIcon(channelType)} ${channelName}` : channelName;
   }
+  const hierarchy = root.querySelector<HTMLElement>("#hierarchy-label");
+  if (hierarchy) {
+    hierarchy.textContent = `${workspaceName} → ${channelName} → Teilnehmer`;
+  }
+}
+
+function updateInviteContext(root: HTMLElement, workspaceName: string): void {
+  const context = root.querySelector<HTMLElement>("#invite-workspace-context");
+  if (context) {
+    context.textContent = `Invite wird fuer den aktuell ausgewählten Workspace „${workspaceName}“ erstellt.`;
+  }
 }
 
 function toTreeNode(channel: WorkspaceFlowResult["channel"], workspaceId: string): ChannelTreeNode {
@@ -895,6 +968,20 @@ function setOnboardingTab(root: HTMLElement, tab = "create"): void {
   root.querySelectorAll<HTMLElement>("[data-onboarding-panel]").forEach((panel) => {
     panel.hidden = panel.dataset.onboardingPanel !== tab;
   });
+}
+
+function applyTheme(theme: "dark" | "light", button: HTMLButtonElement | null): void {
+  document.body.dataset.theme = theme;
+  if (!button) {
+    return;
+  }
+
+  button.textContent = theme === "dark" ? "☀" : "☾";
+  button.setAttribute(
+    "aria-label",
+    theme === "dark" ? "Light Mode einschalten" : "Dark Mode einschalten",
+  );
+  button.title = theme === "dark" ? "Light Mode einschalten" : "Dark Mode einschalten";
 }
 
 function openDialog(dialog: HTMLDialogElement | null): void {
@@ -972,6 +1059,22 @@ function setFormStatus(
 function csrfHeader(): Record<string, string> {
   const token = localStorage.getItem("openvoice.csrfToken");
   return token ? { "x-openvoice-csrf-token": token } : {};
+}
+
+function formatWorkspaceMembers(workspace: PublicWorkspace): string {
+  if (typeof workspace.memberCount === "number") {
+    return `${workspace.memberCount} Mitglied${workspace.memberCount === 1 ? "" : "er"}`;
+  }
+
+  return "Mitglied";
+}
+
+function formatInviteError(message: string, workspaceName: string): string {
+  if (message.includes("Missing required workspace permission")) {
+    return `Du bist gerade im Workspace „${workspaceName}“. Invite-Codes kann nur erstellen, wer dort MANAGE_INVITES hat. Wähle links den richtigen Workspace oder nutze Beitreten.`;
+  }
+
+  return message;
 }
 
 async function readApiError(response: Response): Promise<string> {

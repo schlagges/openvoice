@@ -54,6 +54,7 @@ import type {
   WorkspaceBanRecord,
   WorkspaceInvite,
   WorkspaceMember,
+  WorkspaceWithMemberCount,
   WorkspaceTimeoutRecord,
 } from "./models.js";
 import { DuplicateEmailError } from "./errors.js";
@@ -502,14 +503,20 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       .slice(0, input.limit);
   }
 
-  public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
+  public async listWorkspacesForUser(userId: string): Promise<readonly WorkspaceWithMemberCount[]> {
     const workspaceIds = new Set(
       this.workspaceMembers
         .filter((member) => member.userId === userId)
         .map((member) => member.workspaceId),
     );
 
-    return this.workspaces.filter((workspace) => workspaceIds.has(workspace.id));
+    return this.workspaces
+      .filter((workspace) => workspaceIds.has(workspace.id))
+      .map((workspace) => ({
+        ...workspace,
+        memberCount: this.workspaceMembers.filter((member) => member.workspaceId === workspace.id)
+          .length,
+      }));
   }
 
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {
