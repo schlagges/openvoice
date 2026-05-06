@@ -134,6 +134,9 @@ describe("web foundation", () => {
     expect(html).toContain("Workspace beitreten");
     expect(html).toContain("Chat + Voice");
     expect(html).toContain("Windfang");
+    expect(html).toContain("Anzeigename");
+    expect(html).toContain('id="join-display-name"');
+    expect(html).toContain('autocomplete="nickname"');
     expect(html).toContain('type="hidden" value="combined"');
     expect(html).toMatch(/value="(?:BoToLu|BoLuTo|ToBoLu|ToLuBo|LuBoTo|LuToBo)#[0-9]{4}"/);
     expect(html).toContain("'s Raum");

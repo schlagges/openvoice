@@ -92,9 +92,12 @@ export function renderOnboardingDialog(): string {
       </section>
       <section id="onboarding-join-panel" class="onboarding-panel" data-onboarding-panel="join" role="tabpanel" aria-labelledby="onboarding-join-tab" hidden>
         <form id="workspace-join-form" class="onboarding-form">
-          <input id="join-display-name" name="displayName" type="hidden" value="${escapeAttribute(displayName)}" />
           <input id="join-email" name="email" type="hidden" value="join-${crypto.randomUUID()}@example.com" />
           <input id="join-password" name="password" type="hidden" value="${DEFAULT_PASSWORD}" />
+          <label>
+            <span>Anzeigename</span>
+            <input id="join-display-name" name="displayName" value="${escapeAttribute(displayName)}" autocomplete="nickname" />
+          </label>
           <label>
             <span>Invite-Code</span>
             <input id="join-invite-code" name="code" autocomplete="off" />
@@ -424,23 +427,14 @@ function bindOnboarding(root: HTMLElement): void {
 
     setFormStatus(status, "Workspace wird betreten.", "loading");
     setButtonLoading(submit, true);
-    void loadAuthConfig()
-      .then((config) => {
-        if (!hasStoredSession() && !config.localPasswordAuthEnabled) {
-          setFormStatus(
-            status,
-            "Weiter zu Keycloak. Die Einladung bleibt im Link erhalten.",
-            "loading",
-          );
-          return startOidcLogin();
-        }
-        return joinWorkspaceFlow(input).then((result) => {
-          persistInviteSession(input.displayName, result);
-          setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
-          void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
-          updateCurrentUserLabel(root);
-          closeDialog(dialog);
-        });
+    void joinWorkspaceFlow(input)
+      .then((result) => {
+        persistInviteSession(input.displayName, result);
+        setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
+        void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
+        updateCurrentUserLabel(root);
+        clearInviteCodeFromLocation();
+        closeDialog(dialog);
       })
       .catch((error: unknown) =>
         setFormStatus(
@@ -533,39 +527,12 @@ function processInviteDeepLink(root: HTMLElement): void {
     codeInput.value = code;
   }
   prepareOnboarding(root, "join");
-  setFormStatus(status, "Invite-Link wird geoeffnet.", "loading");
-
-  const input = readJoinWorkspaceForm(root);
-  void loadAuthConfig()
-    .then((config) => {
-      if (!hasStoredSession() && !config.localPasswordAuthEnabled) {
-        dialog?.classList.add("is-invite-keycloak");
-        openDialog(dialog);
-        setFormStatus(
-          status,
-          "Einladung erkannt. Registriere dich bei Keycloak, danach wirst du direkt verbunden.",
-          "loading",
-        );
-        return undefined;
-      }
-
-      return joinWorkspaceFlow(input).then((result) => {
-        persistInviteSession(input.displayName, result);
-        setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
-        void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
-        updateCurrentUserLabel(root);
-        clearInviteCodeFromLocation();
-        closeDialog(dialog);
-      });
-    })
-    .catch((error: unknown) => {
-      openDialog(dialog);
-      setFormStatus(
-        status,
-        error instanceof Error ? error.message : "Invite-Link konnte nicht geoeffnet werden.",
-        "error",
-      );
-    });
+  openDialog(dialog);
+  setFormStatus(
+    status,
+    "Einladung erkannt. Waehle deinen Anzeigenamen und tritt als Gast bei.",
+    "success",
+  );
 }
 
 function bindWorkspaceNavigation(root: HTMLElement): void {
@@ -1041,8 +1008,15 @@ async function joinWorkspaceFlow(
   input: JoinWorkspaceInput,
 ): Promise<WorkspaceInviteJoinResponse & { readonly accessToken: string }> {
   if (hasStoredSession()) {
-    const joined = await authenticatedJoinInvite(input.code);
-    return { ...joined, accessToken: localStorage.getItem("openvoice.accessToken") ?? "" };
+    try {
+      const joined = await authenticatedJoinInvite(input.code);
+      return { ...joined, accessToken: localStorage.getItem("openvoice.accessToken") ?? "" };
+    } catch (error) {
+      if (!isAuthenticationRequiredError(error)) {
+        throw error;
+      }
+      clearSessionState();
+    }
   }
 
   const joined = await guestJoinInvite(input.code, input.displayName);
@@ -1051,6 +1025,10 @@ async function joinWorkspaceFlow(
   }
 
   return { ...joined, accessToken: joined.accessToken };
+}
+
+function isAuthenticationRequiredError(error: unknown): boolean {
+  return error instanceof Error && error.message === "Authentication required.";
 }
 
 async function authenticatedJoinInvite(code: string): Promise<WorkspaceInviteJoinResponse> {
