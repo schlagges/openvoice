@@ -25,7 +25,7 @@ test("workspace shell renders dark and light mode with screenshots", async ({ pa
   );
   await attachScreenshot(page, testInfo, "openvoice-light-shell");
 
-  await page.getByRole("button", { name: "Workspace starten" }).click();
+  await page.getByRole("button", { name: "Neu" }).click();
   await expect(page.locator("#onboarding-dialog")).toBeVisible();
   await attachScreenshot(page, testInfo, "openvoice-light-onboarding");
 });
@@ -35,7 +35,7 @@ async function createWorkspace(
   workspaceName: string,
   channelName: string,
 ): Promise<void> {
-  await page.getByRole("button", { name: "Workspace starten" }).click();
+  await page.getByRole("button", { name: "Workspace erstellen" }).click();
   await page.locator("#create-display-name").fill("UI Test");
   await page.locator("#create-workspace").fill(workspaceName);
   await page.locator("#create-channel").fill(channelName);

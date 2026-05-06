@@ -68,6 +68,16 @@ describe("web foundation", () => {
     expect(html).not.toContain("Invite erstellen");
   });
 
+  it("renders the empty workspace start card as the primary entry point", () => {
+    const html = renderWorkspaceSwitcher([], "");
+
+    expect(html).toContain("Noch kein Workspace");
+    expect(html).toContain("Workspace erstellen");
+    expect(html).toContain("Workspace beitreten");
+    expect(html).toContain(">Neu<");
+    expect(html.match(/Workspace starten/g)).toBeNull();
+  });
+
   it("renders a focused onboarding flow without invite creation", () => {
     const html = renderOnboardingDialog();
 

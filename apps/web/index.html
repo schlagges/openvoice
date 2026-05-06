@@ -130,6 +130,13 @@
         justify-content: end;
       }
 
+      .section-header__actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+        justify-content: end;
+      }
+
       .sidebar-header p,
       .section-header p,
       .dialog-header p {
@@ -180,6 +187,12 @@
         color: var(--text-muted);
         font-size: 0.78rem;
         font-weight: 700;
+      }
+
+      .ghost-button:disabled {
+        background: var(--subtle-surface);
+        color: var(--text-muted);
+        opacity: 0.45;
       }
 
       .icon-button {

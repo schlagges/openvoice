@@ -169,7 +169,11 @@ export function renderWorkspaceSwitcher(
           <h2>Workspaces</h2>
           <p>Ebene 1: Server und Mitglieder.</p>
         </div>
-        <button id="workspace-refresh" class="ghost-button" type="button">Aktualisieren</button>
+        <div class="section-header__actions">
+          <button class="ghost-button compact" type="button" data-open-onboarding="create">Neu</button>
+          <button class="ghost-button compact" type="button" data-open-onboarding="join">Beitreten</button>
+          <button id="workspace-refresh" class="ghost-button compact" type="button">Aktualisieren</button>
+        </div>
       </header>
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
       <p id="workspace-status" class="workspace-switcher__status" role="status"></p>
@@ -191,8 +195,6 @@ export function mountWebApp(app: HTMLDivElement | null): void {
             <p id="current-user-label">Nicht angemeldet</p>
           </div>
           <div class="sidebar-header__actions">
-            <button id="onboarding-open" class="primary-action compact" type="button" data-open-onboarding="create">Workspace starten</button>
-            <button class="ghost-button compact" type="button" data-open-onboarding="join">Beitreten</button>
             <button id="theme-toggle" class="icon-button" type="button" aria-label="Dark Mode umschalten" title="Dark Mode umschalten">☾</button>
           </div>
         </header>
@@ -259,15 +261,10 @@ if (typeof document !== "undefined") {
 
 function bindOnboarding(root: HTMLElement): void {
   const dialog = root.querySelector<HTMLDialogElement>("#onboarding-dialog");
-  const open = root.querySelector<HTMLButtonElement>("#onboarding-open");
   const close = root.querySelector<HTMLButtonElement>("#onboarding-close");
   const createForm = root.querySelector<HTMLFormElement>("#workspace-create-form");
   const joinForm = root.querySelector<HTMLFormElement>("#workspace-join-form");
 
-  open?.addEventListener("click", () => {
-    setOnboardingTab(root, "create");
-    openDialog(dialog);
-  });
   close?.addEventListener("click", () => closeDialog(dialog));
 
   root.addEventListener("click", (event) => {
@@ -455,6 +452,11 @@ function bindLogout(root: HTMLElement): void {
   const status = root.querySelector<HTMLElement>("#logout-status");
 
   button?.addEventListener("click", () => {
+    if (!localStorage.getItem("openvoice.csrfToken")) {
+      updateCurrentUserLabel(root);
+      return;
+    }
+
     setFormStatus(status, "Session wird beendet.", "loading");
     setButtonLoading(button, true);
     void fetch("/api/v1/auth/logout", {
@@ -472,8 +474,13 @@ function bindLogout(root: HTMLElement): void {
         setWorkspaceStatus(root, "Abgemeldet. Du kannst jetzt per Invite beitreten.", "success");
         setFormStatus(status, "Abgemeldet.", "success");
       })
-      .finally(() => setButtonLoading(button, false));
+      .finally(() => {
+        setButtonLoading(button, false);
+        updateCurrentUserLabel(root);
+      });
   });
+
+  updateCurrentUserLabel(root);
 }
 
 interface CreateWorkspaceInput {
@@ -1013,8 +1020,21 @@ function persistSession(displayName: string, csrfToken: string): void {
 
 function updateCurrentUserLabel(root: HTMLElement): void {
   const label = root.querySelector<HTMLElement>("#current-user-label");
+  const logout = root.querySelector<HTMLButtonElement>("#logout-button");
+  const csrfToken = localStorage.getItem("openvoice.csrfToken");
+  const displayName = localStorage.getItem("openvoice.displayName");
+
   if (label) {
-    label.textContent = localStorage.getItem("openvoice.displayName") ?? "Nicht angemeldet";
+    label.textContent = csrfToken && displayName ? displayName : "Nicht angemeldet";
+  }
+
+  if (logout) {
+    logout.disabled = !csrfToken;
+    logout.title = csrfToken ? "Session beenden" : "Noch nicht angemeldet";
+    logout.setAttribute(
+      "aria-label",
+      csrfToken ? "Abmelden und Session beenden" : "Abmelden nicht moeglich, keine Session aktiv",
+    );
   }
 }
 

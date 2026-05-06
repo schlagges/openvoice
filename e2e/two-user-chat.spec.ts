@@ -18,7 +18,7 @@ test("two browser contexts can join one workspace and sync chat messages", async
   const member = await memberContext.newPage();
 
   await owner.goto("/");
-  await owner.getByRole("button", { name: "Workspace starten" }).click();
+  await owner.getByRole("button", { name: "Workspace erstellen" }).click();
   await owner.locator("#create-display-name").fill("Owner Test");
   await owner.locator("#create-workspace").fill(workspaceName);
   await owner.locator("#create-channel").fill(channelName);
@@ -38,7 +38,7 @@ test("two browser contexts can join one workspace and sync chat messages", async
   await owner.locator("#invite-dialog-close").click();
 
   await member.goto("/");
-  await member.getByRole("button", { name: "Workspace starten" }).click();
+  await member.getByRole("button", { name: "Workspace beitreten" }).click();
   await member.getByRole("tab", { name: /Beitreten/ }).click();
   await member.locator("#join-display-name").fill("Member Test");
   await member.locator("#join-invite-code").fill(inviteCode);

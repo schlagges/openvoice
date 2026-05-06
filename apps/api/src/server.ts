@@ -1,4 +1,5 @@
 import { createServer } from "node:http";
+import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 
 import { readApiConfig } from "./config/env.js";
@@ -134,25 +135,31 @@ export function createOpenVoiceApiServer() {
   });
 
   const server = createServer(async (incoming, outgoing) => {
+    const startedAt = performance.now();
     const headers = new Headers(incoming.headers as HeadersInit);
     headers.set(INTERNAL_REMOTE_ADDRESS_HEADER, incoming.socket.remoteAddress ?? "");
-    const request = new Request(
-      `http://${incoming.headers.host ?? "localhost"}${incoming.url ?? "/"}`,
-      {
-        body:
-          incoming.method === "GET" || incoming.method === "HEAD"
-            ? undefined
-            : (Readable.toWeb(incoming) as BodyInit),
-        duplex: "half",
-        headers,
-        method: incoming.method,
-      } as RequestInit,
-    );
+    const requestUrl = `http://${incoming.headers.host ?? "localhost"}${incoming.url ?? "/"}`;
+    const request = new Request(requestUrl, {
+      body:
+        incoming.method === "GET" || incoming.method === "HEAD"
+          ? undefined
+          : (Readable.toWeb(incoming) as BodyInit),
+      duplex: "half",
+      headers,
+      method: incoming.method,
+    } as RequestInit);
     const response = await handler(request);
 
     outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()));
     const body = await response.arrayBuffer();
     outgoing.end(Buffer.from(body));
+    logRequest({
+      durationMs: performance.now() - startedAt,
+      method: incoming.method ?? "GET",
+      path: new URL(requestUrl).pathname,
+      requestId: response.headers.get("x-request-id") ?? "-",
+      status: response.status,
+    });
   });
   const gatewayUpgradeHandler = createGatewayWebSocketUpgradeHandler(gatewayService, config);
   const messageUpgradeHandler = createMessageWebSocketUpgradeHandler({
@@ -177,6 +184,25 @@ export function createOpenVoiceApiServer() {
   });
 
   return server;
+}
+
+function logRequest(input: {
+  readonly durationMs: number;
+  readonly method: string;
+  readonly path: string;
+  readonly requestId: string;
+  readonly status: number;
+}): void {
+  process.stdout.write(
+    JSON.stringify({
+      durationMs: Math.round(input.durationMs),
+      event: "api_request",
+      method: input.method,
+      path: input.path,
+      requestId: input.requestId,
+      status: input.status,
+    }) + "\n",
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
