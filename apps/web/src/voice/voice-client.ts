@@ -645,11 +645,11 @@ export function renderVoiceControlsPanel(): string {
         <div id="voice-participant-stage" class="voice-participant-stage" aria-label="Teilnehmer"></div>
         <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
         <div class="voice-panel__actions" aria-label="Voice Aktionen">
-          <button id="voice-mute" class="voice-control-button" type="button" disabled aria-label="Mikrofon stummschalten" title="Mikrofon stummschalten">Mic</button>
-          <button id="voice-deafen" class="voice-control-button" type="button" disabled aria-label="Deafen" title="Deafen">Audio</button>
-          <button id="voice-camera" class="voice-control-button" type="button" disabled aria-label="Kamera einschalten" title="Kamera">Cam</button>
-          <button id="voice-screen" class="voice-control-button" type="button" disabled aria-label="Bildschirm teilen" title="Bildschirm teilen">Share</button>
-          <button id="voice-leave" class="voice-control-button voice-control-button--danger" type="button" disabled aria-label="Voice verlassen" title="Voice verlassen">Leave</button>
+          <button id="voice-mute" class="voice-control-button" type="button" disabled aria-label="Mikrofon stummschalten" title="Mikrofon stummschalten"><span aria-hidden="true">🎙</span></button>
+          <button id="voice-deafen" class="voice-control-button" type="button" disabled aria-label="Deafen" title="Deafen"><span aria-hidden="true">🎧</span></button>
+          <button id="voice-camera" class="voice-control-button" type="button" disabled aria-label="Kamera einschalten" title="Kamera"><span aria-hidden="true">▣</span></button>
+          <button id="voice-screen" class="voice-control-button" type="button" disabled aria-label="Bildschirm teilen" title="Bildschirm teilen"><span aria-hidden="true">▤</span></button>
+          <button id="voice-leave" class="voice-control-button voice-control-button--danger" type="button" disabled aria-label="Voice verlassen" title="Voice verlassen"><span aria-hidden="true">☎</span></button>
           <details class="voice-panel__settings">
             <summary aria-label="Media Einstellungen" title="Media Einstellungen">⚙</summary>
             <div class="voice-panel__media">

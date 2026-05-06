@@ -12,7 +12,12 @@ import {
   type VoiceParticipant,
   type VoiceState,
 } from "@openvoice/shared";
-import { reconnectDelayMs, renderChatPanel, renderMessage } from "../src/chat/chat-panel";
+import {
+  reconnectDelayMs,
+  rememberChatAuthor,
+  renderChatPanel,
+  renderMessage,
+} from "../src/chat/chat-panel";
 import { renderChannelTree } from "../src/channels/channel-tree";
 import {
   formatWebTitle,
@@ -218,6 +223,28 @@ describe("web foundation", () => {
 
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("bearbeitet");
+  });
+
+  it("renders chat author display names from the UI cache", () => {
+    const now = new Date().toISOString();
+    rememberChatAuthor("author-keycloak-id", "Boris Backes");
+
+    expect(
+      renderMessage({
+        authorId: "author-keycloak-id",
+        channelId: "channel",
+        clientMessageId: "client",
+        content: "Hallo",
+        contentFormat: MessageContentFormat.MARKDOWN,
+        createdAt: now,
+        deletedAt: null,
+        deletedBy: null,
+        editedAt: null,
+        id: "message",
+        updatedAt: now,
+        workspaceId: "workspace",
+      }),
+    ).toContain("Boris Backes");
   });
 
   it("renders chat messages chronologically", () => {
