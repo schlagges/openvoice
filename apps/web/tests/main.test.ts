@@ -86,7 +86,10 @@ describe("web foundation", () => {
     expect(html).toContain("Workspace beitreten");
     expect(html).toContain("Channel-Typ");
     expect(html).toContain("Chat + Voice");
+    expect(html).toContain("18 Löcher");
+    expect(html).toContain("Windfang");
     expect(html).toContain('value="combined"');
+    expect(html).toMatch(/value="(?:Bo|To|Lu){2,4}#[0-9]{4}"/);
     expect(html).toContain("Erweiterte Testdaten");
     expect(html).toContain('id="onboarding-dialog"');
     expect(html).not.toContain("Invite-Code erstellen");

@@ -30,6 +30,37 @@ test("workspace shell renders dark and light mode with screenshots", async ({ pa
   await attachScreenshot(page, testInfo, "openvoice-light-onboarding");
 });
 
+test("workspace create retry logs into the already registered local test user", async ({
+  page,
+}) => {
+  const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const workspaceName = `Retry Workspace ${suffix}`;
+
+  await page.goto("/");
+  await createWorkspace(page, workspaceName, `retry-general-${suffix}`);
+
+  await page.getByRole("button", { name: "Neu" }).click();
+  await page.locator("#create-display-name").fill("Retry Test");
+  await page.locator("#create-workspace").fill(workspaceName);
+  await page.locator("#create-channel").fill(`retry-duplicate-${suffix}`);
+  await page
+    .locator("#onboarding-dialog")
+    .getByRole("button", { name: "Workspace erstellen" })
+    .click();
+  await expect(page.locator("#workspace-create-status")).toContainText(
+    "Workspace name is already in use",
+  );
+
+  const retriedWorkspaceName = `${workspaceName} 2`;
+  await page.locator("#create-workspace").fill(retriedWorkspaceName);
+  await page
+    .locator("#onboarding-dialog")
+    .getByRole("button", { name: "Workspace erstellen" })
+    .click();
+  await expect(page.locator("#onboarding-dialog")).not.toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(retriedWorkspaceName) })).toBeVisible();
+});
+
 async function createWorkspace(
   page: Page,
   workspaceName: string,

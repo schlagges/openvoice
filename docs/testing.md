@@ -70,6 +70,16 @@ laesst einen zweiten Testnutzer per Invite beitreten und prueft Chat-Live-Sync s
 Nachrichtenanzeige. Fuer lokale und E2E-Laeufe kann `RATE_LIMITS_ENABLED=false` gesetzt werden,
 damit Setup-Aktionen nicht durch produktive Rate Limits blockiert werden.
 
+Onboarding-Retry-Regression:
+
+- Workspace erstellen.
+- Danach im selben Browser einen zweiten Workspace mit identischem Namen versuchen.
+- Erwartung: Der Dialog zeigt den Workspace-Namenskonflikt, bleibt offen und der lokale Testuser
+  bleibt wiederverwendbar.
+- Workspace-Namen korrigieren und erneut absenden.
+- Erwartung: Der Flow meldet den bereits registrierten lokalen Testuser automatisch per Login an
+  und erstellt den korrigierten Workspace, ohne an `Email is already registered` zu scheitern.
+
 ---
 
 ## Manuelle RTC Tests

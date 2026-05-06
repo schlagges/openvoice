@@ -37,15 +37,15 @@ export function renderOnboardingDialog(): string {
         <form id="workspace-create-form" class="onboarding-form">
           <label>
             <span>Anzeigename</span>
-            <input id="create-display-name" name="displayName" autocomplete="name" value="Test User" />
+            <input id="create-display-name" name="displayName" autocomplete="name" value="${escapeAttribute(createDefaultDisplayName())}" />
           </label>
           <label>
             <span>Workspace-Name</span>
-            <input id="create-workspace" name="workspace" value="Manual Test" />
+            <input id="create-workspace" name="workspace" value="18 Löcher" />
           </label>
           <label>
             <span>Erster Channel</span>
-            <input id="create-channel" name="channel" value="general" />
+            <input id="create-channel" name="channel" value="Windfang" />
           </label>
           <label>
             <span>Channel-Typ</span>
@@ -74,7 +74,7 @@ export function renderOnboardingDialog(): string {
         <form id="workspace-join-form" class="onboarding-form">
           <label>
             <span>Anzeigename</span>
-            <input id="join-display-name" name="displayName" autocomplete="name" value="Test User" />
+            <input id="join-display-name" name="displayName" autocomplete="name" value="${escapeAttribute(createDefaultDisplayName())}" />
           </label>
           <label>
             <span>Invite-Code</span>
@@ -614,9 +614,34 @@ async function registerTestUser(input: {
     method: "POST",
   });
   if (!register.ok) {
-    throw new Error(await readApiError(register));
+    const message = await readApiError(register);
+    if (register.status === 409 && message.includes("Email is already registered")) {
+      return loginTestUser(input);
+    }
+
+    throw new Error(message);
   }
   const session = (await register.json()) as { csrfToken: string };
+  return session.csrfToken;
+}
+
+async function loginTestUser(input: {
+  readonly email: string;
+  readonly password: string;
+}): Promise<string> {
+  const login = await fetch("/api/v1/auth/login", {
+    body: JSON.stringify({
+      email: input.email,
+      password: input.password,
+    }),
+    credentials: "include",
+    headers: { "content-type": "application/json" },
+    method: "POST",
+  });
+  if (!login.ok) {
+    throw new Error(await readApiError(login));
+  }
+  const session = (await login.json()) as { csrfToken: string };
   return session.csrfToken;
 }
 
@@ -1112,6 +1137,17 @@ function currentPageUrl(): string {
   }
 
   return window.location.href;
+}
+
+function createDefaultDisplayName(): string {
+  const syllables = ["Bo", "To", "Lu"];
+  const length = 2 + Math.floor(Math.random() * 3);
+  const name = Array.from({ length }, () => syllables[Math.floor(Math.random() * syllables.length)])
+    .join("")
+    .replace(/^$/, "BoToLu");
+  const suffix = String(Math.floor(1000 + Math.random() * 9000));
+
+  return `${name}#${suffix}`;
 }
 
 function initials(name: string): string {
