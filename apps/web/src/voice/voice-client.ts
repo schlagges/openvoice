@@ -83,6 +83,7 @@ export class OpenVoiceVoiceClient {
     await this.room.connect(response.livekitUrl, response.token, {
       autoSubscribe: true,
     });
+    await this.room.startAudio().catch(() => undefined);
     this.canPublishAudio = response.permissions.canPublishAudio;
     this.canPublishCamera = response.permissions.canPublishCamera;
     this.canPublishScreen = response.permissions.canPublishScreen;
@@ -135,7 +136,9 @@ export class OpenVoiceVoiceClient {
       `/channels/${this.state.channelId}/voice/participants`,
     );
     this.serverParticipants = result.participants;
-    window.dispatchEvent(new Event("openvoice:voice-participants-refreshed"));
+    if (typeof window !== "undefined") {
+      window.dispatchEvent(new Event("openvoice:voice-participants-refreshed"));
+    }
     return this.serverParticipants;
   }
 

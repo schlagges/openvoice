@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type { Room } from "livekit-client";
 
 import {
@@ -37,6 +37,7 @@ import {
   collectVoiceParticipants,
   collectVideoTiles,
   formatVoiceRequestError,
+  OpenVoiceVoiceClient,
   renderVoiceControlsPanel,
   toRtcStatsRequestBody,
 } from "../src/voice/voice-client";
@@ -132,6 +133,46 @@ describe("web foundation", () => {
     expect(html).toContain('type="button" disabled aria-label="Kamera einschalten"');
     expect(html).toContain("Media Einstellungen");
     expect(html).toContain("Nicht verbunden");
+  });
+
+  it("unlocks LiveKit audio playback after joining voice", async () => {
+    const state = createVoiceState("workspace", "channel", "user-local");
+    const startAudio = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const setMicrophoneEnabled = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const room = {
+      connect: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+      localParticipant: {
+        setMicrophoneEnabled,
+      },
+      off: vi.fn(),
+      on: vi.fn(),
+      startAudio,
+    } as unknown as Room;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({
+        iceServers: [],
+        livekitUrl: "wss://voice.example/livekit",
+        permissions: {
+          canPublishAudio: true,
+          canPublishCamera: true,
+          canPublishScreen: true,
+          canPublishScreen4k: false,
+        },
+        roomName: "openvoice_workspace_channel",
+        state,
+        token: "token",
+      }),
+    ) as unknown as typeof fetch;
+
+    try {
+      await new OpenVoiceVoiceClient({ apiBaseUrl: "/api/v1", room }).join("channel");
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+
+    expect(startAudio).toHaveBeenCalledTimes(1);
+    expect(setMicrophoneEnabled).toHaveBeenCalledWith(true);
   });
 
   it("renders server-side voice participants even before LiveKit exposes remotes", () => {
