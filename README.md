@@ -38,6 +38,7 @@ pnpm install
 pnpm lint
 pnpm test
 pnpm build
+pnpm e2e
 pnpm license:check
 ```
 
@@ -47,7 +48,8 @@ Die Compose-Datei baut API und Web-App und startet PostgreSQL, Valkey, LiveKit, 
 Prometheus und Grafana:
 
 ```bash
-docker compose --env-file .env.example -f infra/docker-compose.yml up --build
+pnpm env:local
+docker compose --env-file .env -f infra/docker-compose.yml up --build
 ```
 
 Die API führt Migrationen beim Containerstart aus. Für lokale Migrationen ohne Container läuft:
@@ -56,10 +58,15 @@ Die API führt Migrationen beim Containerstart aus. Für lokale Migrationen ohne
 pnpm db:migrate
 ```
 
-Nach dem Compose-Start sind die Web-App unter `http://localhost:5173`, die API unter
-`http://localhost:3000`, PostgreSQL unter `localhost:55436`, LiveKit unter
-`ws://localhost:7880`, coturn auf `localhost:3478` / `localhost:5349`, Prometheus unter
-`http://localhost:9090` und Grafana unter `http://localhost:3001` erreichbar.
+Für den aktuellen lokalen Teststack wird die Web-App unter `http://localhost:55180/` und die API
+unter `http://localhost:53010` betrieben. Die Site ist per Basic Auth geschützt; lokal wird
+`openvoice` als Benutzer und das in `.env` gesetzte `OPENVOICE_SITE_PASSWORD` verwendet. Für den
+Browser-Testlauf wird aktuell `keins` als lokales Testpasswort genutzt.
+
+Die Standardwerte in `.env.example` bleiben auf einfache Entwicklungsports gesetzt:
+Web-App `http://localhost:5173`, API `http://localhost:3000`, PostgreSQL `localhost:55436`,
+LiveKit `ws://localhost:7880`, coturn `localhost:3478` / `localhost:5349`, Prometheus
+`http://localhost:9090` und Grafana `http://localhost:3001`.
 
 Observability-Endpunkte:
 
@@ -69,6 +76,36 @@ Observability-Endpunkte:
 
 Die Beispielwerte in `.env.example` sind Platzhalter für lokale Entwicklung. Produktive Secrets
 dürfen nicht in Git gespeichert werden.
+
+Für lokale Mehrnutzer-Tests kann `RATE_LIMITS_ENABLED=false` in `.env` gesetzt werden. Der
+Produktionsdefault bleibt `true`.
+
+## Aktueller öffentlicher Host
+
+Die öffentliche Testinstanz läuft hinter `https://voice.schnick-schnack.info`.
+
+- DNS: `voice.schnick-schnack.info` zeigt auf `217.160.175.231`.
+- TLS: Let's Encrypt Zertifikat auf dem Host, Terminierung in Nginx.
+- Reverse Proxy: Nginx leitet die öffentliche URL an die lokal laufende Docker-Web-App weiter.
+- Docker-Zielport: die App soll auf dem Host hinter Port `3000` laufen.
+- Interne Dienste: API, LiveKit, coturn, PostgreSQL, Valkey, Prometheus und Grafana bleiben hinter
+  Docker/Nginx und werden nicht als öffentliche App-Oberfläche exponiert.
+
+## Manueller Mehrnutzer-Test
+
+1. `http://localhost:55180/` öffnen und mit Basic Auth anmelden.
+2. `Testnutzer` öffnen, Testnutzer mit Workspace und Channel erstellen.
+3. Im selben Dialog `Invite erstellen` klicken und den Code kopieren.
+4. Zweiten Browser oder Inkognito-Profil öffnen.
+5. Dort einen zweiten Testnutzer registrieren und mit dem Invite-Code beitreten.
+6. In beiden Browsern denselben Channel anklicken.
+7. Nachrichten senden und prüfen, ob sie live und in richtiger Reihenfolge erscheinen.
+
+Der automatisierte Browser-Test führt diesen Ablauf mit zwei getrennten Browser-Kontexten aus:
+
+```bash
+OPENVOICE_E2E_BASE_URL=http://localhost:55180 pnpm e2e
+```
 
 ## Dokumentation
 

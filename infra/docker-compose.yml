@@ -27,6 +27,7 @@ services:
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
       MEDIA_PROVIDER: livekit
       PASSWORD_PEPPER: ${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}
+      RATE_LIMITS_ENABLED: ${RATE_LIMITS_ENABLED:-true}
       REDIS_URL: redis://valkey:6379
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-openvoice_session}
       SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}

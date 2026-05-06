@@ -12,6 +12,7 @@ export interface ApiConfig {
   readonly livekitUrl: string;
   readonly mediaProvider: "livekit";
   readonly passwordPepper: string;
+  readonly rateLimitsEnabled: boolean;
   readonly redisUrl: string;
   readonly sessionCookieName: string;
   readonly sessionCookieSecure: boolean;
@@ -41,6 +42,7 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     livekitUrl: readRequired(env.LIVEKIT_URL, "LIVEKIT_URL"),
     mediaProvider: readMediaProvider(env.MEDIA_PROVIDER),
     passwordPepper: readRequired(env.PASSWORD_PEPPER, "PASSWORD_PEPPER"),
+    rateLimitsEnabled: readBoolean(env.RATE_LIMITS_ENABLED, true),
     redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
     sessionCookieName: env.SESSION_COOKIE_NAME ?? "openvoice_session",
     sessionCookieSecure: readBoolean(env.SESSION_COOKIE_SECURE, env.NODE_ENV === "production"),

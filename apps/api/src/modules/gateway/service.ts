@@ -32,6 +32,7 @@ export interface GatewayServiceOptions {
   readonly authService: AuthService;
   readonly channelService: ChannelService;
   readonly config: Pick<ApiConfig, "sessionCookieName"> & {
+    readonly rateLimitsEnabled?: boolean | undefined;
     readonly trustedProxyIps?: readonly string[];
   };
   readonly heartbeatIntervalMs?: number;
@@ -70,10 +71,11 @@ export class GatewayService {
   private readonly authService: AuthService;
   private readonly channelService: ChannelService;
   private readonly config: Pick<ApiConfig, "sessionCookieName"> & {
+    readonly rateLimitsEnabled?: boolean | undefined;
     readonly trustedProxyIps?: readonly string[];
   };
   private readonly connections = new Map<string, GatewayConnection>();
-  private readonly frameRateLimiter = new InMemoryRateLimiter();
+  private readonly frameRateLimiter: InMemoryRateLimiter;
   private readonly heartbeatIntervalMs: number;
   private readonly metrics: OpenVoiceMetrics | null;
   private readonly presenceStore: PresenceStore;
@@ -86,6 +88,9 @@ export class GatewayService {
     this.authService = options.authService;
     this.channelService = options.channelService;
     this.config = options.config;
+    this.frameRateLimiter = new InMemoryRateLimiter({
+      enabled: options.config.rateLimitsEnabled,
+    });
     this.heartbeatIntervalMs = options.heartbeatIntervalMs ?? 25_000;
     this.metrics = options.metrics ?? null;
     this.presenceStore = options.presenceStore;

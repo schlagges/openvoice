@@ -62,6 +62,7 @@ export interface ApiHandlerOptions {
     | "sessionTtlSeconds"
   > & {
     readonly auditIpHashSecret?: string;
+    readonly rateLimitsEnabled?: boolean | undefined;
     readonly trustedProxyIps?: readonly string[];
   };
   readonly messageService: MessageService;
@@ -85,7 +86,10 @@ export function createApiHandler(
 ): (request: Request) => Promise<Response> {
   const rateLimiter =
     options.rateLimiter ??
-    new ApiRequestRateLimiter({ trustedProxyIps: options.config.trustedProxyIps });
+    new ApiRequestRateLimiter({
+      enabled: options.config.rateLimitsEnabled,
+      trustedProxyIps: options.config.trustedProxyIps,
+    });
 
   return async (request) => {
     const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();

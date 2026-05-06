@@ -28,6 +28,7 @@ import { VoiceService } from "./modules/voice/service.js";
 import { createMessageWebSocketUpgradeHandler } from "./modules/messages/websocket.js";
 import { WorkspaceService } from "./modules/workspaces/service.js";
 import { Argon2idPasswordHasher } from "./security/password.js";
+import { InMemoryRateLimiter } from "./security/rate-limit.js";
 
 export function createOpenVoiceApiServer() {
   const config = readApiConfig();
@@ -73,6 +74,7 @@ export function createOpenVoiceApiServer() {
       new GatewayMessageEventPublisher(gatewayEventPublisher),
     ]),
     metrics,
+    rateLimiter: new InMemoryRateLimiter({ enabled: config.rateLimitsEnabled }),
     repository,
   });
   const voiceService = new VoiceService({

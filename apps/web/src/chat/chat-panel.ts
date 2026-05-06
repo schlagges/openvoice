@@ -21,6 +21,7 @@ interface MessageDispatchEnvelope {
   readonly t: string;
 }
 
+let selectedChannelId = "";
 let activeMessageSocket: WebSocket | null = null;
 let activeMessageSocketChannelId = "";
 
@@ -53,7 +54,7 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
 }
 
 export function mountChatPanel(root: HTMLElement, messages: readonly Message[]): void {
-  root.innerHTML = renderChatPanel(messages);
+  root.insertAdjacentHTML("beforeend", renderChatPanel(messages));
   bindChatComposer(root);
 }
 
@@ -115,10 +116,11 @@ function bindChatComposer(root: HTMLElement): void {
 
   window.addEventListener("openvoice:channel-selected", (event) => {
     const detail = (event as CustomEvent<ChannelSelectionDetail>).detail;
+    selectedChannelId = detail.channelId;
     updateChatTitle(root, detail.channelName);
     if (detail.channelType === "voice") {
       closeMessageSocket();
-      setStatus(status, "Voice-Channel ausgewaehlt. Per Doppelklick Voice beitreten.", "success");
+      setStatus(status, "Voice-Channel ausgewaehlt.", "success");
       return;
     }
     if (detail.channelType !== "text" && detail.channelType !== "combined") {
@@ -323,7 +325,7 @@ function cssEscape(value: string): string {
 }
 
 function readCurrentChannelId(): string {
-  return document.querySelector<HTMLInputElement>("#voice-channel-id")?.value.trim() ?? "";
+  return selectedChannelId;
 }
 
 function csrfHeader(): Record<string, string> {

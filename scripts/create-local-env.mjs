@@ -33,6 +33,7 @@ set("SESSION_SECRET", secret());
 set("CSRF_SECRET", secret());
 set("PASSWORD_PEPPER", secret());
 set("AUDIT_IP_HASH_SECRET", secret());
+set("RATE_LIMITS_ENABLED", "false");
 set("TURN_SHARED_SECRET", secret());
 set("LIVEKIT_API_KEY", randomBytes(12).toString("hex"));
 set("LIVEKIT_API_SECRET", secret());

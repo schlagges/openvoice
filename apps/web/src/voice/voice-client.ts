@@ -15,6 +15,7 @@ import {
 import {
   IceCandidateType,
   RtcTransportProtocol,
+  ChannelType,
   VideoContentMode,
   VideoQualityProfile,
 } from "@openvoice/shared";
@@ -398,9 +399,14 @@ export function toRtcStatsRequestBody(sample: ClientRtcQualitySample): RtcStatsR
   };
 }
 
+interface ChannelSelectedDetail {
+  readonly channelId: string;
+  readonly channelName: string;
+  readonly channelType: ChannelType;
+}
+
 export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoiceClient()): void {
   root.insertAdjacentHTML("beforeend", renderVoiceControlsPanel());
-  const input = root.querySelector<HTMLInputElement>("#voice-channel-id");
   const cameraQuality = root.querySelector<HTMLSelectElement>("#voice-camera-quality");
   const screenQuality = root.querySelector<HTMLSelectElement>("#voice-screen-quality");
   const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
@@ -428,31 +434,60 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
     }
   };
   setVoiceActionsEnabled(false);
+  let joiningChannelId: string | null = null;
 
-  root.querySelector<HTMLButtonElement>("#voice-join")?.addEventListener("click", () => {
-    const channelId = input?.value.trim() ?? "";
+  const joinChannel = (channelId: string, channelName: string): void => {
     if (!channelId) {
       setStatus("Channel fehlt");
       return;
     }
+    if (joiningChannelId === channelId || client.currentState?.channelId === channelId) {
+      return;
+    }
 
-    setStatus("Voice-Verbindung wird aufgebaut.");
+    joiningChannelId = channelId;
+    setVoiceActionsEnabled(false);
+    setStatus(`${channelName} wird verbunden.`);
     void client
-      .join(channelId)
+      .leave()
+      .catch(() => undefined)
+      .then(() => client.join(channelId))
       .then((result) => {
+        joiningChannelId = null;
         setVoiceActionsEnabled(true);
         setStatus(`Verbunden: ${result.roomName}`);
       })
       .catch((error: unknown) => {
+        joiningChannelId = null;
         setVoiceActionsEnabled(false);
         setStatus(error instanceof Error ? error.message : "Voice join failed");
       });
+  };
+
+  window.addEventListener("openvoice:channel-selected", (event) => {
+    const detail = (event as CustomEvent<ChannelSelectedDetail>).detail;
+    if (
+      !detail ||
+      (detail.channelType !== ChannelType.VOICE && detail.channelType !== ChannelType.COMBINED)
+    ) {
+      return;
+    }
+
+    joinChannel(detail.channelId, detail.channelName);
   });
+
   leaveButton?.addEventListener("click", () => {
-    void client.leave().then(() => {
-      setVoiceActionsEnabled(false);
-      setStatus("Getrennt");
-    });
+    void client
+      .leave()
+      .then(() => {
+        joiningChannelId = null;
+        setVoiceActionsEnabled(false);
+        setStatus("Getrennt");
+      })
+      .catch((error: unknown) => {
+        setVoiceActionsEnabled(false);
+        setStatus(error instanceof Error ? error.message : "Voice leave failed");
+      });
   });
   muteButton?.addEventListener("click", () => {
     const nextMuted = !client.currentState?.selfMuted;
@@ -500,46 +535,42 @@ export function renderVoiceControlsPanel(): string {
           </div>
           <output id="voice-status" class="voice-panel__status">Nicht verbunden</output>
         </header>
-        <div class="voice-panel__join">
-          <label class="voice-panel__field">
-            <span>Voice channel ID</span>
-            <input id="voice-channel-id" class="voice-panel__input" autocomplete="off" />
-          </label>
-          <button id="voice-join" class="voice-panel__primary" type="button">Voice beitreten</button>
-        </div>
         <div class="voice-panel__actions" aria-label="Voice Aktionen">
           <button id="voice-leave" type="button" disabled>Verlassen</button>
           <button id="voice-mute" type="button" disabled>Stummschalten</button>
           <button id="voice-deafen" type="button" disabled>Deafen</button>
           <button id="voice-camera" type="button" disabled>Kamera</button>
           <button id="voice-screen" type="button" disabled>Bildschirm teilen</button>
-        </div>
-        <div class="voice-panel__media">
-          <label class="voice-panel__field">
-            <span>Camera quality</span>
-            <select id="voice-camera-quality" class="voice-panel__input">
-              <option value="720p">720p</option>
-              <option value="1080p">1080p</option>
-              <option value="1440p">1440p</option>
-              <option value="4k">4K</option>
-            </select>
-          </label>
-          <label class="voice-panel__field">
-            <span>Screen quality</span>
-            <select id="voice-screen-quality" class="voice-panel__input">
-              <option value="1080p">1080p</option>
-              <option value="1440p">1440p</option>
-              <option value="4k">4K</option>
-              <option value="720p">720p</option>
-            </select>
-          </label>
-          <label class="voice-panel__field">
-            <span>Screen mode</span>
-            <select id="voice-screen-mode" class="voice-panel__input">
-              <option value="detail">Detail</option>
-              <option value="motion">Motion</option>
-            </select>
-          </label>
+          <details class="voice-panel__settings">
+            <summary aria-label="Media Einstellungen">&#9881;</summary>
+            <div class="voice-panel__media">
+              <label class="voice-panel__field">
+                <span>Camera quality</span>
+                <select id="voice-camera-quality" class="voice-panel__input">
+                  <option value="720p">720p</option>
+                  <option value="1080p">1080p</option>
+                  <option value="1440p">1440p</option>
+                  <option value="4k">4K</option>
+                </select>
+              </label>
+              <label class="voice-panel__field">
+                <span>Screen quality</span>
+                <select id="voice-screen-quality" class="voice-panel__input">
+                  <option value="1080p">1080p</option>
+                  <option value="1440p">1440p</option>
+                  <option value="4k">4K</option>
+                  <option value="720p">720p</option>
+                </select>
+              </label>
+              <label class="voice-panel__field">
+                <span>Screen mode</span>
+                <select id="voice-screen-mode" class="voice-panel__input">
+                  <option value="detail">Detail</option>
+                  <option value="motion">Motion</option>
+                </select>
+              </label>
+            </div>
+          </details>
         </div>
         <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
       </section>

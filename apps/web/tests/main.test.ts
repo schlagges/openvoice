@@ -62,26 +62,28 @@ describe("web foundation", () => {
 
     expect(html).toContain("Team Voice");
     expect(html).toContain("is-active");
-    expect(html).toContain("Zeigt nur Workspaces");
-    expect(html).toContain("Invite erstellen");
-    expect(html).toContain("Invite beitreten");
+    expect(html).toContain("Ein Workspace ist ein gemeinsamer Server");
+    expect(html).not.toContain("Invite erstellen");
   });
 
-  it("renders a UI quick start flow without console use", () => {
+  it("renders a modal test user flow without console use", () => {
     const html = renderQuickStartPanel();
 
-    expect(html).toContain("Testumgebung erstellen");
+    expect(html).toContain("Testnutzer erstellen");
     expect(html).toContain("Channel-Typ");
     expect(html).toContain('value="combined"');
-    expect(html).toContain("Voice beitreten");
+    expect(html).toContain("Invite beitreten");
+    expect(html).toContain('id="test-user-dialog"');
   });
 
-  it("renders voice controls with an explicit join-first flow", () => {
+  it("renders voice controls without a separate join button", () => {
     const html = renderVoiceControlsPanel();
 
-    expect(html).toContain("Voice beitreten");
+    expect(html).not.toContain("Voice beitreten");
+    expect(html).not.toContain("voice-channel-id");
     expect(html).toContain("Kamera");
     expect(html).toContain('id="voice-camera" type="button" disabled');
+    expect(html).toContain("Media Einstellungen");
     expect(html).toContain("Nicht verbunden");
   });
 

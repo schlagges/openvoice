@@ -15,6 +15,7 @@ import type { MessageService } from "./service.js";
 export interface MessageWebSocketOptions {
   readonly authService: AuthService;
   readonly config: Pick<ApiConfig, "corsAllowedOrigins" | "sessionCookieName"> & {
+    readonly rateLimitsEnabled?: boolean | undefined;
     readonly trustedProxyIps?: readonly string[];
   };
   readonly eventHub: InMemoryMessageEventHub;
@@ -45,7 +46,7 @@ export function createMessageWebSocketUpgradeHandler(
   options: MessageWebSocketOptions,
 ): MessageWebSocketUpgradeHandler {
   const webSocketServer = new WebSocketServer({ noServer: true });
-  const rateLimiter = new InMemoryRateLimiter();
+  const rateLimiter = new InMemoryRateLimiter({ enabled: options.config.rateLimitsEnabled });
 
   return {
     canHandle: (incoming) => matchMessageSocketPath(readPathname(incoming)) !== null,

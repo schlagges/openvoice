@@ -61,8 +61,8 @@
       .channel-sidebar {
         background: var(--color-panel);
         border-right: 1px solid var(--color-border);
-        display: grid;
-        grid-auto-rows: max-content;
+        display: flex;
+        flex-direction: column;
         gap: var(--space-4);
         min-height: 0;
         overflow: auto;
@@ -148,7 +148,7 @@
       .workspace-panel {
         display: grid;
         gap: var(--space-4);
-        grid-template-rows: minmax(0, 1fr) auto auto;
+        grid-template-rows: auto minmax(0, 1fr) auto auto;
         min-height: 0;
         min-width: 0;
         overflow: hidden;
@@ -156,7 +156,6 @@
       }
 
       .ops-links,
-      .desktop-qr,
       .channel-browser,
       .workspace-switcher,
       .quick-start {
@@ -182,8 +181,14 @@
         gap: 4px;
       }
 
-      .channel-browser {
-        order: 3;
+      .sidebar-header,
+      .workspace-topbar,
+      .dialog-header {
+        align-items: center;
+        display: flex;
+        gap: var(--space-3);
+        justify-content: space-between;
+        min-width: 0;
       }
 
       .channel-browser p {
@@ -276,6 +281,31 @@
         color: var(--color-success);
       }
 
+      .workspace-invite,
+      .test-user-dialog {
+        display: grid;
+        gap: var(--space-4);
+      }
+
+      .test-user-dialog {
+        background: var(--color-panel);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
+        box-shadow: 0 18px 50px rgb(23 26 22 / 18%);
+        color: var(--color-text);
+        max-width: min(560px, calc(100vw - 32px));
+        padding: var(--space-5);
+        width: 100%;
+      }
+
+      .test-user-dialog:not([open]) {
+        display: none;
+      }
+
+      .test-user-dialog::backdrop {
+        background: rgb(23 26 22 / 42%);
+      }
+
       .workspace-invite {
         border-top: 1px solid var(--color-border);
         display: grid;
@@ -330,8 +360,11 @@
       }
 
       .desktop-qr {
-        grid-template-columns: minmax(0, 1fr) 92px;
         align-items: center;
+        display: grid;
+        gap: var(--space-2);
+        grid-template-columns: minmax(0, 1fr) 84px;
+        max-width: 360px;
       }
 
       .desktop-qr p {
@@ -418,6 +451,32 @@
 
       .quick-start__status[data-state="success"] {
         color: var(--color-success);
+      }
+
+      .sidebar-header__action,
+      .icon-button {
+        background: var(--color-primary);
+        border: 1px solid var(--color-primary);
+        border-radius: var(--radius);
+        color: #ffffff;
+        cursor: pointer;
+        font: inherit;
+        font-weight: 700;
+        min-height: 36px;
+        padding: 0 12px;
+      }
+
+      .icon-button {
+        background: var(--color-panel);
+        border-color: var(--color-border-strong);
+        color: var(--color-text);
+        font-size: 1.25rem;
+        min-width: 36px;
+        padding: 0;
+      }
+
+      .sidebar-footer {
+        margin-top: auto;
       }
 
       .ops-links__grid {
@@ -682,6 +741,30 @@
         cursor: not-allowed;
       }
 
+      .voice-panel__settings {
+        position: relative;
+      }
+
+      .voice-panel__settings summary {
+        align-items: center;
+        background: var(--color-panel);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius);
+        cursor: pointer;
+        display: inline-flex;
+        font-size: 1rem;
+        font-weight: 700;
+        justify-content: center;
+        min-height: 40px;
+        min-width: 42px;
+        padding: 0 10px;
+      }
+
+      .voice-panel__settings[open] summary {
+        background: var(--color-primary-soft);
+        border-color: var(--color-primary);
+      }
+
       .voice-panel__primary {
         align-self: end;
         background: var(--color-primary);
@@ -696,10 +779,18 @@
       }
 
       .voice-panel__media {
+        background: var(--color-panel);
+        border: 1px solid var(--color-border);
+        border-radius: var(--radius);
         display: grid;
         gap: var(--space-3);
         grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-        padding: 0 var(--space-4);
+        margin-top: 8px;
+        padding: var(--space-4);
+        position: absolute;
+        right: 0;
+        width: min(680px, calc(100vw - 48px));
+        z-index: 2;
       }
 
       .voice-video-grid {
@@ -825,6 +916,10 @@
 
         .desktop-qr {
           display: none;
+        }
+
+        .workspace-topbar {
+          align-items: start;
         }
 
         .workspace-panel {

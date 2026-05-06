@@ -44,7 +44,10 @@ export class ApiRequestRateLimiter {
   private readonly config: ClientAddressConfig;
   private readonly limiter: InMemoryRateLimiter;
 
-  public constructor(options: ClientAddressConfig = {}, limiter = new InMemoryRateLimiter()) {
+  public constructor(
+    options: ClientAddressConfig & { readonly enabled?: boolean | undefined } = {},
+    limiter = new InMemoryRateLimiter({ enabled: options.enabled }),
+  ) {
     this.config = options;
     this.limiter = limiter;
   }

@@ -12,9 +12,16 @@ export function formatWebTitle(phase: typeof OPENVOICE_PHASE): string {
 
 export function renderQuickStartPanel(): string {
   return `
-    <section class="quick-start" aria-label="Schnellstart">
-      <h2>Schnellstart</h2>
-      <p>Erstellt einen lokalen Testnutzer, Workspace und Channel. Fuer Chat und Voice zusammen ist Combined vorausgewaehlt. Danach mit der gesetzten Channel-ID Voice beitreten.</p>
+    <dialog id="test-user-dialog" class="test-user-dialog" aria-labelledby="test-user-dialog-title">
+      <section class="quick-start" aria-label="Testnutzer">
+        <header class="dialog-header">
+          <div>
+            <p class="eyebrow">Lokaler Test</p>
+            <h2 id="test-user-dialog-title">Testnutzer erstellen</h2>
+          </div>
+          <button id="test-user-dialog-close" class="icon-button" type="button" aria-label="Dialog schliessen">×</button>
+        </header>
+        <p>Erstellt einen Test-Login, einen Workspace und einen Combined-Channel fuer Chat und Voice.</p>
       <form id="quick-start-form" class="quick-start__form">
         <label>
           <span>E-Mail</span>
@@ -44,10 +51,26 @@ export function renderQuickStartPanel(): string {
             <option value="voice">Voice</option>
           </select>
         </label>
-        <button type="submit">Testumgebung erstellen</button>
+        <button type="submit">Testnutzer erstellen</button>
         <p id="quick-start-status" class="quick-start__status" role="status"></p>
       </form>
-    </section>
+      </section>
+      <section class="workspace-invite" aria-label="Workspace beitreten">
+        <h2>Workspace beitreten</h2>
+        <p>Mit einem Invite-Code wird dieser Login Mitglied im Workspace.</p>
+        <form id="invite-form">
+          <label>
+            <span>Invite-Code</span>
+            <input id="invite-code" name="code" autocomplete="off" />
+          </label>
+          <div class="workspace-invite__actions">
+            <button id="invite-create" type="button">Invite erstellen</button>
+            <button type="submit">Invite beitreten</button>
+          </div>
+          <p id="invite-status" class="workspace-switcher__status" role="status"></p>
+        </form>
+      </section>
+    </dialog>
   `;
 }
 
@@ -98,24 +121,13 @@ export function renderWorkspaceSwitcher(
     <section class="workspace-switcher" aria-label="Workspaces">
       <header>
         <div>
-          <h2>Workspace</h2>
-          <p>Zeigt nur Workspaces, in denen dieser Login Mitglied ist.</p>
+          <h2>Workspaces</h2>
+          <p>Ein Workspace ist ein gemeinsamer Server. Links darunter stehen seine Channels.</p>
         </div>
         <button id="workspace-refresh" type="button">Aktualisieren</button>
       </header>
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
       <p id="workspace-status" class="workspace-switcher__status" role="status"></p>
-      <form id="invite-form" class="workspace-invite">
-        <label>
-          <span>Invite-Code</span>
-          <input id="invite-code" name="code" autocomplete="off" />
-        </label>
-        <div class="workspace-invite__actions">
-          <button id="invite-create" type="button">Invite erstellen</button>
-          <button type="submit">Invite beitreten</button>
-        </div>
-        <p id="invite-status" class="workspace-switcher__status" role="status"></p>
-      </form>
     </section>
   `;
 }
@@ -128,20 +140,32 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   app.innerHTML = `
     <main class="app-shell">
       <aside class="channel-sidebar" aria-label="Channels">
-        <h1>${formatWebTitle(OPENVOICE_PHASE)}</h1>
+        <header class="sidebar-header">
+          <h1>${formatWebTitle(OPENVOICE_PHASE)}</h1>
+          <button id="test-user-dialog-open" class="sidebar-header__action" type="button">Testnutzer</button>
+        </header>
         ${renderWorkspaceSwitcher()}
         <section class="channel-browser" aria-label="Channels">
           <header>
             <h2>Channels</h2>
-            <p>Channel anklicken, Voice oder Combined per Doppelklick beitreten.</p>
+            <p>Text-Channel oeffnen den Chat. Voice und Combined treten per Klick direkt bei.</p>
           </header>
           <nav id="channel-tree" class="channel-tree" aria-label="Channel Tree"></nav>
         </section>
         ${renderQuickStartPanel()}
-        ${renderDesktopQrPanel()}
-        ${renderOperationsLinks()}
+        <footer class="sidebar-footer">
+          ${renderOperationsLinks()}
+        </footer>
       </aside>
-      <section id="workspace-panel" class="workspace-panel" aria-label="Workspace"></section>
+      <section id="workspace-panel" class="workspace-panel" aria-label="Workspace">
+        <header class="workspace-topbar">
+          <div>
+            <p class="eyebrow">Workspace</p>
+            <h2>Chat und Voice</h2>
+          </div>
+          ${renderDesktopQrPanel()}
+        </header>
+      </section>
     </main>
   `;
 
@@ -151,6 +175,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   }
 
   bindQuickStart(app);
+  bindTestUserDialog(app);
   bindWorkspaceNavigation(app);
 
   const workspacePanel = app.querySelector<HTMLElement>("#workspace-panel");
@@ -190,11 +215,8 @@ function bindQuickStart(root: HTMLElement): void {
             mountChannelTree(channelTree, [toTreeNode(result.channel, result.workspace.id)]),
           );
         }
-        setQuickStartStatus(
-          status,
-          `Bereit. Channel-ID ${result.channel.id}. Jetzt Voice beitreten klicken.`,
-          "success",
-        );
+        setQuickStartStatus(status, `Bereit. ${result.channel.name} ist ausgewaehlt.`, "success");
+        closeTestUserDialog(root);
       })
       .catch((error: unknown) => {
         setQuickStartStatus(
@@ -209,6 +231,34 @@ function bindQuickStart(root: HTMLElement): void {
         }
       });
   });
+}
+
+function bindTestUserDialog(root: HTMLElement): void {
+  const dialog = root.querySelector<HTMLDialogElement>("#test-user-dialog");
+  const open = root.querySelector<HTMLButtonElement>("#test-user-dialog-open");
+  const close = root.querySelector<HTMLButtonElement>("#test-user-dialog-close");
+
+  open?.addEventListener("click", () => {
+    if (dialog?.showModal) {
+      dialog.showModal();
+      return;
+    }
+    dialog?.setAttribute("open", "");
+  });
+
+  close?.addEventListener("click", () => closeTestUserDialog(root));
+}
+
+function closeTestUserDialog(root: HTMLElement): void {
+  const dialog = root.querySelector<HTMLDialogElement>("#test-user-dialog");
+  if (!dialog) {
+    return;
+  }
+  if (dialog.close) {
+    dialog.close();
+    return;
+  }
+  dialog.removeAttribute("open");
 }
 
 function bindWorkspaceNavigation(root: HTMLElement): void {
@@ -282,6 +332,7 @@ function bindWorkspaceNavigation(root: HTMLElement): void {
       .then((result) => {
         setInviteStatus(root, `Workspace ${result.workspace.name} beigetreten.`, "success");
         void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
+        closeTestUserDialog(root);
       })
       .catch((error: unknown) =>
         setInviteStatus(
@@ -301,18 +352,6 @@ function bindWorkspaceNavigation(root: HTMLElement): void {
     }
 
     selectChannel(root, channel);
-  });
-
-  channelTree?.addEventListener("dblclick", (event) => {
-    const item =
-      (event.target as Element | null)?.closest<HTMLElement>(".channel-tree__item") ?? null;
-    const channel = readChannelDataset(item);
-    if (!channel || (channel.type !== ChannelType.VOICE && channel.type !== ChannelType.COMBINED)) {
-      return;
-    }
-
-    selectChannel(root, channel);
-    root.querySelector<HTMLButtonElement>("#voice-join")?.click();
   });
 
   void loadWorkspaces(root).catch(() => undefined);
@@ -502,7 +541,7 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
   markActiveWorkspace(root, workspaceId);
   setWorkspaceStatus(
     root,
-    "Workspace geladen. Channel anklicken, Voice per Doppelklick joinen.",
+    "Workspace geladen. Channel anklicken; Voice und Combined verbinden direkt.",
     "success",
   );
 }

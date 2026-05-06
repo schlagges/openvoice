@@ -120,6 +120,25 @@ describe("Phase 9 hardening", () => {
     expect(attempts[10]?.headers.get("retry-after")).toBeTruthy();
   });
 
+  it("can disable request rate limits for local E2E runs", async () => {
+    const app = createTestApp({ rateLimitsEnabled: false });
+    await register(app, "unlimited-rate@example.com");
+
+    const attempts: Response[] = [];
+    for (let index = 0; index < 12; index += 1) {
+      attempts.push(
+        await app.handler(
+          jsonRequest("/api/v1/auth/login", {
+            email: "unlimited-rate@example.com",
+            password: "wrong-password",
+          }),
+        ),
+      );
+    }
+
+    expect(attempts.every((response) => response.status === 401)).toBe(true);
+  });
+
   it("does not trust spoofed x-forwarded-for without a trusted proxy", async () => {
     const app = createTestApp();
     await register(app, "spoofed-rate@example.com");
@@ -262,6 +281,7 @@ interface TestSession {
 function createTestApp(
   options: {
     readonly auditIpHashSecret?: string;
+    readonly rateLimitsEnabled?: boolean;
     readonly trustedProxyIps?: readonly string[];
   } = {},
 ): TestApp {
@@ -281,6 +301,9 @@ function createTestApp(
       corsAllowedOrigins: ["http://local.test"],
       enableHsts: false,
       ...(options.auditIpHashSecret ? { auditIpHashSecret: options.auditIpHashSecret } : {}),
+      ...(options.rateLimitsEnabled === undefined
+        ? {}
+        : { rateLimitsEnabled: options.rateLimitsEnabled }),
       sessionCookieName: "openvoice_session",
       sessionCookieSecure: false,
       sessionTtlSeconds: 3600,

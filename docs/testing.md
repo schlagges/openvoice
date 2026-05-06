@@ -59,6 +59,17 @@ Mit Playwright:
 
 Die vollstaendige Phase-9-Matrix steht in `docs/e2e-test-matrix.md`.
 
+Lokaler Mehrnutzer-Smoke-Test:
+
+```bash
+OPENVOICE_E2E_BASE_URL=http://localhost:55180 pnpm e2e
+```
+
+Der Test nutzt zwei getrennte Browser-Kontexte, erstellt einen Testnutzer mit Workspace/Channel,
+laesst einen zweiten Testnutzer per Invite beitreten und prueft Chat-Live-Sync sowie chronologische
+Nachrichtenanzeige. Fuer lokale und E2E-Laeufe kann `RATE_LIMITS_ENABLED=false` gesetzt werden,
+damit Setup-Aktionen nicht durch produktive Rate Limits blockiert werden.
+
 ---
 
 ## Manuelle RTC Tests

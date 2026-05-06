@@ -222,3 +222,12 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - Workspace creation rejects duplicate normalized names at the service layer. A database unique
   constraint is intentionally deferred because existing local/test databases may already contain
   repeated manual-test names; adding a hard migration now would risk breaking current test stacks.
+
+## 2026-05-06: Browser E2E Test Harness
+
+- `@playwright/test` is used for local multi-browser UI verification because the test matrix
+  already requires Playwright E2E coverage and the package is Apache-2.0 licensed. The config uses
+  the host Chrome channel by default instead of downloading browser binaries into the repository.
+- Request and WebSocket rate limits remain enabled by default, but can be disabled with
+  `RATE_LIMITS_ENABLED=false` for local and E2E runs. This avoids false negatives while preserving
+  production protection unless explicitly opted out.
