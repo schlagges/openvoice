@@ -542,27 +542,42 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
 
     joiningChannelId = channelId;
     setVoiceActionsEnabled(false);
-    setStatus(`${channelName} wird verbunden.`);
-    void client
-      .leave()
-      .catch(() => undefined)
-      .then(() => client.join(channelId))
-      .then((result) => {
-        joiningChannelId = null;
-        setVoiceActionsEnabled(true);
-        setStatus(`Verbunden: ${result.roomName}`);
-        updateControlStates();
-        void client
-          .refreshParticipants()
-          .then(renderParticipants)
-          .catch(() => undefined);
-      })
-      .catch((error: unknown) => {
-        joiningChannelId = null;
-        setVoiceActionsEnabled(false);
-        setStatus(error instanceof Error ? error.message : "Voice join failed");
-        updateControlStates();
-      });
+    let retryCount = 0;
+    const attemptJoin = (): void => {
+      setStatus(
+        retryCount > 0 ? `${channelName} wird erneut verbunden.` : `${channelName} wird verbunden.`,
+      );
+      void client
+        .leave()
+        .catch(() => undefined)
+        .then(() => client.join(channelId))
+        .then((result) => {
+          joiningChannelId = null;
+          setVoiceActionsEnabled(true);
+          setStatus(`Verbunden: ${result.roomName}`);
+          updateControlStates();
+          void client
+            .refreshParticipants()
+            .then(renderParticipants)
+            .catch(() => undefined);
+        })
+        .catch((error: unknown) => {
+          const message = error instanceof Error ? error.message : "Voice join failed";
+          if (retryCount < 1 && shouldRetryVoiceJoinError(message)) {
+            retryCount += 1;
+            setStatus("Voice-Verbindung wird erneut aufgebaut.");
+            globalThis.setTimeout(attemptJoin, 1_200);
+            return;
+          }
+
+          joiningChannelId = null;
+          setVoiceActionsEnabled(false);
+          setStatus(message);
+          updateControlStates();
+        });
+    };
+
+    attemptJoin();
   };
 
   window.addEventListener("openvoice:channel-selected", (event) => {
@@ -633,6 +648,11 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
         setStatus(error instanceof Error ? error.message : "Screenshare failed"),
       );
   });
+}
+
+export function shouldRetryVoiceJoinError(message: string): boolean {
+  const normalized = message.toLowerCase();
+  return normalized.includes("pc connection") || normalized.includes("peerconnection");
 }
 
 export function renderVoiceControlsPanel(): string {

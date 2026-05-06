@@ -39,6 +39,7 @@ import {
   formatVoiceRequestError,
   OpenVoiceVoiceClient,
   renderVoiceControlsPanel,
+  shouldRetryVoiceJoinError,
   toRtcStatsRequestBody,
 } from "../src/voice/voice-client";
 
@@ -173,6 +174,12 @@ describe("web foundation", () => {
 
     expect(startAudio).toHaveBeenCalledTimes(1);
     expect(setMicrophoneEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("retries transient LiveKit peer connection failures", () => {
+    expect(shouldRetryVoiceJoinError("could not establish pc connection")).toBe(true);
+    expect(shouldRetryVoiceJoinError("failed to establish PeerConnection")).toBe(true);
+    expect(shouldRetryVoiceJoinError("Missing required workspace permission")).toBe(false);
   });
 
   it("renders server-side voice participants even before LiveKit exposes remotes", () => {
