@@ -82,6 +82,10 @@ export class OpenVoiceVoiceClient {
     });
     await this.room.connect(response.livekitUrl, response.token, {
       autoSubscribe: true,
+      peerConnectionTimeout: 25_000,
+      rtcConfig: {
+        iceServers: toRtcIceServers(response.iceServers),
+      },
     });
     await this.room.startAudio().catch(() => undefined);
     this.canPublishAudio = response.permissions.canPublishAudio;
@@ -653,6 +657,16 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
 export function shouldRetryVoiceJoinError(message: string): boolean {
   const normalized = message.toLowerCase();
   return normalized.includes("pc connection") || normalized.includes("peerconnection");
+}
+
+export function toRtcIceServers(
+  iceServers: VoiceJoinResponse["iceServers"],
+): RTCIceServer[] {
+  return iceServers.map((server) => ({
+    ...(server.credential ? { credential: server.credential } : {}),
+    urls: Array.from(server.urls),
+    ...(server.username ? { username: server.username } : {}),
+  }));
 }
 
 export function renderVoiceControlsPanel(): string {

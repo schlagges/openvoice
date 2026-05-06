@@ -40,6 +40,7 @@ import {
   OpenVoiceVoiceClient,
   renderVoiceControlsPanel,
   shouldRetryVoiceJoinError,
+  toRtcIceServers,
   toRtcStatsRequestBody,
 } from "../src/voice/voice-client";
 
@@ -152,7 +153,14 @@ describe("web foundation", () => {
     const originalFetch = globalThis.fetch;
     globalThis.fetch = vi.fn(async () =>
       Response.json({
-        iceServers: [],
+        iceServers: [
+          { urls: ["stun:voice.example:3478"] },
+          {
+            credential: "turn-credential",
+            urls: ["turn:voice.example:3478?transport=udp"],
+            username: "turn-user",
+          },
+        ],
         livekitUrl: "wss://voice.example/livekit",
         permissions: {
           canPublishAudio: true,
@@ -173,7 +181,41 @@ describe("web foundation", () => {
     }
 
     expect(startAudio).toHaveBeenCalledTimes(1);
+    expect(room.connect).toHaveBeenCalledWith("wss://voice.example/livekit", "token", {
+      autoSubscribe: true,
+      peerConnectionTimeout: 25_000,
+      rtcConfig: {
+        iceServers: [
+          { urls: ["stun:voice.example:3478"] },
+          {
+            credential: "turn-credential",
+            urls: ["turn:voice.example:3478?transport=udp"],
+            username: "turn-user",
+          },
+        ],
+      },
+    });
     expect(setMicrophoneEnabled).toHaveBeenCalledWith(true);
+  });
+
+  it("maps OpenVoice ICE servers to browser RTCConfiguration servers", () => {
+    expect(
+      toRtcIceServers([
+        { urls: ["stun:voice.example:3478"] },
+        {
+          credential: "credential",
+          urls: ["turn:voice.example:3478?transport=tcp"],
+          username: "user",
+        },
+      ]),
+    ).toEqual([
+      { urls: ["stun:voice.example:3478"] },
+      {
+        credential: "credential",
+        urls: ["turn:voice.example:3478?transport=tcp"],
+        username: "user",
+      },
+    ]);
   });
 
   it("retries transient LiveKit peer connection failures", () => {
