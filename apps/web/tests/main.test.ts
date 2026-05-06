@@ -81,13 +81,14 @@ describe("web foundation", () => {
   it("renders the multi-mode UI controls", () => {
     const html = renderModeControls(DEFAULT_UI_PREFERENCES);
 
-    expect(html).toContain("Meeting");
-    expect(html).toContain("Compact");
     expect(html).toContain("Grid");
-    expect(html).toContain("Focus");
-    expect(html).toContain("Fullscreen");
+    expect(html).toContain("Fokus");
+    expect(html).toContain("Vollbild");
+    expect(html).toContain("Channels");
+    expect(html).toContain("Chat");
     expect(html).toContain('data-ui-preference="channelVisibility"');
     expect(html).toContain('data-ui-preference="chatVisibility"');
+    expect(html).toContain('data-ui-choice="hidden"');
     expect(html).toContain("UI Scale");
     expect(html).toContain("Tile Size");
     expect(html).toContain("Compactness");

@@ -33,29 +33,19 @@ test("workspace shell renders dark and light mode with screenshots", async ({ pa
   await expect(page.locator(".workspace-topbar .desktop-qr")).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Logout|Abmelden/ })).toBeVisible();
 
-  await page.locator('button[data-layout-mode="compact"]').click();
-  await expect(page.locator(".app-shell")).toHaveAttribute("data-layout-mode", "compact");
-  await expect(page.locator('button[data-layout-mode="compact"]')).toHaveAttribute(
-    "aria-pressed",
-    "true",
-  );
-
-  await page.locator('button[data-layout-mode="meeting"]').click();
-  await expect(page.locator(".app-shell")).toHaveAttribute("data-layout-mode", "meeting");
-
   await page.locator('button[data-stage-mode="focus"]').click();
   await expect(page.locator(".app-shell")).toHaveAttribute("data-stage-mode", "focus");
   await page.locator('button[data-stage-mode="grid"]').click();
   await expect(page.locator(".app-shell")).toHaveAttribute("data-stage-mode", "grid");
 
-  await page.locator('[data-ui-preference="chatVisibility"][data-ui-choice="hidden"]').click();
+  await page.locator('button[data-ui-preference="chatVisibility"]').click();
   await expect(page.locator(".app-shell")).toHaveAttribute("data-chat-visibility", "hidden");
-  await page.locator('[data-ui-preference="chatVisibility"][data-ui-choice="docked"]').click();
+  await page.locator('button[data-ui-preference="chatVisibility"]').click();
   await expect(page.locator(".app-shell")).toHaveAttribute("data-chat-visibility", "docked");
 
-  await page.locator('[data-ui-preference="channelVisibility"][data-ui-choice="overlay"]').click();
-  await expect(page.locator(".app-shell")).toHaveAttribute("data-channel-visibility", "overlay");
-  await page.locator('[data-ui-preference="channelVisibility"][data-ui-choice="docked"]').click();
+  await page.locator('button[data-ui-preference="channelVisibility"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-channel-visibility", "hidden");
+  await page.locator('button[data-ui-preference="channelVisibility"]').click();
   await expect(page.locator(".app-shell")).toHaveAttribute("data-channel-visibility", "docked");
 
   await page.getByRole("button", { name: "Einladen" }).click();

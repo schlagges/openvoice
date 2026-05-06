@@ -154,19 +154,34 @@ export function renderOperationsLinks(): string {
 }
 
 export function renderModeControls(preferences: UiPreferences = DEFAULT_UI_PREFERENCES): string {
+  const channelsVisible = preferences.channelVisibility !== "hidden";
+  const chatVisible = preferences.chatVisibility !== "hidden";
   return `
     <section class="mode-controls" aria-label="Ansicht">
-      <div class="mode-segment" role="group" aria-label="Layout Modus">
-        <button class="mode-button${preferences.layoutMode === "meeting" ? " is-active" : ""}" type="button" data-layout-mode="meeting" aria-pressed="${preferences.layoutMode === "meeting"}" title="Meeting Mode">Meeting</button>
-        <button class="mode-button${preferences.layoutMode === "compact" ? " is-active" : ""}" type="button" data-layout-mode="compact" aria-pressed="${preferences.layoutMode === "compact"}" title="Compact Mode">Compact</button>
-      </div>
       <div class="mode-segment" role="group" aria-label="Stage Modus">
-        <button class="mode-button${preferences.stageMode === "grid" ? " is-active" : ""}" type="button" data-stage-mode="grid" aria-pressed="${preferences.stageMode === "grid"}" title="Grid">Grid</button>
-        <button class="mode-button${preferences.stageMode === "focus" ? " is-active" : ""}" type="button" data-stage-mode="focus" aria-pressed="${preferences.stageMode === "focus"}" title="Focus">Focus</button>
-        <button class="mode-button${preferences.stageMode === "fullscreen" ? " is-active" : ""}" type="button" data-stage-mode="fullscreen" aria-pressed="${preferences.stageMode === "fullscreen"}" title="Fullscreen Grid">Fullscreen</button>
+        <button class="mode-button${preferences.stageMode === "grid" ? " is-active" : ""}" type="button" data-stage-mode="grid" aria-pressed="${preferences.stageMode === "grid"}" title="Alle Teilnehmer als Grid anzeigen">
+          <span class="mode-button__icon" aria-hidden="true">▦</span>
+          <span>Grid</span>
+        </button>
+        <button class="mode-button${preferences.stageMode === "focus" ? " is-active" : ""}" type="button" data-stage-mode="focus" aria-pressed="${preferences.stageMode === "focus"}" title="Aktiven Stream fokussieren">
+          <span class="mode-button__icon" aria-hidden="true">◉</span>
+          <span>Fokus</span>
+        </button>
+        <button class="mode-button${preferences.stageMode === "fullscreen" ? " is-active" : ""}" type="button" data-stage-mode="fullscreen" aria-pressed="${preferences.stageMode === "fullscreen"}" title="Stage im Vollbild anzeigen">
+          <span class="mode-button__icon" aria-hidden="true">⛶</span>
+          <span>Vollbild</span>
+        </button>
       </div>
-      ${renderVisibilitySegment("Channels", "channelVisibility", preferences.channelVisibility)}
-      ${renderVisibilitySegment("Chat", "chatVisibility", preferences.chatVisibility)}
+      <div class="mode-segment mode-segment--sidebars" role="group" aria-label="Seitenleisten">
+        <button class="mode-button mode-button--toggle${channelsVisible ? " is-active" : ""}" type="button" data-ui-choice="${channelsVisible ? "hidden" : "docked"}" data-ui-preference="channelVisibility" aria-pressed="${channelsVisible}" title="Linke Seitenleiste ein- oder ausklappen">
+          <span class="mode-button__icon" aria-hidden="true">☰</span>
+          <span>Channels</span>
+        </button>
+        <button class="mode-button mode-button--toggle${chatVisible ? " is-active" : ""}" type="button" data-ui-choice="${chatVisible ? "hidden" : "docked"}" data-ui-preference="chatVisibility" aria-pressed="${chatVisible}" title="Chat ein- oder ausklappen">
+          <span class="mode-button__icon" aria-hidden="true">▤</span>
+          <span>Chat</span>
+        </button>
+      </div>
       <details class="mode-settings">
         <summary aria-label="Ansicht einstellen" title="Ansicht einstellen">⚙</summary>
         <div class="mode-settings__panel">
@@ -199,27 +214,6 @@ export function renderModeControls(preferences: UiPreferences = DEFAULT_UI_PREFE
         </div>
       </details>
     </section>
-  `;
-}
-
-function renderVisibilitySegment(
-  label: string,
-  key: "channelVisibility" | "chatVisibility",
-  activeValue: OverlayVisibility,
-): string {
-  const options: readonly OverlayVisibility[] = ["hidden", "overlay", "docked"];
-  return `
-    <div class="mode-combo" role="group" aria-label="${label}">
-      <span>${label}</span>
-      <div class="mode-segment mode-segment--subtle">
-        ${options
-          .map(
-            (value) =>
-              `<button class="mode-button mode-button--icon${activeValue === value ? " is-active" : ""}" type="button" data-ui-choice="${value}" data-ui-preference="${key}" aria-pressed="${activeValue === value}" title="${label}: ${visibilityLabel(value)}">${visibilityIcon(value)}</button>`,
-          )
-          .join("")}
-      </div>
-    </div>
   `;
 }
 
@@ -649,7 +643,7 @@ function bindModeControls(root: HTMLElement): void {
         ...preferences,
         layoutMode: toLayoutMode(layoutButton.dataset.layoutMode),
         ...(layoutButton.dataset.layoutMode === "compact"
-          ? { channelVisibility: "docked" as const, chatVisibility: "overlay" as const }
+          ? { channelVisibility: "docked" as const, chatVisibility: "docked" as const }
           : {}),
       };
       writeUiPreferences(preferences);
@@ -718,8 +712,8 @@ function readUiPreferences(): UiPreferences {
   try {
     const parsed = JSON.parse(raw) as Partial<UiPreferences>;
     return {
-      chatVisibility: toChatVisibility(parsed.chatVisibility),
-      channelVisibility: toChatVisibility(parsed.channelVisibility),
+      chatVisibility: toSidebarVisibility(parsed.chatVisibility),
+      channelVisibility: toSidebarVisibility(parsed.channelVisibility),
       compactness: toCompactness(parsed.compactness),
       layoutMode: toLayoutMode(parsed.layoutMode),
       stageMode: toStageMode(parsed.stageMode),
@@ -766,7 +760,11 @@ function syncModeControls(root: HTMLElement, preferences: UiPreferences): void {
     const key = button.dataset.uiPreference;
     const expected =
       key === "channelVisibility" ? preferences.channelVisibility : preferences.chatVisibility;
-    const active = button.dataset.uiChoice === expected;
+    const isToggle = button.classList.contains("mode-button--toggle");
+    const active = isToggle ? expected !== "hidden" : button.dataset.uiChoice === expected;
+    if (isToggle) {
+      button.dataset.uiChoice = expected === "hidden" ? "docked" : "hidden";
+    }
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
@@ -782,9 +780,9 @@ function updateUiPreference(
 ): UiPreferences {
   switch (key) {
     case "channelVisibility":
-      return { ...preferences, channelVisibility: toChatVisibility(value) };
+      return { ...preferences, channelVisibility: toSidebarVisibility(value) };
     case "chatVisibility":
-      return { ...preferences, chatVisibility: toChatVisibility(value) };
+      return { ...preferences, chatVisibility: toSidebarVisibility(value) };
     case "uiScale":
       return { ...preferences, uiScale: toUiScale(value) };
     case "tileSize":
@@ -819,11 +817,8 @@ function toStageMode(value: unknown): StageMode {
   return "grid";
 }
 
-function toChatVisibility(value: unknown): OverlayVisibility {
-  if (value === "overlay" || value === "docked") {
-    return value;
-  }
-  return "hidden";
+function toSidebarVisibility(value: unknown): OverlayVisibility {
+  return value === "hidden" ? "hidden" : "docked";
 }
 
 function toUiScale(value: unknown): UiScale {
@@ -1498,28 +1493,6 @@ function channelIcon(type: ChannelType): string {
       return "# ◉";
     case ChannelType.CATEGORY:
       return "";
-  }
-}
-
-function visibilityIcon(value: OverlayVisibility): string {
-  switch (value) {
-    case "hidden":
-      return "–";
-    case "overlay":
-      return "◱";
-    case "docked":
-      return "▣";
-  }
-}
-
-function visibilityLabel(value: OverlayVisibility): string {
-  switch (value) {
-    case "hidden":
-      return "Hidden";
-    case "overlay":
-      return "Overlay";
-    case "docked":
-      return "Docked";
   }
 }
 
