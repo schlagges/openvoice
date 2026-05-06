@@ -64,6 +64,7 @@ services:
     depends_on:
       - api
     environment:
+      OPENVOICE_BASIC_AUTH_ENABLED: ${OPENVOICE_BASIC_AUTH_ENABLED:-auto}
       OPENVOICE_SITE_PASSWORD: ${OPENVOICE_SITE_PASSWORD:?OPENVOICE_SITE_PASSWORD is required}
       OPENVOICE_SITE_USER: ${OPENVOICE_SITE_USER:-openvoice}
     ports:
