@@ -684,6 +684,9 @@ export function renderVideoGrid(root: HTMLElement, room: Room): void {
     element.dataset.trackKey = tile.key;
     element.type = "button";
     element.setAttribute("aria-label", tile.label);
+    if (tile.isScreenShare) {
+      element.classList.add("is-screen-share");
+    }
     if (focusedKey === tile.key) {
       element.classList.add("is-focused");
     }
@@ -797,6 +800,7 @@ export interface VideoTile {
   readonly isLocal: boolean;
   readonly key: string;
   readonly label: string;
+  readonly isScreenShare: boolean;
   readonly track:
     | NonNullable<LocalTrackPublication["videoTrack"]>
     | NonNullable<RemoteTrackPublication["videoTrack"]>;
@@ -815,6 +819,7 @@ export function collectVideoTiles(room: Room): VideoTile[] {
       isLocal: true,
       key: `local:${publication.trackSid}`,
       label: publication.source === Track.Source.ScreenShare ? "Eigener Screen" : "Eigene Kamera",
+      isScreenShare: publication.source === Track.Source.ScreenShare,
       track,
     });
   }
@@ -842,6 +847,7 @@ function collectRemoteVideoTiles(participant: RemoteParticipant, tiles: VideoTil
         publication.source === Track.Source.ScreenShare
           ? `${participantName} Screen`
           : `${participantName} Kamera`,
+      isScreenShare: publication.source === Track.Source.ScreenShare,
       track,
     });
   }
