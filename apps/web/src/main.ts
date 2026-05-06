@@ -4,6 +4,7 @@ import qrcode from "qrcode-generator";
 import { mountChatPanel } from "./chat/chat-panel.js";
 import { mountChannelTree } from "./channels/channel-tree.js";
 import { mountAuditLog } from "./moderation/audit-log.js";
+import { mountBrowserNotifications } from "./notifications.js";
 import { mountVoiceControls, type VoiceParticipantView } from "./voice/voice-client.js";
 
 const DEFAULT_PASSWORD = "very-secure-password";
@@ -248,6 +249,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   bindParticipantUpdates(app);
   bindThemeToggle(app);
   bindLogout(app);
+  mountBrowserNotifications(app);
 
   const workspacePanel = app.querySelector<HTMLElement>("#workspace-panel");
   const chatColumn = app.querySelector<HTMLElement>("#chat-column");

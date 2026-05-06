@@ -29,6 +29,11 @@ import {
 } from "../src/main";
 import { renderAuditLog } from "../src/moderation/audit-log";
 import {
+  diffRemoteParticipantEvents,
+  resetNotificationStateForTests,
+  shouldNotifyMessage,
+} from "../src/notifications";
+import {
   createCameraCaptureOptions,
   createScreenShareCaptureOptions,
   createScreenSharePublishOptions,
@@ -42,6 +47,7 @@ import {
   shouldRetryVoiceJoinError,
   toRtcIceServers,
   toRtcStatsRequestBody,
+  type VoiceParticipantView,
 } from "../src/voice/voice-client";
 
 describe("web foundation", () => {
@@ -313,6 +319,65 @@ describe("web foundation", () => {
 
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("bearbeitet");
+    expect(html).toContain("Benachrichtigungen");
+  });
+
+  it("does not notify for own or deleted messages", () => {
+    const now = new Date().toISOString();
+    const message = {
+      authorId: "author",
+      channelId: "channel",
+      clientMessageId: "client",
+      content: "Hallo",
+      contentFormat: MessageContentFormat.MARKDOWN,
+      createdAt: now,
+      deletedAt: null,
+      deletedBy: null,
+      editedAt: null,
+      id: "message",
+      updatedAt: now,
+      workspaceId: "workspace",
+    };
+
+    expect(shouldNotifyMessage(message, false)).toBe(true);
+    expect(shouldNotifyMessage(message, true)).toBe(false);
+    expect(shouldNotifyMessage({ ...message, deletedAt: now }, false)).toBe(false);
+  });
+
+  it("creates sounds for remote participant media state changes", () => {
+    resetNotificationStateForTests();
+
+    expect(
+      diffRemoteParticipantEvents([
+        createParticipant({ identity: "remote", name: "Remote", selfMuted: false }),
+      ]),
+    ).toEqual([]);
+    expect(
+      diffRemoteParticipantEvents([
+        createParticipant({
+          cameraEnabled: true,
+          identity: "remote",
+          name: "Remote",
+          screenShareEnabled: true,
+          selfMuted: true,
+        }),
+      ]),
+    ).toEqual([
+      { identity: "remote", name: "Remote", sound: "mute" },
+      { identity: "remote", name: "Remote", sound: "camera-on" },
+      { identity: "remote", name: "Remote", sound: "screen-on" },
+    ]);
+    expect(
+      diffRemoteParticipantEvents([
+        createParticipant({
+          cameraEnabled: true,
+          identity: "local",
+          isLocal: true,
+          name: "Du",
+          selfMuted: true,
+        }),
+      ]),
+    ).toEqual([]);
   });
 
   it("renders chat author display names from the UI cache", () => {
@@ -553,5 +618,20 @@ function createVoiceState(workspaceId: string, channelId: string, userId: string
     updatedAt: new Date(0).toISOString(),
     userId,
     workspaceId,
+  };
+}
+
+function createParticipant(
+  overrides: Partial<VoiceParticipantView> & Pick<VoiceParticipantView, "identity" | "name">,
+): VoiceParticipantView {
+  return {
+    cameraEnabled: false,
+    isLocal: false,
+    isSpeaking: false,
+    screenShareEnabled: false,
+    selfDeafened: false,
+    selfMuted: false,
+    statusLabel: "Remote Teilnehmer",
+    ...overrides,
   };
 }

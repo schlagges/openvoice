@@ -1,4 +1,5 @@
 import { MessageContentFormat, MessageEventType, type Message } from "@openvoice/shared";
+import { bindNotificationButton } from "../notifications.js";
 
 interface CreateMessageResponse {
   readonly duplicate: boolean;
@@ -54,7 +55,10 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
           <p class="eyebrow">Chat</p>
           <h2>${escapeHtml(channelName)}</h2>
         </div>
-        <span class="status-pill">${messages.length} Nachrichten</span>
+        <div class="chat-panel__tools">
+          <button class="chat-notification-button" type="button" data-notification-request>Benachrichtigungen</button>
+          <span class="status-pill">${messages.length} Nachrichten</span>
+        </div>
       </header>
       ${
         messages.length === 0
@@ -78,6 +82,7 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
 
 export function mountChatPanel(root: HTMLElement, messages: readonly Message[]): void {
   root.insertAdjacentHTML("beforeend", renderChatPanel(messages));
+  bindNotificationButton(root);
   bindChatComposer(root);
 }
 
@@ -286,6 +291,10 @@ function updateChatTitle(root: HTMLElement, title: string): void {
   }
 }
 
+function readChatTitle(root: HTMLElement): string {
+  return root.querySelector<HTMLElement>(".chat-panel__header h2")?.textContent?.trim() ?? "";
+}
+
 function openMessageSocket(root: HTMLElement, channelId: string, status: HTMLElement | null): void {
   if (activeMessageSocket && activeMessageSocketChannelId === channelId) {
     return;
@@ -315,6 +324,17 @@ function openMessageSocket(root: HTMLElement, channelId: string, status: HTMLEle
       envelope.t === MessageEventType.DELETE
     ) {
       upsertMessage(root, envelope.d);
+      if (envelope.t === MessageEventType.CREATE) {
+        window.dispatchEvent(
+          new CustomEvent("openvoice:chat-message-created", {
+            detail: {
+              channelName: readChatTitle(root),
+              isOwn: Boolean(currentUserId && envelope.d.authorId === currentUserId),
+              message: envelope.d,
+            },
+          }),
+        );
+      }
     }
   });
 
