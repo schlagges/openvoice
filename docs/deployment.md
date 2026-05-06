@@ -203,7 +203,9 @@ TRUSTED_PROXY_IPS=172.16.0.0/12
 
 TURN_REALM=voice.schnick-schnack.info
 TURN_URL=voice.schnick-schnack.info
+TURN_EXTERNAL_IP=217.160.175.231
 LIVEKIT_URL=wss://voice.schnick-schnack.info/livekit
+LIVEKIT_USE_EXTERNAL_IP=true
 
 LOCAL_PASSWORD_AUTH_ENABLED=false
 OIDC_ENABLED=true
@@ -258,6 +260,11 @@ deploymentseitig angepasst werden.
 Wenn coturn im Docker-Bridge-Netzwerk laeuft, muss `TURN_EXTERNAL_IP` auf die oeffentliche IPv4 des
 Hosts gesetzt werden. Sonst kann coturn private Container-Adressen als Relay-Kandidaten
 signalisieren und Browser bleiben bei `could not establish pc connection` haengen.
+
+Wenn LiveKit im Docker-Bridge-Netzwerk fuer oeffentliche Browser laeuft, muss
+`LIVEKIT_USE_EXTERNAL_IP=true` gesetzt bleiben. Sonst annonciert LiveKit private Docker-Kandidaten
+als bevorzugte ICE-Ziele, was vor allem bei Refresh, NAT-Wechseln und TCP-Fallbacks zu
+`could not establish pc connection` fuehren kann.
 
 ## 10. Image-basiertes Zielsystem ohne Source-Build
 
