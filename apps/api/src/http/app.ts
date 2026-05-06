@@ -264,8 +264,13 @@ async function routeRequest(
   }
 
   if (url.pathname === "/api/v1/workspaces") {
-    assertMethod(request, "POST");
     const authenticated = await authenticateRequest(request, options);
+    if (request.method === "GET") {
+      const workspaces = await options.workspaceService.listWorkspacesForUser(authenticated.userId);
+      return jsonResponse({ workspaces }, 200, requestId);
+    }
+
+    assertMethod(request, "POST");
     assertCsrf(request, authenticated, options);
     const result = await options.workspaceService.createWorkspace({
       ...parseCreateWorkspaceRequest(await readJsonObject(request)),

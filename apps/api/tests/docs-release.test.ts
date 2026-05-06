@@ -20,7 +20,6 @@ describe("release documentation gates", () => {
     for (const endpoint of [
       "POST /api/v1/auth/password-reset/request",
       "POST /api/v1/auth/password-reset/confirm",
-      "GET    /api/v1/workspaces",
       "PATCH  /api/v1/workspaces/:workspaceId",
       "DELETE /api/v1/workspaces/:workspaceId",
       "GET    /api/v1/workspaces/:workspaceId/members",

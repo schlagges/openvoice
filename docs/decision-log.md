@@ -192,3 +192,13 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - Dependency decision: `qrcode-generator@1.4.4` was added only to `apps/web`. It is MIT licensed,
   has bundled TypeScript declarations, does not call external services and avoids embedding a
   fixed production-only QR image.
+
+## 2026-05-06: Workspace Navigation Scope
+
+- The web UI now loads `GET /api/v1/workspaces` to show the workspaces visible to the current
+  session. The endpoint is intentionally membership-scoped and does not expose a global server-wide
+  workspace directory, because workspace existence and names can be private.
+- Joining the same voice channel with several real users still depends on those users being members
+  of the same workspace. A dedicated invite or member-management flow remains the correct future
+  product surface; the current UI only makes existing memberships and visible channels easier to
+  select.

@@ -16,6 +16,7 @@ import {
   renderDesktopQrPanel,
   renderOperationsLinks,
   renderQuickStartPanel,
+  renderWorkspaceSwitcher,
 } from "../src/main";
 import { renderAuditLog } from "../src/moderation/audit-log";
 import {
@@ -51,6 +52,17 @@ describe("web foundation", () => {
     expect(html).toContain("Auf dem Handy");
     expect(html).toContain("<svg");
     expect(html).toContain("https://voice.schnick-schnack.info/test");
+  });
+
+  it("renders visible workspaces with active state", () => {
+    const html = renderWorkspaceSwitcher(
+      [{ id: "workspace-1", name: "Team Voice", ownerId: "owner-user-id" }],
+      "workspace-1",
+    );
+
+    expect(html).toContain("Team Voice");
+    expect(html).toContain("is-active");
+    expect(html).toContain("Zeigt nur Workspaces");
   });
 
   it("renders a UI quick start flow without console use", () => {
@@ -110,6 +122,7 @@ describe("web foundation", () => {
     ];
 
     expect(renderChannelTree(channels)).toContain("&lt;general&gt;");
+    expect(renderChannelTree(channels)).toContain('type="button"');
   });
 
   it("renders escaped chat messages", () => {

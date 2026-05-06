@@ -23,11 +23,13 @@ function renderNode(node: ChannelTreeNode): string {
           .join("")}</ol>`
       : "";
 
-  return `<li class="channel-tree__item" data-channel-id="${escapeHtml(node.id)}" data-channel-type="${escapeHtml(
+  return `<li class="channel-tree__item" data-channel-id="${escapeHtml(node.id)}" data-channel-name="${escapeHtml(
+    node.name,
+  )}" data-channel-type="${escapeHtml(
     node.type,
-  )}"><span class="channel-tree__label"><span class="channel-tree__kind">${escapeHtml(
+  )}"><button class="channel-tree__label" type="button"><span class="channel-tree__kind">${escapeHtml(
     typeLabel(node.type),
-  )}</span>${escapeHtml(node.name)}</span>${childList}</li>`;
+  )}</span>${escapeHtml(node.name)}</button>${childList}</li>`;
 }
 
 function typeLabel(type: ChannelTreeNode["type"]): string {

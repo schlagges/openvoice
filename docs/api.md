@@ -70,7 +70,7 @@ clientseitig vertrauenswürdige User-ID.
 
 ```http
 POST   /api/v1/workspaces
-GET    /api/v1/workspaces (nicht in v0.1.0-rc1)
+GET    /api/v1/workspaces
 GET    /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 PATCH  /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 DELETE /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
@@ -78,6 +78,10 @@ GET    /api/v1/workspaces/:workspaceId/members (nicht in v0.1.0-rc1)
 GET    /api/v1/workspaces/:workspaceId/tree
 GET    /api/v1/workspaces/:workspaceId/audit-log
 ```
+
+`GET /workspaces` benötigt Auth und liefert nur Workspaces, in denen der aktuelle User Mitglied
+ist. Es gibt absichtlich keine serverweite Workspace-Auflistung, damit private Workspace-Namen
+nicht an andere eingeloggte User leaken.
 
 `GET /audit-log` benötigt `VIEW_AUDIT_LOG` und liefert die neuesten Einträge mit `limit` 1-100.
 

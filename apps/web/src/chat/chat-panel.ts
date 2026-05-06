@@ -9,13 +9,19 @@ interface ListMessagesResponse {
   readonly messages: readonly Message[];
 }
 
-export function renderChatPanel(messages: readonly Message[]): string {
+interface ChannelSelectionDetail {
+  readonly channelId: string;
+  readonly channelName: string;
+  readonly channelType: string;
+}
+
+export function renderChatPanel(messages: readonly Message[], channelName = "Nachrichten"): string {
   return `
     <section class="chat-panel" aria-label="Chat">
       <header class="chat-panel__header">
         <div>
           <p class="eyebrow">Text Channel</p>
-          <h2>Nachrichten</h2>
+          <h2>${escapeHtml(channelName)}</h2>
         </div>
         <span class="status-pill">${messages.length} Nachrichten</span>
       </header>
@@ -97,6 +103,24 @@ function bindChatComposer(root: HTMLElement): void {
   if (channelId) {
     void loadMessages(root, channelId).catch(() => undefined);
   }
+
+  window.addEventListener("openvoice:channel-selected", (event) => {
+    const detail = (event as CustomEvent<ChannelSelectionDetail>).detail;
+    updateChatTitle(root, detail.channelName);
+    if (detail.channelType === "voice") {
+      setStatus(status, "Voice-Channel ausgewaehlt. Per Doppelklick Voice beitreten.", "success");
+      return;
+    }
+    if (detail.channelType !== "text" && detail.channelType !== "combined") {
+      setStatus(status, "Dieser Channel hat keinen Textverlauf.", "success");
+      return;
+    }
+
+    setStatus(status, "Nachrichten werden geladen.", "loading");
+    void loadMessages(root, detail.channelId)
+      .then(() => setStatus(status, "Channel geladen.", "success"))
+      .catch(() => setStatus(status, "Nachrichten konnten nicht geladen werden.", "error"));
+  });
 }
 
 async function createMessage(channelId: string, content: string): Promise<CreateMessageResponse> {
@@ -142,10 +166,6 @@ function appendMessage(root: HTMLElement, message: Message): void {
 }
 
 function replaceMessages(root: HTMLElement, messages: readonly Message[]): void {
-  if (messages.length === 0) {
-    return;
-  }
-
   const list = ensureMessageList(root);
   list.innerHTML = messages.map(renderMessage).join("");
   list.scrollTop = list.scrollHeight;
@@ -169,6 +189,13 @@ function updateMessageCount(root: HTMLElement, count: number): void {
   const pill = root.querySelector<HTMLElement>(".chat-panel__header .status-pill");
   if (pill) {
     pill.textContent = `${count} Nachrichten`;
+  }
+}
+
+function updateChatTitle(root: HTMLElement, title: string): void {
+  const heading = root.querySelector<HTMLElement>(".chat-panel__header h2");
+  if (heading) {
+    heading.textContent = title;
   }
 }
 

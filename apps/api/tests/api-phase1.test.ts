@@ -154,6 +154,31 @@ describe("Phase 1 API", () => {
     ).toHaveLength(5);
   });
 
+  it("lists only workspaces the authenticated user belongs to", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "owner@example.com");
+    const other = await register(app, "other@example.com");
+
+    await createWorkspace(app, owner, "Owner Workspace");
+    await createWorkspace(app, other, "Other Workspace");
+
+    const response = await app.handler(
+      new Request("http://local.test/api/v1/workspaces", {
+        headers: { cookie: owner.cookie },
+      }),
+    );
+    const body = (await response.json()) as {
+      workspaces: Array<{ name: string; ownerId: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.workspaces).toHaveLength(1);
+    expect(body.workspaces[0]).toMatchObject({
+      name: "Owner Workspace",
+      ownerId: owner.user.id,
+    });
+  });
+
   it("rejects workspace creation without authentication", async () => {
     const app = createTestApp();
     const response = await app.handler(jsonRequest("/api/v1/workspaces", { name: "Nope" }));
@@ -161,6 +186,12 @@ describe("Phase 1 API", () => {
     expect(response.status).toBe(401);
   });
 });
+
+interface TestSession {
+  readonly cookie: string;
+  readonly csrfToken: string;
+  readonly user: PublicUser;
+}
 
 function createTestApp(): TestApp {
   const repository = new InMemoryOpenVoiceRepository();
@@ -209,4 +240,33 @@ function jsonRequest(path: string, body: unknown, headers?: HeadersInit): Reques
     },
     method: "POST",
   });
+}
+
+async function register(app: TestApp, email: string): Promise<TestSession> {
+  const response = await app.handler(
+    jsonRequest("/api/v1/auth/register", {
+      email,
+      password: "very-secure-password",
+    }),
+  );
+  const body = (await response.json()) as { csrfToken: string; user: PublicUser };
+  return {
+    cookie: response.headers.get("set-cookie") ?? "",
+    csrfToken: body.csrfToken,
+    user: body.user,
+  };
+}
+
+async function createWorkspace(app: TestApp, session: TestSession, name: string): Promise<void> {
+  const response = await app.handler(
+    jsonRequest(
+      "/api/v1/workspaces",
+      { name },
+      {
+        cookie: session.cookie,
+        "x-openvoice-csrf-token": session.csrfToken,
+      },
+    ),
+  );
+  expect(response.status).toBe(201);
 }
