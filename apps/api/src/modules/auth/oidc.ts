@@ -144,20 +144,26 @@ export class OidcAuthService {
 
     const discovery = await this.fetchDiscovery();
     const tokenResponse = await this.exchangeCode(input.code, statePayload.codeVerifier, discovery);
-    const token = tokenResponse.access_token ?? tokenResponse.id_token;
-    if (!token) {
-      throw unauthorized("OIDC token response did not include a token.");
+    if (!tokenResponse.id_token) {
+      throw unauthorized("OIDC token response did not include an ID token.");
     }
 
-    const claims = await this.verifyJwt(token, discovery);
-    this.assertRole(claims);
+    const identityClaims = await this.verifyJwt(tokenResponse.id_token, discovery);
+    const roleClaims = tokenResponse.access_token
+      ? await this.verifyJwt(tokenResponse.access_token, discovery)
+      : identityClaims;
+    this.assertRole(roleClaims);
 
     return {
       identity: {
         displayName:
-          claims.name ?? claims.preferred_username ?? claims.email ?? claims.sub ?? "User",
-        email: requireStringClaim(claims.email, "email"),
-        subject: requireStringClaim(claims.sub, "sub"),
+          identityClaims.name ??
+          identityClaims.preferred_username ??
+          identityClaims.email ??
+          identityClaims.sub ??
+          "User",
+        email: requireStringClaim(identityClaims.email, "email"),
+        subject: requireStringClaim(identityClaims.sub, "sub"),
       },
       ...(statePayload.linkUserId ? { linkUserId: statePayload.linkUserId } : {}),
       returnTo: statePayload.returnTo,

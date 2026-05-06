@@ -12,6 +12,7 @@ import type {
   CreateWorkspaceResult,
   Role,
   Workspace,
+  WorkspaceAccessMode,
   WorkspaceMember,
   WorkspaceWithMemberCount,
   User,
@@ -56,11 +57,16 @@ export interface WorkspaceInviteJoinResponse {
   readonly workspace: PublicWorkspace;
 }
 
+export interface GlobalWorkspaceJoinResponse extends WorkspaceInviteJoinResponse {
+  readonly joinedWorkspaces: readonly PublicWorkspace[];
+}
+
 export interface WorkspaceGuestInviteJoinResponse extends WorkspaceInviteJoinResponse {
   readonly user: User;
 }
 
 export interface PublicWorkspace {
+  readonly accessMode: WorkspaceAccessMode;
   readonly id: string;
   readonly memberCount?: number;
   readonly name: string;
@@ -109,6 +115,67 @@ export class WorkspaceService {
   public async listWorkspacesForUser(userId: string): Promise<readonly PublicWorkspace[]> {
     const workspaces = await this.repository.listWorkspacesForUser(userId);
     return workspaces.map(toPublicWorkspaceWithMemberCount);
+  }
+
+  public async joinGlobalWorkspacesForUser(userId: string): Promise<readonly PublicWorkspace[]> {
+    const user = await this.repository.findUserById(userId);
+    if (!user || user.kind !== "registered" || !user.keycloakSubject) {
+      throw forbidden("Keycloak login required for global workspace access.");
+    }
+
+    const globals = await this.repository.listGlobalWorkspaces();
+    const joined: PublicWorkspace[] = [];
+    for (const workspace of globals) {
+      const result = await this.repository.joinGlobalWorkspace({
+        roleKey: "member",
+        userId,
+        workspaceId: workspace.id,
+      });
+      if (result) {
+        joined.push(toPublicWorkspace(result.workspace));
+        await this.eventPublisher?.publish({
+          payload: { workspace: toPublicWorkspace(result.workspace) },
+          type: ServerGatewayEventType.WORKSPACE_UPDATE,
+          workspaceId: result.workspace.id,
+        });
+      }
+    }
+
+    return joined;
+  }
+
+  public async joinGlobalWorkspace(input: {
+    readonly userId: string;
+    readonly workspaceId: string;
+  }): Promise<GlobalWorkspaceJoinResponse> {
+    const user = await this.repository.findUserById(input.userId);
+    if (!user || user.kind !== "registered" || !user.keycloakSubject) {
+      throw forbidden("Keycloak login required for global workspace access.");
+    }
+
+    const result = await this.repository.joinGlobalWorkspace({
+      roleKey: "member",
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+    });
+    if (!result) {
+      throw notFound("Global workspace not found.");
+    }
+
+    const workspace = toPublicWorkspace(result.workspace);
+    await this.eventPublisher?.publish({
+      payload: { workspace },
+      type: ServerGatewayEventType.WORKSPACE_UPDATE,
+      workspaceId: workspace.id,
+    });
+
+    return {
+      alreadyMember: result.alreadyMember,
+      joinedWorkspaces: [workspace],
+      member: toPublicWorkspaceMember(result.member),
+      role: result.role ? toPublicRole(result.role) : null,
+      workspace,
+    };
   }
 
   public async createInvite(input: {
@@ -171,6 +238,12 @@ export class WorkspaceService {
     if (!invite) {
       throw notFound("Invite not found or expired.");
     }
+    const globalWorkspace = (await this.repository.listGlobalWorkspaces()).find(
+      (workspace) => workspace.id === invite.workspaceId,
+    );
+    if (globalWorkspace) {
+      throw forbidden("Global workspaces require Keycloak login.");
+    }
     const activeBan = await this.repository.findActiveWorkspaceBan(
       invite.workspaceId,
       input.userId,
@@ -205,6 +278,12 @@ export class WorkspaceService {
     const invite = await this.repository.findActiveWorkspaceInvite(codeHash, now);
     if (!invite) {
       throw notFound("Invite not found or expired.");
+    }
+    const globalWorkspace = (await this.repository.listGlobalWorkspaces()).find(
+      (workspace) => workspace.id === invite.workspaceId,
+    );
+    if (globalWorkspace) {
+      throw forbidden("Guests cannot join global workspaces.");
     }
 
     const guestId = randomUUID();
@@ -250,6 +329,7 @@ export function toWorkspaceCreationResponse(
 
 export function toPublicWorkspace(workspace: Workspace): PublicWorkspace {
   return {
+    accessMode: workspace.accessMode,
     id: workspace.id,
     name: workspace.name,
     ownerId: workspace.ownerId,

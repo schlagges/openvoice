@@ -12,6 +12,8 @@ import type {
   CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
+  JoinGlobalWorkspaceInput,
+  JoinGlobalWorkspaceResult,
   DisconnectVoiceMemberInput,
   DisconnectVoiceMemberResult,
   KickWorkspaceMemberInput,
@@ -84,6 +86,7 @@ export interface OpenVoiceRepository {
     userId: string,
   ): Promise<WorkspaceAccessContext | null>;
   findWorkspaceMember(workspaceId: string, userId: string): Promise<WorkspaceMember | null>;
+  joinGlobalWorkspace(input: JoinGlobalWorkspaceInput): Promise<JoinGlobalWorkspaceResult | null>;
   kickWorkspaceMember(input: KickWorkspaceMemberInput): Promise<KickWorkspaceMemberResult | null>;
   listChannels(workspaceId: string): Promise<readonly ChannelNodeRecord[]>;
   listAuditLog(input: ListAuditLogInput): Promise<readonly AuditLogEntry[]>;
@@ -92,6 +95,7 @@ export interface OpenVoiceRepository {
   listPermissionOverridesForChannels(
     channelIds: readonly string[],
   ): Promise<readonly PermissionOverrideRecord[]>;
+  listGlobalWorkspaces(): Promise<readonly WorkspaceWithMemberCount[]>;
   findVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
   findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null>;
   listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]>;

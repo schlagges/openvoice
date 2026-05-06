@@ -57,7 +57,15 @@ describe("web foundation", () => {
 
   it("renders visible workspaces with active state", () => {
     const html = renderWorkspaceSwitcher(
-      [{ id: "workspace-1", memberCount: 3, name: "Team Voice", ownerId: "owner-user-id" }],
+      [
+        {
+          accessMode: "global_authenticated",
+          id: "workspace-1",
+          memberCount: 3,
+          name: "Team Voice",
+          ownerId: "owner-user-id",
+        },
+      ],
       "workspace-1",
     );
 
@@ -65,6 +73,8 @@ describe("web foundation", () => {
     expect(html).toContain("is-active");
     expect(html).toContain("Ebene 1: Server und Mitglieder");
     expect(html).toContain("3 Mitglieder");
+    expect(html).toContain("Global");
+    expect(html).toContain("Keycloak-Workspace");
     expect(html).not.toContain("Invite erstellen");
   });
 

@@ -37,6 +37,8 @@ import type {
   ReorderChannelInput,
   RedeemWorkspaceInviteInput,
   RedeemWorkspaceInviteResult,
+  JoinGlobalWorkspaceInput,
+  JoinGlobalWorkspaceResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -178,6 +180,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
   ): Promise<CreateWorkspaceResult> {
     const now = new Date();
     const workspace: Workspace = {
+      accessMode: input.accessMode ?? "private",
       createdAt: now,
       id: randomUUID(),
       name: input.name,
@@ -562,6 +565,97 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         memberCount: this.workspaceMembers.filter((member) => member.workspaceId === workspace.id)
           .length,
       }));
+  }
+
+  public async listGlobalWorkspaces(): Promise<readonly WorkspaceWithMemberCount[]> {
+    return this.workspaces
+      .filter((workspace) => workspace.accessMode === "global_authenticated")
+      .map((workspace) => ({
+        ...workspace,
+        memberCount: this.workspaceMembers.filter((member) => member.workspaceId === workspace.id)
+          .length,
+      }));
+  }
+
+  public async joinGlobalWorkspace(
+    input: JoinGlobalWorkspaceInput,
+  ): Promise<JoinGlobalWorkspaceResult | null> {
+    const workspace = this.workspaces.find(
+      (candidate) =>
+        candidate.id === input.workspaceId && candidate.accessMode === "global_authenticated",
+    );
+    if (!workspace) {
+      return null;
+    }
+
+    const existingMember = this.workspaceMembers.find(
+      (member) => member.workspaceId === workspace.id && member.userId === input.userId,
+    );
+    if (existingMember) {
+      return {
+        auditLogEntries: [],
+        alreadyMember: true,
+        member: existingMember,
+        role: null,
+        workspace,
+      };
+    }
+
+    const now = new Date();
+    const member: WorkspaceMember = {
+      createdAt: now,
+      id: randomUUID(),
+      userId: input.userId,
+      workspaceId: workspace.id,
+    };
+    const role = this.roles.find(
+      (candidate) =>
+        candidate.workspaceId === workspace.id && candidate.key === (input.roleKey ?? "member"),
+    );
+    const auditLogEntries: AuditLogEntry[] = [
+      {
+        actorId: input.userId,
+        createdAt: now,
+        event: "MEMBER_JOIN",
+        id: randomUUID(),
+        ipHash: getAuditIpHash(),
+        metadata: { accessMode: workspace.accessMode },
+        reason: null,
+        targetId: member.id,
+        targetType: "workspace_member",
+        workspaceId: workspace.id,
+      },
+      ...(role
+        ? [
+            {
+              actorId: input.userId,
+              createdAt: now,
+              event: "MEMBER_ROLE_ASSIGN",
+              id: randomUUID(),
+              ipHash: getAuditIpHash(),
+              metadata: { roleKey: role.key },
+              reason: null,
+              targetId: member.id,
+              targetType: "workspace_member",
+              workspaceId: workspace.id,
+            },
+          ]
+        : []),
+    ];
+
+    this.workspaceMembers.push(member);
+    if (role) {
+      this.memberRoles.push({ roleId: role.id, workspaceMemberId: member.id });
+    }
+    this.auditLogEntries.push(...auditLogEntries);
+
+    return {
+      auditLogEntries,
+      alreadyMember: false,
+      member,
+      role: role ?? null,
+      workspace,
+    };
   }
 
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {

@@ -21,6 +21,7 @@ Die verbindliche Datenmodellbeschreibung steht in `docs/lastenheft.md`.
 - `invites`
 - `users.kind`, `users.keycloak_subject`, `users.created_from_invite_id`, `users.linked_at` fuer
   Keycloak- und Gast-Identitaeten
+- `workspaces.access_mode` fuer private und globale Keycloak-Workspaces
 - `audit_log`
 
 ---

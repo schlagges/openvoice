@@ -354,13 +354,14 @@ describe("Phase 1 API", () => {
     const configResponse = await app.handler(new Request("http://local.test/api/v1/auth/config"));
     const configBody = (await configResponse.json()) as {
       localPasswordAuthEnabled: boolean;
-      oidc: { callbackUrl: string; clientId: string; issuerUrl: string };
+      oidc: { accountUrl: string; callbackUrl: string; clientId: string; issuerUrl: string };
     };
 
     expect(configResponse.status).toBe(200);
     expect(configBody).toEqual({
       localPasswordAuthEnabled: false,
       oidc: {
+        accountUrl: "https://auth.schnick-schnack.info/realms/schnick-schnack/account",
         callbackUrl: "https://voice.schnick-schnack.info/api/v1/auth/oidc/callback",
         clientId: "openvoice-web",
         issuerUrl: "https://auth.schnick-schnack.info/realms/schnick-schnack",
@@ -393,15 +394,24 @@ describe("Phase 1 API", () => {
     const keyPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
     const publicJwk = keyPair.publicKey.export({ format: "jwk" }) as JsonWebKey;
     const kid = "test-key";
-    const token = signJwt(
+    const idToken = signJwt(
       {
         aud: "openvoice",
         email: "keycloak@example.com",
         exp: Math.floor(Date.now() / 1000) + 600,
         iss: issuer,
         name: "Keycloak User",
-        resource_access: { openvoice: { roles: ["user"] } },
         sub: "keycloak-subject-1",
+      },
+      keyPair.privateKey,
+      kid,
+    );
+    const accessToken = signJwt(
+      {
+        aud: "openvoice",
+        exp: Math.floor(Date.now() / 1000) + 600,
+        iss: issuer,
+        resource_access: { openvoice: { roles: ["user"] } },
       },
       keyPair.privateKey,
       kid,
@@ -419,7 +429,7 @@ describe("Phase 1 API", () => {
           });
         }
         if (url === `${issuer}/protocol/openid-connect/token`) {
-          return Response.json({ access_token: token });
+          return Response.json({ access_token: accessToken, id_token: idToken });
         }
         if (url === `${issuer}/protocol/openid-connect/certs`) {
           return Response.json({ keys: [{ ...publicJwk, kid }] });
@@ -432,6 +442,17 @@ describe("Phase 1 API", () => {
       email: "keycloak@example.com",
       emailNormalized: "keycloak@example.com",
       passwordHash: "legacy-disabled",
+    });
+    const globalOwner = await app.repository.createUser({
+      displayName: "Global Owner",
+      email: "global-owner@example.com",
+      emailNormalized: "global-owner@example.com",
+      passwordHash: "legacy-disabled",
+    });
+    const globalWorkspace = await app.repository.createWorkspaceWithDefaults({
+      accessMode: "global_authenticated",
+      name: "Global",
+      ownerId: globalOwner.id,
     });
 
     const login = await app.handler(
@@ -462,6 +483,88 @@ describe("Phase 1 API", () => {
       displayName: "Invited User",
       keycloakSubject: "keycloak-subject-1",
       kind: "registered",
+    });
+    expect(user?.id).toBeTruthy();
+    await expect(
+      app.repository.findWorkspaceMember(globalWorkspace.workspace.id, user?.id ?? ""),
+    ).resolves.toMatchObject({
+      userId: user?.id,
+      workspaceId: globalWorkspace.workspace.id,
+    });
+  });
+
+  it("blocks guests from joining global Keycloak workspaces by invite", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "global-invite-owner@example.com");
+    const globalWorkspace = await app.repository.createWorkspaceWithDefaults({
+      accessMode: "global_authenticated",
+      name: "Global Voice",
+      ownerId: owner.user.id,
+    });
+    const inviteResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${globalWorkspace.workspace.id}/invites`,
+        {},
+        {
+          cookie: owner.cookie,
+          "x-openvoice-csrf-token": owner.csrfToken,
+        },
+      ),
+    );
+    const inviteBody = (await inviteResponse.json()) as { code: string };
+    expect(inviteResponse.status).toBe(201);
+
+    const guestJoin = await app.handler(
+      jsonRequest(`/api/v1/invites/${inviteBody.code}/guest-join`, {
+        displayName: "Guest Global",
+      }),
+    );
+
+    expect(guestJoin.status).toBe(403);
+    expect(app.repository.users.some((candidate) => candidate.displayName === "Guest Global")).toBe(
+      false,
+    );
+  });
+
+  it("lets linked Keycloak users join global workspaces explicitly", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "global-owner@example.com");
+    const member = await register(app, "global-member@example.com");
+    await app.repository.linkUserToKeycloakSubject(
+      member.user.id,
+      "global-member-subject",
+      new Date(),
+    );
+    const globalWorkspace = await app.repository.createWorkspaceWithDefaults({
+      accessMode: "global_authenticated",
+      name: "Global Join",
+      ownerId: owner.user.id,
+    });
+
+    const joinResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${globalWorkspace.workspace.id}/join-global`,
+        {},
+        {
+          cookie: member.cookie,
+          "x-openvoice-csrf-token": member.csrfToken,
+        },
+      ),
+    );
+    const joinBody = (await joinResponse.json()) as {
+      workspace: { accessMode: string; id: string };
+    };
+
+    expect(joinResponse.status).toBe(200);
+    expect(joinBody.workspace).toMatchObject({
+      accessMode: "global_authenticated",
+      id: globalWorkspace.workspace.id,
+    });
+    await expect(
+      app.repository.findWorkspaceMember(globalWorkspace.workspace.id, member.user.id),
+    ).resolves.toMatchObject({
+      userId: member.user.id,
+      workspaceId: globalWorkspace.workspace.id,
     });
   });
 

@@ -38,12 +38,15 @@ export interface Session {
 }
 
 export interface Workspace {
+  readonly accessMode: WorkspaceAccessMode;
   readonly createdAt: Date;
   readonly id: string;
   readonly name: string;
   readonly ownerId: string;
   readonly updatedAt: Date;
 }
+
+export type WorkspaceAccessMode = "global_authenticated" | "private";
 
 export interface WorkspaceWithMemberCount extends Workspace {
   readonly memberCount: number;
@@ -203,6 +206,7 @@ export interface CreateSessionInput {
 }
 
 export interface CreateWorkspaceInput {
+  readonly accessMode?: WorkspaceAccessMode;
   readonly name: string;
   readonly ownerId: string;
 }
@@ -235,6 +239,20 @@ export interface RedeemWorkspaceInviteInput {
 }
 
 export interface RedeemWorkspaceInviteResult {
+  readonly auditLogEntries: readonly AuditLogEntry[];
+  readonly alreadyMember: boolean;
+  readonly member: WorkspaceMember;
+  readonly role: Role | null;
+  readonly workspace: Workspace;
+}
+
+export interface JoinGlobalWorkspaceInput {
+  readonly roleKey?: DefaultRoleKey;
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
+export interface JoinGlobalWorkspaceResult {
   readonly auditLogEntries: readonly AuditLogEntry[];
   readonly alreadyMember: boolean;
   readonly member: WorkspaceMember;

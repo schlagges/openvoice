@@ -86,6 +86,7 @@ clientseitig vertrauenswürdige User-ID.
 ```http
 POST   /api/v1/workspaces
 GET    /api/v1/workspaces
+POST   /api/v1/workspaces/:workspaceId/join-global
 GET    /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 PATCH  /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 DELETE /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
@@ -101,6 +102,10 @@ POST   /api/v1/invites/:code/guest-join
 ist. Jeder Workspace enthält `memberCount` für die sichtbare Workspace-Liste. Es gibt absichtlich
 keine serverweite Workspace-Auflistung, damit private Workspace-Namen nicht an andere eingeloggte
 User leaken.
+Workspaces enthalten `accessMode` mit `private` oder `global_authenticated`.
+`POST /workspaces/:workspaceId/join-global` benötigt einen registrierten, mit Keycloak verknüpften
+User und weist die Default-Rolle `member` zu. Gäste dürfen globale Workspaces weder per Invite noch
+per Join-Endpoint betreten.
 `POST /workspaces` lehnt neue Workspaces ab, wenn der normalisierte Name bereits existiert.
 
 `GET /audit-log` benötigt `VIEW_AUDIT_LOG` und liefert die neuesten Einträge mit `limit` 1-100.

@@ -236,6 +236,10 @@ async function routeRequest(
       {
         localPasswordAuthEnabled: options.config.localPasswordAuthEnabled ?? true,
         oidc: {
+          accountUrl: `${
+            options.config.oidcIssuerUrl ??
+            "https://auth.schnick-schnack.info/realms/schnick-schnack"
+          }/account`,
           callbackUrl:
             options.config.oidcCallbackUrl ??
             "https://voice.schnick-schnack.info/api/v1/auth/oidc/callback",
@@ -287,6 +291,7 @@ async function routeRequest(
       result.identity,
       result.linkUserId,
     );
+    await options.workspaceService.joinGlobalWorkspacesForUser(session.user.id);
     const headers = new Headers({
       location: result.returnTo,
       "x-request-id": requestId,
@@ -310,6 +315,13 @@ async function routeRequest(
     headers.append(
       "set-cookie",
       createClientReadableCookie("openvoice_display", session.user.displayName, {
+        maxAgeSeconds: options.config.sessionTtlSeconds,
+        secure: options.config.sessionCookieSecure,
+      }),
+    );
+    headers.append(
+      "set-cookie",
+      createClientReadableCookie("openvoice_auth", "keycloak", {
         maxAgeSeconds: options.config.sessionTtlSeconds,
         secure: options.config.sessionCookieSecure,
       }),
@@ -345,6 +357,13 @@ async function routeRequest(
     headers.append(
       "set-cookie",
       createClientReadableCookie("openvoice_display", "", {
+        maxAgeSeconds: 0,
+        secure: options.config.sessionCookieSecure,
+      }),
+    );
+    headers.append(
+      "set-cookie",
+      createClientReadableCookie("openvoice_auth", "", {
         maxAgeSeconds: 0,
         secure: options.config.sessionCookieSecure,
       }),
@@ -389,6 +408,19 @@ async function routeRequest(
     });
 
     return jsonResponse({ accepted: true }, 202, requestId);
+  }
+
+  const globalJoinMatch = matchPath(url.pathname, /^\/api\/v1\/workspaces\/([^/]+)\/join-global$/);
+  if (globalJoinMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = requirePathPart(globalJoinMatch, 0);
+    const result = await options.workspaceService.joinGlobalWorkspace({
+      userId: authenticated.userId,
+      workspaceId,
+    });
+    return jsonResponse(result, 200, requestId);
   }
 
   if (url.pathname === "/api/v1/workspaces") {

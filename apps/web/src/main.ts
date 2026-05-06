@@ -152,6 +152,7 @@ export function renderDesktopQrPanel(url: string = currentPageUrl()): string {
 }
 
 interface PublicWorkspace {
+  readonly accessMode: "global_authenticated" | "private";
   readonly id: string;
   readonly memberCount?: number;
   readonly name: string;
@@ -214,6 +215,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
         ${renderOnboardingDialog()}
         ${renderInviteDialog()}
         <footer class="sidebar-footer">
+          <a id="account-console-link" class="ghost-button sidebar-account-link" href="#" target="_blank" rel="noreferrer" hidden>Konto verwalten</a>
           ${renderOperationsLinks()}
           <button id="logout-button" class="ghost-button sidebar-logout" type="button">Abmelden</button>
           <p id="logout-status" class="workspace-switcher__status" role="status"></p>
@@ -297,7 +299,7 @@ function bindOnboarding(root: HTMLElement): void {
     setButtonLoading(submit, true);
     void createWorkspaceFlow(input)
       .then((result) => {
-        persistSession(input.displayName, { csrfToken: result.csrfToken });
+        persistSession(input.displayName, { authMode: "local", csrfToken: result.csrfToken });
         selectChannel(root, toTreeNode(result.channel, result.workspace.id));
         void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
         setFormStatus(status, "Workspace erstellt.", "success");
@@ -324,7 +326,7 @@ function bindOnboarding(root: HTMLElement): void {
     setButtonLoading(submit, true);
     void joinWorkspaceFlow(input)
       .then((result) => {
-        persistSession(input.displayName, { accessToken: result.accessToken });
+        persistSession(input.displayName, { accessToken: result.accessToken, authMode: "guest" });
         setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
         void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
         updateCurrentUserLabel(root);
@@ -509,6 +511,7 @@ function bindLogout(root: HTMLElement): void {
       .then(() => {
         localStorage.removeItem("openvoice.csrfToken");
         localStorage.removeItem("openvoice.accessToken");
+        localStorage.removeItem("openvoice.authMode");
         localStorage.removeItem("openvoice.displayName");
         updateCurrentUserLabel(root);
         renderWorkspaceList(root, [], "");
@@ -867,8 +870,8 @@ function renderWorkspaceListItems(
           <button class="workspace-switcher__item${
             workspace.id === activeWorkspaceId ? " is-active" : ""
           }" type="button" data-workspace-id="${escapeAttribute(workspace.id)}">
-            <span>${escapeHtml(workspace.name)}</span>
-            <small>${escapeHtml(formatWorkspaceMembers(workspace))} · Owner ${escapeHtml(workspace.ownerId.slice(0, 8))}</small>
+            <span>${escapeHtml(workspace.name)}${workspace.accessMode === "global_authenticated" ? ' <small class="workspace-switcher__badge">Global</small>' : ""}</span>
+            <small>${escapeHtml(formatWorkspaceMembers(workspace))} · ${workspace.accessMode === "global_authenticated" ? "Keycloak-Workspace" : `Owner ${escapeHtml(workspace.ownerId.slice(0, 8))}`}</small>
           </button>
         </li>
       `,
@@ -1134,7 +1137,11 @@ function closeDialog(dialog: HTMLDialogElement | null): void {
 
 function persistSession(
   displayName: string,
-  tokens: { readonly accessToken?: string; readonly csrfToken?: string },
+  tokens: {
+    readonly accessToken?: string;
+    readonly authMode?: "guest" | "keycloak" | "local";
+    readonly csrfToken?: string;
+  },
 ): void {
   if (tokens.csrfToken) {
     localStorage.setItem("openvoice.csrfToken", tokens.csrfToken);
@@ -1145,11 +1152,15 @@ function persistSession(
     localStorage.removeItem("openvoice.csrfToken");
   }
   localStorage.setItem("openvoice.displayName", displayName);
+  if (tokens.authMode) {
+    localStorage.setItem("openvoice.authMode", tokens.authMode);
+  }
 }
 
 interface AuthConfig {
   readonly localPasswordAuthEnabled: boolean;
   readonly oidc?: {
+    readonly accountUrl?: string;
     readonly enabled?: boolean;
   };
 }
@@ -1164,10 +1175,14 @@ async function loadAuthConfig(): Promise<AuthConfig> {
 
 function hydrateSessionFromCookies(): void {
   const csrf = readCookie("openvoice_csrf");
+  const authMode = readCookie("openvoice_auth");
   const display = readCookie("openvoice_display");
   if (csrf) {
     localStorage.setItem("openvoice.csrfToken", csrf);
     localStorage.removeItem("openvoice.accessToken");
+  }
+  if (authMode) {
+    localStorage.setItem("openvoice.authMode", authMode);
   }
   if (display) {
     localStorage.setItem("openvoice.displayName", display);
@@ -1177,13 +1192,27 @@ function hydrateSessionFromCookies(): void {
 function updateCurrentUserLabel(root: HTMLElement): void {
   const label = root.querySelector<HTMLElement>("#current-user-label");
   const logout = root.querySelector<HTMLButtonElement>("#logout-button");
+  const accountLink = root.querySelector<HTMLAnchorElement>("#account-console-link");
   const csrfToken = localStorage.getItem("openvoice.csrfToken");
   const accessToken = localStorage.getItem("openvoice.accessToken");
+  const authMode = localStorage.getItem("openvoice.authMode");
   const displayName = localStorage.getItem("openvoice.displayName");
   const authenticated = Boolean((csrfToken || accessToken) && displayName);
 
   if (label) {
-    label.textContent = authenticated ? displayName : "Nicht angemeldet";
+    label.textContent = authenticated
+      ? `${displayName} · ${formatAuthMode(authMode, Boolean(accessToken))}`
+      : "Nicht angemeldet";
+  }
+
+  if (accountLink) {
+    const isKeycloak = authenticated && authMode === "keycloak";
+    accountLink.hidden = !isKeycloak;
+    if (isKeycloak) {
+      void loadAuthConfig().then((config) => {
+        accountLink.href = config.oidc?.accountUrl ?? "#";
+      });
+    }
   }
 
   if (logout) {
@@ -1254,6 +1283,16 @@ function hasStoredSession(): boolean {
   return Boolean(
     localStorage.getItem("openvoice.csrfToken") || localStorage.getItem("openvoice.accessToken"),
   );
+}
+
+function formatAuthMode(authMode: string | null, bearerSession: boolean): string {
+  if (authMode === "keycloak") {
+    return "Keycloak";
+  }
+  if (authMode === "guest" || bearerSession) {
+    return "Gast";
+  }
+  return "Lokal";
 }
 
 function readCookie(name: string): string | null {

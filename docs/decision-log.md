@@ -44,6 +44,16 @@ See `docs/auth-keycloak-guest-plan.md` for the migration plan.
   existing linked subject, an existing legacy email, or an authenticated invite guest that started
   the link flow.
 
+## 2026-05-06: Global Keycloak Workspaces
+
+- Workspace visibility remains membership-based by default. Private workspaces stay invite-only and
+  are not exposed through a server-wide directory.
+- Global workspaces use `access_mode = global_authenticated`. Only registered OpenVoice users with
+  a linked Keycloak subject may join them. Guests are explicitly blocked from joining global
+  workspaces, even if they receive an invite code.
+- After a successful Keycloak callback, OpenVoice attempts to add the user to all configured global
+  workspaces with the default `member` role. OpenVoice roles and permissions remain authoritative.
+
 ## 2026-05-04: Phase 0 Tooling
 
 - Package manager: `pnpm`, because the project requires a TypeScript-oriented monorepo with workspace support and deterministic installs.
