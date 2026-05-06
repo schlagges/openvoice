@@ -113,7 +113,35 @@ describe("web foundation", () => {
     expect(html).toContain("3 Mitglieder");
     expect(html).toContain("Global");
     expect(html).toContain("Keycloak");
+    expect(html).toContain("workspace-switcher__item--global");
+    expect(html).not.toContain("data-open-onboarding");
+    expect(html).not.toContain("workspace-refresh");
     expect(html).not.toContain("Invite erstellen");
+  });
+
+  it("renders global workspaces before private workspaces", () => {
+    const html = renderWorkspaceSwitcher(
+      [
+        {
+          accessMode: "private",
+          id: "private-workspace",
+          memberCount: 1,
+          name: "18 Löcher2",
+          ownerId: "owner-user-id",
+        },
+        {
+          accessMode: "global_authenticated",
+          id: "global-workspace",
+          memberCount: 2,
+          name: "Public Voice",
+          ownerId: "owner-user-id",
+        },
+      ],
+      "global-workspace",
+    );
+
+    expect(html.indexOf("Public Voice")).toBeLessThan(html.indexOf("18 Löcher2"));
+    expect(html).toContain("workspace-switcher__item--private");
   });
 
   it("renders the empty workspace start card as the primary entry point", () => {

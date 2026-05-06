@@ -31,6 +31,11 @@ test("two browser contexts can join one workspace and sync chat messages", async
 
   await member.goto(inviteLink);
 
+  await expect(member.locator("#onboarding-dialog")).toBeVisible();
+  await member
+    .locator("#workspace-join-form")
+    .getByRole("button", { name: "Workspace beitreten" })
+    .click();
   await expect(member.locator("#onboarding-dialog")).not.toBeVisible();
   await expect(member.getByRole("button", { name: new RegExp(workspaceName) })).toBeVisible();
   await expect(member.getByRole("button", { name: new RegExp(channelName) })).toBeVisible();

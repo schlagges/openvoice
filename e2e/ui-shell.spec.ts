@@ -25,39 +25,59 @@ test("workspace shell renders dark and light mode with screenshots", async ({ pa
   );
   await attachScreenshot(page, testInfo, "openvoice-light-shell");
 
-  await page.getByRole("button", { name: "Neu" }).click();
-  await expect(page.locator("#onboarding-dialog")).toBeVisible();
-  await attachScreenshot(page, testInfo, "openvoice-light-onboarding");
+  const footerQr = page.locator(".sidebar-footer .desktop-qr");
+  await expect(footerQr).toBeAttached();
+  if ((page.viewportSize()?.width ?? 0) >= 900) {
+    await expect(footerQr).toBeVisible();
+  }
+  await expect(page.locator(".workspace-topbar .desktop-qr")).toHaveCount(0);
+  await expect(page.getByRole("button", { name: /Logout|Abmelden/ })).toBeVisible();
+
+  await page.locator('button[data-layout-mode="compact"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-layout-mode", "compact");
+  await expect(page.locator('button[data-layout-mode="compact"]')).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
+
+  await page.locator('button[data-layout-mode="meeting"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-layout-mode", "meeting");
+
+  await page.locator('button[data-stage-mode="focus"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-stage-mode", "focus");
+  await page.locator('button[data-stage-mode="grid"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-stage-mode", "grid");
+
+  await page.locator('[data-ui-preference="chatVisibility"][data-ui-choice="hidden"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-chat-visibility", "hidden");
+  await page.locator('[data-ui-preference="chatVisibility"][data-ui-choice="docked"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-chat-visibility", "docked");
+
+  await page.locator('[data-ui-preference="channelVisibility"][data-ui-choice="overlay"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-channel-visibility", "overlay");
+  await page.locator('[data-ui-preference="channelVisibility"][data-ui-choice="docked"]').click();
+  await expect(page.locator(".app-shell")).toHaveAttribute("data-channel-visibility", "docked");
+
+  await page.getByRole("button", { name: "Einladen" }).click();
+  await expect(page.locator("#invite-dialog")).toBeVisible();
+  await attachScreenshot(page, testInfo, "openvoice-light-invite");
 });
 
-test("workspace create retry logs into the already registered local test user", async ({
+test("workspace navigation keeps creation controls out of the workspace header", async ({
   page,
 }) => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const workspaceName = `Retry Workspace ${suffix}`;
+  const workspaceName = `Navigation Workspace ${suffix}`;
+  const channelName = `navigation-general-${suffix}`;
 
   await page.goto(`/?e2e=${suffix}`);
-  await createWorkspace(page, workspaceName, `retry-general-${suffix}`);
+  await createWorkspace(page, workspaceName, channelName);
 
-  await page.getByRole("button", { name: "Neu" }).click();
-  await page.locator("#create-workspace").fill(workspaceName);
-  await page.locator("#create-channel").fill(`retry-duplicate-${suffix}`);
-  await page
-    .locator("#onboarding-dialog")
-    .getByRole("button", { name: "Workspace erstellen" })
-    .click();
-  await expect(page.locator("#workspace-create-status")).toContainText(
-    "Workspace name is already in use",
-  );
-
-  const retriedWorkspaceName = `${workspaceName} 2`;
-  await page.locator("#create-workspace").fill(retriedWorkspaceName);
-  await page
-    .locator("#onboarding-dialog")
-    .getByRole("button", { name: "Workspace erstellen" })
-    .click();
-  await expect(page.locator("#onboarding-dialog")).not.toBeVisible();
-  await expect(page.getByRole("button", { name: new RegExp(retriedWorkspaceName) })).toBeVisible();
+  await expect(page.locator(".workspace-switcher__header [data-open-onboarding]")).toHaveCount(0);
+  await expect(page.locator(".workspace-switcher__header #workspace-refresh")).toHaveCount(0);
+  await expect(page.locator(".sidebar-footer #invite-dialog-open")).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(workspaceName) })).toBeVisible();
+  await expect(page.getByRole("button", { name: new RegExp(channelName) })).toBeVisible();
 });
 
 test("mobile shell renders current controls without stale cache", async ({ page }, testInfo) => {

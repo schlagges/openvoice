@@ -334,7 +334,8 @@
 
       .primary-action,
       .ghost-button,
-      .icon-button {
+      .icon-button,
+      .danger-button {
         border-radius: var(--radius-sm);
         min-height: 30px;
         padding: 0 9px;
@@ -376,12 +377,26 @@
         font-weight: 700;
       }
 
+      .danger-button {
+        background: linear-gradient(135deg, #ef4444, #b91c1c);
+        border: 1px solid rgb(239 68 68 / 70%);
+        color: #ffffff;
+        font-size: 0.72rem;
+        font-weight: 900;
+      }
+
       .primary-action:hover:not(:disabled),
       .ghost-button:hover:not(:disabled),
-      .icon-button:hover:not(:disabled) {
+      .icon-button:hover:not(:disabled),
+      .danger-button:hover:not(:disabled) {
         border-color: rgb(79 140 255 / 52%);
         box-shadow: 0 0 0 1px rgb(79 140 255 / 12%);
         transform: translateY(-1px);
+      }
+
+      .danger-button:hover:not(:disabled) {
+        border-color: rgb(248 113 113 / 75%);
+        box-shadow: 0 0 0 1px rgb(248 113 113 / 16%);
       }
 
       .ghost-button:disabled {
@@ -450,6 +465,21 @@
         background: linear-gradient(90deg, rgb(91 140 255 / 18%), rgb(91 140 255 / 7%));
         border-color: rgb(91 140 255 / 45%);
         box-shadow: inset 3px 0 0 var(--accent);
+      }
+
+      .workspace-switcher__item--global {
+        background: linear-gradient(90deg, rgb(47 184 122 / 12%), rgb(47 184 122 / 5%));
+        border-color: rgb(47 184 122 / 18%);
+      }
+
+      .workspace-switcher__item--global .workspace-switcher__avatar {
+        background: rgb(47 184 122 / 18%);
+        border-color: rgb(47 184 122 / 24%);
+        color: #b7f7d8;
+      }
+
+      .workspace-switcher__item--private {
+        background: rgb(255 255 255 / 2%);
       }
 
       .workspace-switcher__avatar {
@@ -636,8 +666,26 @@
         margin-top: auto;
       }
 
-      .sidebar-logout {
-        width: 100%;
+      .topbar-logout {
+        min-height: 38px;
+        min-width: 96px;
+        padding-inline: 16px;
+      }
+
+      .topbar-logout:disabled {
+        background: var(--surface-2);
+        border-color: var(--border);
+        color: var(--text-muted);
+        opacity: 0.55;
+      }
+
+      .sidebar-share {
+        align-items: center;
+        border-top: 1px solid var(--border);
+        display: flex;
+        gap: 8px;
+        justify-content: space-between;
+        padding-top: 10px;
       }
 
       .ops-links {
@@ -912,6 +960,7 @@
         align-items: center;
         display: flex;
         gap: 5px;
+        margin-left: auto;
       }
 
       .desktop-qr__code {

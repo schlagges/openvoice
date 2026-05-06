@@ -256,11 +256,6 @@ export function renderWorkspaceSwitcher(
           <h2>Workspaces</h2>
           <p>Server, Mitglieder und Einladungen.</p>
         </div>
-        <div class="section-header__actions">
-          <button class="ghost-button compact" type="button" data-open-onboarding="create" aria-label="Neu" title="Workspace erstellen">+</button>
-          <button class="ghost-button compact" type="button" data-open-onboarding="join">Beitreten</button>
-          <button id="workspace-refresh" class="ghost-button compact" type="button" aria-label="Workspaces aktualisieren" title="Workspaces aktualisieren">↻</button>
-        </div>
       </header>
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
       <p id="workspace-status" class="workspace-switcher__status" role="status"></p>
@@ -295,7 +290,6 @@ export function mountWebApp(app: HTMLDivElement | null): void {
               <h2>Channels</h2>
               <p>Chat, Voice und Screen-Räume.</p>
             </div>
-            <button id="invite-dialog-open" class="ghost-button compact" type="button">Einladen</button>
           </header>
           <nav id="channel-tree" class="channel-tree" aria-label="Channel Tree"></nav>
           <section id="sidebar-participants" class="sidebar-participants" aria-label="Teilnehmer"></section>
@@ -303,9 +297,12 @@ export function mountWebApp(app: HTMLDivElement | null): void {
         ${renderOnboardingDialog()}
         ${renderInviteDialog()}
         <footer class="sidebar-footer">
+          <div class="sidebar-share">
+            <button id="invite-dialog-open" class="ghost-button compact" type="button">Einladen</button>
+            ${renderDesktopQrPanel()}
+          </div>
           <a id="account-console-link" class="ghost-button sidebar-account-link" href="#" target="_blank" rel="noreferrer" hidden>Konto verwalten</a>
           ${renderOperationsLinks()}
-          <button id="logout-button" class="ghost-button sidebar-logout" type="button">Abmelden</button>
           <p id="logout-status" class="workspace-switcher__status" role="status"></p>
         </footer>
       </aside>
@@ -324,7 +321,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
           </div>
           <div class="topbar-actions">
             <span id="topbar-participant-count" class="topbar-participant-count" title="Teilnehmer im aktiven Channel">0</span>
-            ${renderDesktopQrPanel()}
+            <button id="logout-button" class="danger-button topbar-logout" type="button">Logout</button>
           </div>
         </header>
       </section>
@@ -645,7 +642,7 @@ function bindModeControls(root: HTMLElement): void {
 
   root.addEventListener("click", (event) => {
     const layoutButton = (event.target as Element | null)?.closest<HTMLButtonElement>(
-      "[data-layout-mode]",
+      "button[data-layout-mode]",
     );
     if (layoutButton?.dataset.layoutMode) {
       preferences = {
@@ -661,7 +658,7 @@ function bindModeControls(root: HTMLElement): void {
     }
 
     const stageButton = (event.target as Element | null)?.closest<HTMLButtonElement>(
-      "[data-stage-mode]",
+      "button[data-stage-mode]",
     );
     if (stageButton?.dataset.stageMode) {
       preferences = { ...preferences, stageMode: toStageMode(stageButton.dataset.stageMode) };
@@ -673,7 +670,7 @@ function bindModeControls(root: HTMLElement): void {
     }
 
     const choiceButton = (event.target as Element | null)?.closest<HTMLButtonElement>(
-      "[data-ui-choice]",
+      "button[data-ui-choice]",
     );
     if (choiceButton?.dataset.uiChoice) {
       preferences = updateUiPreference(
@@ -755,17 +752,17 @@ function applyUiPreferences(root: HTMLElement, preferences: UiPreferences): void
 }
 
 function syncModeControls(root: HTMLElement, preferences: UiPreferences): void {
-  root.querySelectorAll<HTMLButtonElement>("[data-layout-mode]").forEach((button) => {
+  root.querySelectorAll<HTMLButtonElement>("button[data-layout-mode]").forEach((button) => {
     const active = button.dataset.layoutMode === preferences.layoutMode;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-stage-mode]").forEach((button) => {
+  root.querySelectorAll<HTMLButtonElement>("button[data-stage-mode]").forEach((button) => {
     const active = button.dataset.stageMode === preferences.stageMode;
     button.classList.toggle("is-active", active);
     button.setAttribute("aria-pressed", String(active));
   });
-  root.querySelectorAll<HTMLButtonElement>("[data-ui-choice]").forEach((button) => {
+  root.querySelectorAll<HTMLButtonElement>("button[data-ui-choice]").forEach((button) => {
     const key = button.dataset.uiPreference;
     const expected =
       key === "channelVisibility" ? preferences.channelVisibility : preferences.chatVisibility;
@@ -1256,11 +1253,13 @@ function renderWorkspaceListItems(
     `;
   }
 
-  return `<ol class="workspace-switcher__list">${workspaces
+  const sortedWorkspaces = [...workspaces].sort(compareWorkspacesForNavigation);
+
+  return `<ol class="workspace-switcher__list">${sortedWorkspaces
     .map(
       (workspace) => `
         <li>
-          <button class="workspace-switcher__item${
+          <button class="workspace-switcher__item workspace-switcher__item--${workspace.accessMode === "global_authenticated" ? "global" : "private"}${
             workspace.id === activeWorkspaceId ? " is-active" : ""
           }" type="button" data-workspace-id="${escapeAttribute(workspace.id)}">
             <span class="workspace-switcher__avatar" aria-hidden="true">${escapeHtml(initials(workspace.name))}</span>
@@ -1273,6 +1272,12 @@ function renderWorkspaceListItems(
       `,
     )
     .join("")}</ol>`;
+}
+
+function compareWorkspacesForNavigation(left: PublicWorkspace, right: PublicWorkspace): number {
+  const leftRank = left.accessMode === "global_authenticated" ? 0 : 1;
+  const rightRank = right.accessMode === "global_authenticated" ? 0 : 1;
+  return leftRank - rightRank || left.name.localeCompare(right.name);
 }
 
 function renderWorkspaceEmptyState(root: HTMLElement): void {
