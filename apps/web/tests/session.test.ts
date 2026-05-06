@@ -7,6 +7,46 @@ import {
   readSessionDisplayName,
 } from "../src/session";
 
+function createStorage(): Storage {
+  const values = new Map<string, string>();
+
+  return {
+    get length() {
+      return values.size;
+    },
+    clear: () => values.clear(),
+    getItem: (key: string) => values.get(key) ?? null,
+    key: (index: number) => Array.from(values.keys())[index] ?? null,
+    removeItem: (key: string) => {
+      values.delete(key);
+    },
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    },
+  };
+}
+
+const localStorageMock = createStorage();
+const sessionStorageMock = createStorage();
+
+Object.defineProperty(globalThis, "localStorage", {
+  configurable: true,
+  value: localStorageMock,
+});
+
+Object.defineProperty(globalThis, "sessionStorage", {
+  configurable: true,
+  value: sessionStorageMock,
+});
+
+Object.defineProperty(globalThis, "window", {
+  configurable: true,
+  value: {
+    localStorage: localStorageMock,
+    sessionStorage: sessionStorageMock,
+  },
+});
+
 describe("web session storage", () => {
   afterEach(() => {
     clearSessionState();
