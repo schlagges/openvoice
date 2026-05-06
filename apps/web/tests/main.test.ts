@@ -633,6 +633,9 @@ describe("web foundation", () => {
       channelId: "channel",
       connection: { selectedCandidateType: "relay" },
     });
+    expect(formatConnectionStats(sample)).toContain("ICE connected");
+    expect(formatConnectionStats(sample)).toContain("relay/udp");
+    expect(formatConnectionStats(sample)).toContain("RTT 30 ms");
   });
 
   it("formats actionable voice request errors", async () => {
