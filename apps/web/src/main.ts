@@ -116,6 +116,10 @@ export function renderInviteDialog(): string {
           <span>Invite-Code</span>
           <input id="invite-code" name="code" autocomplete="off" readonly />
         </label>
+        <label>
+          <span>Invite-Link</span>
+          <input id="invite-link" name="link" autocomplete="off" readonly />
+        </label>
         <button id="invite-create" class="primary-action" type="button">Invite-Code erstellen</button>
         <p id="invite-status" class="form-status" role="status"></p>
       </div>
@@ -259,6 +263,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
     mountChatPanel(chatColumn, []);
   }
 
+  processInviteDeepLink(app);
   updateCurrentUserLabel(app);
 }
 
@@ -366,13 +371,18 @@ function bindInviteDialog(root: HTMLElement): void {
     setButtonLoading(create, true);
     void createInvite(workspaceId)
       .then((invite) => {
-        const input = root.querySelector<HTMLInputElement>("#invite-code");
-        if (input) {
-          input.value = invite.code;
-          input.select();
-          void navigator.clipboard?.writeText(invite.code).catch(() => undefined);
+        const codeInput = root.querySelector<HTMLInputElement>("#invite-code");
+        const linkInput = root.querySelector<HTMLInputElement>("#invite-link");
+        const inviteLink = createInviteLink(invite.code);
+        if (codeInput) {
+          codeInput.value = invite.code;
         }
-        setFormStatus(status, `Invite-Code erstellt. Gültig bis ${invite.expiresAt}.`, "success");
+        if (linkInput) {
+          linkInput.value = inviteLink;
+          linkInput.select();
+          void navigator.clipboard?.writeText(inviteLink).catch(() => undefined);
+        }
+        setFormStatus(status, `Invite-Link erstellt. Gültig bis ${invite.expiresAt}.`, "success");
       })
       .catch((error: unknown) =>
         setFormStatus(
@@ -385,6 +395,41 @@ function bindInviteDialog(root: HTMLElement): void {
       )
       .finally(() => setButtonLoading(create, false));
   });
+}
+
+function processInviteDeepLink(root: HTMLElement): void {
+  const code = readInviteCodeFromLocation();
+  if (!code) {
+    return;
+  }
+
+  const dialog = root.querySelector<HTMLDialogElement>("#onboarding-dialog");
+  const codeInput = root.querySelector<HTMLInputElement>("#join-invite-code");
+  const status = root.querySelector<HTMLElement>("#workspace-join-status");
+  if (codeInput) {
+    codeInput.value = code;
+  }
+  setOnboardingTab(root, "join");
+  setFormStatus(status, "Invite-Link wird geoeffnet.", "loading");
+
+  const input = readJoinWorkspaceForm(root);
+  void joinWorkspaceFlow(input)
+    .then((result) => {
+      persistSession(input.displayName, { accessToken: result.accessToken, authMode: "guest" });
+      setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
+      void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
+      updateCurrentUserLabel(root);
+      clearInviteCodeFromLocation();
+      closeDialog(dialog);
+    })
+    .catch((error: unknown) => {
+      openDialog(dialog);
+      setFormStatus(
+        status,
+        error instanceof Error ? error.message : "Invite-Link konnte nicht geoeffnet werden.",
+        "error",
+      );
+    });
 }
 
 function bindWorkspaceNavigation(root: HTMLElement): void {
@@ -648,12 +693,6 @@ async function joinWorkspaceFlow(
   if (hasStoredSession()) {
     const joined = await authenticatedJoinInvite(input.code);
     return { ...joined, accessToken: localStorage.getItem("openvoice.accessToken") ?? "" };
-  }
-
-  const config = await loadAuthConfig();
-  if (!config.localPasswordAuthEnabled) {
-    window.location.href = `/api/v1/auth/oidc/login?returnTo=${encodeURIComponent(window.location.pathname || "/")}`;
-    throw new Error("Weiterleitung zum Login.");
   }
 
   const joined = await guestJoinInvite(input.code, input.displayName);
