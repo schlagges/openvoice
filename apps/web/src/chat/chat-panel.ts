@@ -1,5 +1,6 @@
 import { MessageContentFormat, MessageEventType, type Message } from "@openvoice/shared";
 import { bindNotificationButton } from "../notifications.js";
+import { readSessionCsrfToken } from "../session.js";
 
 interface CreateMessageResponse {
   readonly duplicate: boolean;
@@ -497,7 +498,7 @@ function readCurrentChannelId(): string {
 }
 
 function csrfHeader(): Record<string, string> {
-  const token = localStorage.getItem("openvoice.csrfToken");
+  const token = readSessionCsrfToken();
   return token ? { "x-openvoice-csrf-token": token } : {};
 }
 

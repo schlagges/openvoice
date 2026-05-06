@@ -369,9 +369,13 @@ openssl s_client -connect voice.schnick-schnack.info:5349 -servername voice.schn
 Erwartung:
 
 - Die Weboberflaeche liefert `200`.
-- `/api/v1/me` liefert ohne OpenVoice-Session ein JSON-`401` der App.
+- Falls ein vorgeschalteter Basic-Auth-Schutz aktiv ist, liefert die Weboberflaeche ohne Basic Auth
+  `401` und mit Basic Auth `200`. Ohne vorgeschalteten Schutz liefert sie direkt `200`.
+- `/api/v1/me` liefert ohne OpenVoice-Session ein JSON-`401` der App. Bei vorgeschaltetem Basic
+  Auth muss dieser Header gesetzt sein, damit die Anfrage die App erreicht.
 - `/livekit/` darf fuer den Root-Pfad `200 OK` liefern. Wichtig ist, dass der Host-Nginx den Pfad
-  zum LiveKit-Service weiterleitet und WebSocket-Upgrades fuer echte Join-URLs erlaubt.
+  zum LiveKit-Service weiterleitet und WebSocket-Upgrades fuer echte Join-URLs erlaubt. Der Pfad
+  darf nicht vom Web-Basic-Auth-Schutz blockiert werden.
 - Der TURNS-Handshake auf `5349/tcp` liefert ein gueltiges Zertifikat fuer
   `voice.schnick-schnack.info`.
 

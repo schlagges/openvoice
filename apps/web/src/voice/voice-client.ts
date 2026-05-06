@@ -37,6 +37,7 @@ import {
   createScreenShareCaptureOptions,
   createScreenSharePublishOptions,
 } from "./media-profiles.js";
+import { readSessionCsrfToken, readSessionDisplayName } from "../session.js";
 
 const videoGridTracks = new WeakMap<HTMLElement, VideoTile["track"][]>();
 const remoteAudioTracks = new WeakMap<HTMLElement, RemoteAudioTrack[]>();
@@ -1275,6 +1276,9 @@ export function renderVideoGrid(root: HTMLElement, room: Room): void {
     element.dataset.trackKey = tile.key;
     element.type = "button";
     element.setAttribute("aria-label", tile.label);
+    if (tile.isScreenShare) {
+      element.classList.add("is-screen-share");
+    }
     if (focusedKey === tile.key || shouldFocusFirstTile(root, tile.key, tiles)) {
       element.classList.add("is-focused");
     }
@@ -1342,8 +1346,7 @@ export function collectVoiceParticipants(
     return [];
   }
 
-  const storedDisplayName =
-    typeof localStorage === "undefined" ? null : localStorage.getItem("openvoice.displayName");
+  const storedDisplayName = readSessionDisplayName();
   const participants: VoiceParticipantView[] = [];
   const seenIdentities = new Set<string>();
   const remoteByIdentity = new Map<string, RemoteParticipant>();
@@ -1433,6 +1436,7 @@ export interface VideoTile {
   readonly isLocal: boolean;
   readonly key: string;
   readonly label: string;
+  readonly isScreenShare: boolean;
   readonly track:
     | NonNullable<LocalTrackPublication["videoTrack"]>
     | NonNullable<RemoteTrackPublication["videoTrack"]>;
@@ -1451,6 +1455,7 @@ export function collectVideoTiles(room: Room): VideoTile[] {
       isLocal: true,
       key: `local:${publication.trackSid}`,
       label: publication.source === Track.Source.ScreenShare ? "Eigener Screen" : "Eigene Kamera",
+      isScreenShare: publication.source === Track.Source.ScreenShare,
       track,
     });
   }
@@ -1478,6 +1483,7 @@ function collectRemoteVideoTiles(participant: RemoteParticipant, tiles: VideoTil
         publication.source === Track.Source.ScreenShare
           ? `${participantName} Screen`
           : `${participantName} Kamera`,
+      isScreenShare: publication.source === Track.Source.ScreenShare,
       track,
     });
   }
@@ -1568,11 +1574,7 @@ function defaultApiBaseUrl(): string {
 }
 
 function readStoredCsrfToken(): string | null {
-  if (typeof localStorage === "undefined") {
-    return null;
-  }
-
-  return localStorage.getItem("openvoice.csrfToken");
+  return readSessionCsrfToken();
 }
 
 function readStoredDeviceId(key: string): string | null {

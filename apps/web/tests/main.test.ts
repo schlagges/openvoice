@@ -712,6 +712,39 @@ describe("web foundation", () => {
 
     expect(collectRemoteAudioTracks(room)).toEqual([activeTrack]);
   });
+
+  it("marks screenshare tracks as screen-share tiles", () => {
+    const screenTrack = { attach: () => undefined, detach: () => undefined };
+    const cameraTrack = { attach: () => undefined, detach: () => undefined };
+    const room = {
+      localParticipant: {
+        videoTrackPublications: new Map([
+          [
+            "screen",
+            {
+              isMuted: false,
+              source: "screen_share",
+              trackSid: "screen",
+              videoTrack: screenTrack,
+            },
+          ],
+          [
+            "camera",
+            { isMuted: false, source: "camera", trackSid: "camera", videoTrack: cameraTrack },
+          ],
+        ]),
+      },
+      remoteParticipants: new Map(),
+    } as unknown as Room;
+
+    const tiles = collectVideoTiles(room);
+    const [screenTile, cameraTile] = tiles;
+
+    expect(screenTile?.isScreenShare).toBe(true);
+    expect(screenTile?.label).toBe("Eigener Screen");
+    expect(cameraTile?.isScreenShare).toBe(false);
+    expect(cameraTile?.label).toBe("Eigene Kamera");
+  });
 });
 
 function createVoiceState(workspaceId: string, channelId: string, userId: string): VoiceState {

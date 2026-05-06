@@ -15,7 +15,7 @@ of scope.
 3. Register/login users through the API or an API client, create a workspace and create one voice
    channel.
 4. Store the returned CSRF token in each browser profile with
-   `localStorage.setItem("openvoice.csrfToken", csrfToken)` for the temporary Phase-5 voice
+   `sessionStorage.setItem("openvoice.csrfToken", csrfToken)` for the temporary Phase-5 voice
    controls.
 
 ## Checks

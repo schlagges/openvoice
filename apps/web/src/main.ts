@@ -6,6 +6,12 @@ import { mountChannelTree } from "./channels/channel-tree.js";
 import { mountAuditLog } from "./moderation/audit-log.js";
 import { mountBrowserNotifications } from "./notifications.js";
 import { mountVoiceControls, type VoiceParticipantView } from "./voice/voice-client.js";
+import {
+  clearSessionState,
+  persistSessionState,
+  readSessionCsrfToken,
+  readSessionDisplayName,
+} from "./session.js";
 
 const DEFAULT_PASSWORD = "very-secure-password";
 const DEFAULT_CHANNEL_NAME = "Windfang";
@@ -895,10 +901,7 @@ function bindLogout(root: HTMLElement): void {
     })
       .catch(() => undefined)
       .then(() => {
-        localStorage.removeItem("openvoice.csrfToken");
-        localStorage.removeItem("openvoice.accessToken");
-        localStorage.removeItem("openvoice.authMode");
-        localStorage.removeItem("openvoice.displayName");
+        clearSessionState();
         updateCurrentUserLabel(root);
         renderWorkspaceList(root, [], "");
         renderWorkspaceEmptyState(root);
@@ -986,7 +989,7 @@ function readJoinWorkspaceForm(root: HTMLElement): JoinWorkspaceInput {
 
 async function createWorkspaceFlow(input: CreateWorkspaceInput): Promise<WorkspaceFlowResult> {
   const csrfToken = hasStoredSession()
-    ? (localStorage.getItem("openvoice.csrfToken") ?? "")
+    ? (readSessionCsrfToken() ?? "")
     : await registerTestUser(input);
   if (!csrfToken) {
     throw new Error("Bitte zuerst anmelden.");
@@ -1074,7 +1077,7 @@ async function registerTestUser(input: {
     window.location.href = `/api/v1/auth/oidc/login?returnTo=${encodeURIComponent(window.location.pathname || "/")}`;
     throw new Error("Weiterleitung zum Login.");
   }
-  localStorage.removeItem("openvoice.csrfToken");
+  clearSessionState();
   const register = await fetch("/api/v1/auth/register", {
     body: JSON.stringify({
       displayName: input.displayName,
@@ -1592,14 +1595,12 @@ function persistSession(
   },
 ): void {
   if (tokens.csrfToken) {
-    localStorage.setItem("openvoice.csrfToken", tokens.csrfToken);
+    persistSessionState(displayName, tokens.csrfToken);
     localStorage.removeItem("openvoice.accessToken");
   }
   if (tokens.accessToken) {
     localStorage.setItem("openvoice.accessToken", tokens.accessToken);
-    localStorage.removeItem("openvoice.csrfToken");
   }
-  localStorage.setItem("openvoice.displayName", displayName);
   if (tokens.authMode) {
     localStorage.setItem("openvoice.authMode", tokens.authMode);
   }
@@ -1632,14 +1633,11 @@ function hydrateSessionFromCookies(): void {
   const authMode = readCookie("openvoice_auth");
   const display = readCookie("openvoice_display");
   if (csrf) {
-    localStorage.setItem("openvoice.csrfToken", csrf);
+    persistSessionState(display ?? currentStoredDisplayName() ?? "Keycloak User", csrf);
     localStorage.removeItem("openvoice.accessToken");
   }
   if (authMode) {
     localStorage.setItem("openvoice.authMode", authMode);
-  }
-  if (display) {
-    localStorage.setItem("openvoice.displayName", display);
   }
 }
 
@@ -1647,10 +1645,10 @@ function updateCurrentUserLabel(root: HTMLElement): void {
   const label = root.querySelector<HTMLElement>("#current-user-label");
   const logout = root.querySelector<HTMLButtonElement>("#logout-button");
   const accountLink = root.querySelector<HTMLAnchorElement>("#account-console-link");
-  const csrfToken = localStorage.getItem("openvoice.csrfToken");
+  const csrfToken = readSessionCsrfToken();
   const accessToken = localStorage.getItem("openvoice.accessToken");
   const authMode = localStorage.getItem("openvoice.authMode");
-  const displayName = localStorage.getItem("openvoice.displayName");
+  const displayName = readSessionDisplayName();
   const authenticated = Boolean((csrfToken || accessToken) && displayName);
 
   if (label) {
@@ -1720,7 +1718,7 @@ function setFormStatus(
 }
 
 function csrfHeader(): Record<string, string> {
-  const token = localStorage.getItem("openvoice.csrfToken");
+  const token = readSessionCsrfToken();
   return token ? { "x-openvoice-csrf-token": token } : {};
 }
 
@@ -1731,12 +1729,10 @@ function authHeader(): Record<string, string> {
 
 function hasStoredSession(): boolean {
   if (typeof localStorage === "undefined") {
-    return false;
+    return Boolean(readSessionCsrfToken());
   }
 
-  return Boolean(
-    localStorage.getItem("openvoice.csrfToken") || localStorage.getItem("openvoice.accessToken"),
-  );
+  return Boolean(readSessionCsrfToken() || localStorage.getItem("openvoice.accessToken"));
 }
 
 function formatAuthMode(authMode: string | null, bearerSession: boolean): string {
@@ -1792,11 +1788,7 @@ function currentPageUrl(): string {
 }
 
 function currentStoredDisplayName(): string {
-  if (typeof localStorage === "undefined") {
-    return "";
-  }
-
-  return localStorage.getItem("openvoice.displayName")?.trim() ?? "";
+  return readSessionDisplayName()?.trim() ?? "";
 }
 
 function defaultWorkspaceName(displayName: string): string {
