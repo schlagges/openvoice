@@ -30,7 +30,7 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
     <section class="chat-panel" aria-label="Chat">
       <header class="chat-panel__header">
         <div>
-          <p class="eyebrow">Text Channel</p>
+          <p class="eyebrow">Chat</p>
           <h2>${escapeHtml(channelName)}</h2>
         </div>
         <span class="status-pill">${messages.length} Nachrichten</span>
@@ -45,9 +45,9 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
       }
       <form class="chat-composer">
         <label class="chat-composer__label" for="chat-message-input">Nachricht</label>
-        <textarea id="chat-message-input" class="chat-composer__input" name="message" rows="3"></textarea>
+        <textarea id="chat-message-input" class="chat-composer__input" name="message" rows="2" placeholder="Nachricht schreiben"></textarea>
         <p id="chat-composer-status" class="chat-composer__status" role="status"></p>
-        <button class="chat-composer__send" type="submit">Nachricht senden</button>
+        <button class="chat-composer__send" type="submit" aria-label="Nachricht senden" title="Nachricht senden">➤</button>
       </form>
     </section>
   `;
@@ -74,11 +74,7 @@ function bindChatComposer(root: HTMLElement): void {
 
     const channelId = readCurrentChannelId();
     if (!channelId) {
-      setStatus(
-        status,
-        "Bitte zuerst per Anleitung einen Text- oder Voice-Channel erstellen.",
-        "error",
-      );
+      setStatus(status, "Bitte zuerst einen Text- oder Combined-Channel auswählen.", "error");
       return;
     }
 

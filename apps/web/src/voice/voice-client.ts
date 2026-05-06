@@ -405,6 +405,18 @@ interface ChannelSelectedDetail {
   readonly channelType: ChannelType;
 }
 
+export interface VoiceParticipantView {
+  readonly cameraEnabled: boolean;
+  readonly identity: string;
+  readonly isLocal: boolean;
+  readonly isSpeaking: boolean;
+  readonly name: string;
+  readonly screenShareEnabled: boolean;
+  readonly selfDeafened: boolean;
+  readonly selfMuted: boolean;
+  readonly statusLabel: string;
+}
+
 export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoiceClient()): void {
   root.insertAdjacentHTML("beforeend", renderVoiceControlsPanel());
   const cameraQuality = root.querySelector<HTMLSelectElement>("#voice-camera-quality");
@@ -412,14 +424,24 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
   const status = root.querySelector<HTMLOutputElement>("#voice-status");
   const videoGrid = root.querySelector<HTMLElement>("#voice-video-grid");
+  const participantStage = root.querySelector<HTMLElement>("#voice-participant-stage");
   const leaveButton = root.querySelector<HTMLButtonElement>("#voice-leave");
   const muteButton = root.querySelector<HTMLButtonElement>("#voice-mute");
   const deafenButton = root.querySelector<HTMLButtonElement>("#voice-deafen");
   const cameraButton = root.querySelector<HTMLButtonElement>("#voice-camera");
   const screenButton = root.querySelector<HTMLButtonElement>("#voice-screen");
   const mediaButtons = [leaveButton, muteButton, deafenButton, cameraButton, screenButton];
+  const renderParticipants = (): void => {
+    const participants = collectVoiceParticipants(client.liveKitRoom, client.currentState);
+    if (participantStage) {
+      participantStage.innerHTML = renderVoiceParticipantStage(participants);
+    }
+    window.dispatchEvent(
+      new CustomEvent("openvoice:participants-updated", { detail: { participants } }),
+    );
+  };
   if (videoGrid) {
-    mountVideoGrid(videoGrid, client.liveKitRoom);
+    mountVideoGrid(videoGrid, client.liveKitRoom, renderParticipants);
   }
   const setStatus = (text: string): void => {
     if (status) {
@@ -433,7 +455,28 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       }
     }
   };
+  const updateControlStates = (): void => {
+    const state = client.currentState;
+    muteButton?.classList.toggle("is-active", Boolean(state?.selfMuted));
+    deafenButton?.classList.toggle("is-active", Boolean(state?.selfDeafened));
+    cameraButton?.classList.toggle("is-active", Boolean(state?.cameraEnabled));
+    screenButton?.classList.toggle("is-active", Boolean(state?.screenShareEnabled));
+    muteButton?.setAttribute(
+      "aria-label",
+      state?.selfMuted ? "Mikrofon einschalten" : "Mikrofon stummschalten",
+    );
+    cameraButton?.setAttribute(
+      "aria-label",
+      state?.cameraEnabled ? "Kamera ausschalten" : "Kamera einschalten",
+    );
+    screenButton?.setAttribute(
+      "aria-label",
+      state?.screenShareEnabled ? "Bildschirmfreigabe beenden" : "Bildschirm teilen",
+    );
+    renderParticipants();
+  };
   setVoiceActionsEnabled(false);
+  renderParticipants();
   let joiningChannelId: string | null = null;
 
   const joinChannel = (channelId: string, channelName: string): void => {
@@ -456,11 +499,13 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
         joiningChannelId = null;
         setVoiceActionsEnabled(true);
         setStatus(`Verbunden: ${result.roomName}`);
+        updateControlStates();
       })
       .catch((error: unknown) => {
         joiningChannelId = null;
         setVoiceActionsEnabled(false);
         setStatus(error instanceof Error ? error.message : "Voice join failed");
+        updateControlStates();
       });
   };
 
@@ -483,6 +528,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
         joiningChannelId = null;
         setVoiceActionsEnabled(false);
         setStatus("Getrennt");
+        updateControlStates();
       })
       .catch((error: unknown) => {
         setVoiceActionsEnabled(false);
@@ -491,21 +537,26 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   });
   muteButton?.addEventListener("click", () => {
     const nextMuted = !client.currentState?.selfMuted;
-    void client
-      .setSelfMuted(nextMuted)
-      .then((state) => setStatus(state.selfMuted ? "Stumm" : "Mic an"));
+    void client.setSelfMuted(nextMuted).then((state) => {
+      setStatus(state.selfMuted ? "Stumm" : "Mic an");
+      updateControlStates();
+    });
   });
   deafenButton?.addEventListener("click", () => {
     const nextDeafened = !client.currentState?.selfDeafened;
-    void client
-      .setSelfDeafened(nextDeafened)
-      .then((state) => setStatus(state.selfDeafened ? "Taub" : "Audio an"));
+    void client.setSelfDeafened(nextDeafened).then((state) => {
+      setStatus(state.selfDeafened ? "Taub" : "Audio an");
+      updateControlStates();
+    });
   });
   cameraButton?.addEventListener("click", () => {
     const nextEnabled = !client.currentState?.cameraEnabled;
     void client
       .setCameraEnabled(nextEnabled, parseQualitySelection(cameraQuality, VideoQualityProfile.P720))
-      .then((state) => setStatus(state.cameraEnabled ? "Kamera an" : "Kamera aus"))
+      .then((state) => {
+        setStatus(state.cameraEnabled ? "Kamera an" : "Kamera aus");
+        updateControlStates();
+      })
       .catch((error: unknown) =>
         setStatus(error instanceof Error ? error.message : "Camera failed"),
       );
@@ -518,7 +569,10 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
         parseQualitySelection(screenQuality, VideoQualityProfile.P1080),
         parseContentModeSelection(screenMode),
       )
-      .then((state) => setStatus(state.screenShareEnabled ? "Screen an" : "Screen aus"))
+      .then((state) => {
+        setStatus(state.screenShareEnabled ? "Screen an" : "Screen aus");
+        updateControlStates();
+      })
       .catch((error: unknown) =>
         setStatus(error instanceof Error ? error.message : "Screenshare failed"),
       );
@@ -527,22 +581,24 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
 
 export function renderVoiceControlsPanel(): string {
   return `
-      <section class="voice-panel" aria-label="Voice">
+      <section class="voice-panel" aria-label="Voice Stage">
         <header class="voice-panel__header">
           <div>
-            <p class="eyebrow">RTC</p>
-            <h2>Voice Session</h2>
+            <p class="eyebrow">Voice Channel</p>
+            <h2>Stage</h2>
           </div>
           <output id="voice-status" class="voice-panel__status">Nicht verbunden</output>
         </header>
+        <div id="voice-participant-stage" class="voice-participant-stage" aria-label="Teilnehmer"></div>
+        <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
         <div class="voice-panel__actions" aria-label="Voice Aktionen">
-          <button id="voice-leave" type="button" disabled>Verlassen</button>
-          <button id="voice-mute" type="button" disabled>Stummschalten</button>
-          <button id="voice-deafen" type="button" disabled>Deafen</button>
-          <button id="voice-camera" type="button" disabled>Kamera</button>
-          <button id="voice-screen" type="button" disabled>Bildschirm teilen</button>
+          <button id="voice-mute" class="voice-control-button" type="button" disabled aria-label="Mikrofon stummschalten" title="Mikrofon stummschalten">Mic</button>
+          <button id="voice-deafen" class="voice-control-button" type="button" disabled aria-label="Deafen" title="Deafen">Audio</button>
+          <button id="voice-camera" class="voice-control-button" type="button" disabled aria-label="Kamera einschalten" title="Kamera">Cam</button>
+          <button id="voice-screen" class="voice-control-button" type="button" disabled aria-label="Bildschirm teilen" title="Bildschirm teilen">Share</button>
+          <button id="voice-leave" class="voice-control-button voice-control-button--danger" type="button" disabled aria-label="Voice verlassen" title="Voice verlassen">Leave</button>
           <details class="voice-panel__settings">
-            <summary aria-label="Media Einstellungen">&#9881;</summary>
+            <summary aria-label="Media Einstellungen" title="Media Einstellungen">⚙</summary>
             <div class="voice-panel__media">
               <label class="voice-panel__field">
                 <span>Camera quality</span>
@@ -572,13 +628,15 @@ export function renderVoiceControlsPanel(): string {
             </div>
           </details>
         </div>
-        <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
       </section>
     `;
 }
 
-export function mountVideoGrid(root: HTMLElement, room: Room): () => void {
-  const render = (): void => renderVideoGrid(root, room);
+export function mountVideoGrid(root: HTMLElement, room: Room, onRender?: () => void): () => void {
+  const render = (): void => {
+    renderVideoGrid(root, room);
+    onRender?.();
+  };
 
   room.on(RoomEvent.TrackSubscribed, render);
   room.on(RoomEvent.TrackUnsubscribed, render);
@@ -657,6 +715,84 @@ export function renderVideoGrid(root: HTMLElement, room: Room): void {
   root.replaceChildren(fragment);
 }
 
+export function renderVoiceParticipantStage(participants: readonly VoiceParticipantView[]): string {
+  if (participants.length === 0) {
+    return `
+      <div class="voice-stage-empty">
+        <div class="voice-stage-empty__icon" aria-hidden="true">◉</div>
+        <strong>Kein Voice-Channel verbunden</strong>
+        <span>Wähle links einen Voice- oder Chat+Voice-Channel, um beizutreten.</span>
+      </div>
+    `;
+  }
+
+  return `
+    <ol class="voice-participant-grid">
+      ${participants.map(renderVoiceParticipantCard).join("")}
+    </ol>
+  `;
+}
+
+export function collectVoiceParticipants(
+  room: Room,
+  state: VoiceState | null,
+): VoiceParticipantView[] {
+  if (!state) {
+    return [];
+  }
+
+  const storedDisplayName =
+    typeof localStorage === "undefined" ? null : localStorage.getItem("openvoice.displayName");
+  const localName = room.localParticipant.name || storedDisplayName;
+  const participants: VoiceParticipantView[] = [
+    {
+      cameraEnabled: Boolean(state.cameraEnabled),
+      identity: room.localParticipant.identity || state.userId,
+      isLocal: true,
+      isSpeaking: room.activeSpeakers.some(
+        (participant) => participant.identity === room.localParticipant.identity,
+      ),
+      name: localName || `Du ${state.userId.slice(0, 8)}`,
+      screenShareEnabled: Boolean(state.screenShareEnabled),
+      selfDeafened: Boolean(state.selfDeafened || state.serverDeafened),
+      selfMuted: Boolean(state.selfMuted || state.serverMuted),
+      statusLabel: "Lokaler Teilnehmer",
+    },
+  ];
+
+  for (const participant of room.remoteParticipants.values()) {
+    participants.push({
+      cameraEnabled: hasActiveVideo(participant, Track.Source.Camera),
+      identity: participant.identity,
+      isLocal: false,
+      isSpeaking: room.activeSpeakers.some((speaker) => speaker.identity === participant.identity),
+      name: participant.name || participant.identity || "Remote",
+      screenShareEnabled: hasActiveVideo(participant, Track.Source.ScreenShare),
+      selfDeafened: false,
+      selfMuted: isRemoteAudioMuted(participant),
+      statusLabel: "Remote Teilnehmer",
+    });
+  }
+
+  return participants;
+}
+
+function renderVoiceParticipantCard(participant: VoiceParticipantView): string {
+  return `
+    <li class="voice-participant-card${participant.isSpeaking ? " is-speaking" : ""}">
+      <span class="participant-avatar">${escapeHtml(initials(participant.name))}</span>
+      <strong>${escapeHtml(participant.name)}</strong>
+      <span>${participant.isLocal ? "Du" : "Verbunden"}</span>
+      <span class="participant-status-icons" aria-label="${escapeHtml(participant.statusLabel)}">
+        ${participant.selfMuted ? '<span title="Mikrofon stumm">Mic aus</span>' : '<span title="Mikrofon aktiv">Mic</span>'}
+        ${participant.selfDeafened ? '<span title="Audio aus">Deaf</span>' : ""}
+        ${participant.cameraEnabled ? '<span title="Kamera aktiv">Cam</span>' : ""}
+        ${participant.screenShareEnabled ? '<span title="Bildschirm wird geteilt">Share</span>' : ""}
+      </span>
+    </li>
+  `;
+}
+
 export interface VideoTile {
   readonly isLocal: boolean;
   readonly key: string;
@@ -728,6 +864,37 @@ function countRemoteVideoTracks(room: Room): number {
     count += participant.videoTrackPublications.size;
   }
   return count;
+}
+
+function hasActiveVideo(participant: RemoteParticipant, source: Track.Source): boolean {
+  for (const publication of participant.videoTrackPublications.values()) {
+    if (publication.source === source && publication.videoTrack && !publication.isMuted) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function isRemoteAudioMuted(participant: RemoteParticipant): boolean {
+  for (const publication of participant.audioTrackPublications.values()) {
+    if (!publication.isMuted) {
+      return false;
+    }
+  }
+  return participant.audioTrackPublications.size > 0;
+}
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  return (words[0]?.[0] ?? "?").concat(words[1]?.[0] ?? "").toUpperCase();
+}
+
+function escapeHtml(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;");
 }
 
 function parseQualitySelection(

@@ -14,8 +14,9 @@ import { renderChannelTree } from "../src/channels/channel-tree";
 import {
   formatWebTitle,
   renderDesktopQrPanel,
+  renderInviteDialog,
+  renderOnboardingDialog,
   renderOperationsLinks,
-  renderQuickStartPanel,
   renderWorkspaceSwitcher,
 } from "../src/main";
 import { renderAuditLog } from "../src/moderation/audit-log";
@@ -49,7 +50,7 @@ describe("web foundation", () => {
   it("renders a desktop QR panel for mobile handoff", () => {
     const html = renderDesktopQrPanel("https://voice.schnick-schnack.info/test");
 
-    expect(html).toContain("Auf dem Handy");
+    expect(html).toContain("Mobile öffnen");
     expect(html).toContain("<svg");
     expect(html).toContain("https://voice.schnick-schnack.info/test");
   });
@@ -62,18 +63,30 @@ describe("web foundation", () => {
 
     expect(html).toContain("Team Voice");
     expect(html).toContain("is-active");
-    expect(html).toContain("Ein Workspace ist ein gemeinsamer Server");
+    expect(html).toContain("Ein Workspace ist dein gemeinsamer Server");
     expect(html).not.toContain("Invite erstellen");
   });
 
-  it("renders a modal test user flow without console use", () => {
-    const html = renderQuickStartPanel();
+  it("renders a focused onboarding flow without invite creation", () => {
+    const html = renderOnboardingDialog();
 
-    expect(html).toContain("Testnutzer erstellen");
+    expect(html).toContain("Workspace starten");
+    expect(html).toContain("Workspace erstellen");
+    expect(html).toContain("Workspace beitreten");
     expect(html).toContain("Channel-Typ");
+    expect(html).toContain("Chat + Voice");
     expect(html).toContain('value="combined"');
-    expect(html).toContain("Invite beitreten");
-    expect(html).toContain('id="test-user-dialog"');
+    expect(html).toContain("Erweiterte Testdaten");
+    expect(html).toContain('id="onboarding-dialog"');
+    expect(html).not.toContain("Invite-Code erstellen");
+  });
+
+  it("renders invite creation as a workspace action", () => {
+    const html = renderInviteDialog();
+
+    expect(html).toContain("Personen einladen");
+    expect(html).toContain("Invite-Code erstellen");
+    expect(html).toContain('id="invite-dialog"');
   });
 
   it("renders voice controls without a separate join button", () => {
@@ -81,8 +94,9 @@ describe("web foundation", () => {
 
     expect(html).not.toContain("Voice beitreten");
     expect(html).not.toContain("voice-channel-id");
-    expect(html).toContain("Kamera");
-    expect(html).toContain('id="voice-camera" type="button" disabled');
+    expect(html).toContain('aria-label="Kamera einschalten"');
+    expect(html).toContain('id="voice-camera"');
+    expect(html).toContain('type="button" disabled aria-label="Kamera einschalten"');
     expect(html).toContain("Media Einstellungen");
     expect(html).toContain("Nicht verbunden");
   });
