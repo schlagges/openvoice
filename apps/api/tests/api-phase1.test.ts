@@ -568,6 +568,52 @@ describe("Phase 1 API", () => {
     });
   });
 
+  it("creates a registered OpenVoice user for a valid new Keycloak identity", async () => {
+    const app = createTestApp();
+
+    const result = await app.repository.createUser({
+      displayName: "Global Owner",
+      email: "global-owner-new@example.com",
+      emailNormalized: "global-owner-new@example.com",
+      passwordHash: "legacy-disabled",
+    });
+    const globalWorkspace = await app.repository.createWorkspaceWithDefaults({
+      accessMode: "global_authenticated",
+      name: "Global New User",
+      ownerId: result.id,
+    });
+
+    const login = await new AuthService({
+      csrfSecret: "test-csrf-secret",
+      passwordHasher: app.passwordHasher,
+      repository: app.repository,
+      sessionSecret: "test-session-secret",
+      sessionTtlSeconds: 3600,
+    }).loginWithExternalIdentity({
+      displayName: "Keycloak New",
+      email: "keycloak-new@example.com",
+      subject: "keycloak-new-subject",
+    });
+    await new WorkspaceService({ repository: app.repository }).joinGlobalWorkspacesForUser(
+      login.user.id,
+    );
+
+    const user = app.repository.users.find(
+      (candidate) => candidate.keycloakSubject === "keycloak-new-subject",
+    );
+    expect(user).toMatchObject({
+      displayName: "Keycloak New",
+      email: "keycloak-new@example.com",
+      kind: "registered",
+    });
+    await expect(
+      app.repository.findWorkspaceMember(globalWorkspace.workspace.id, login.user.id),
+    ).resolves.toMatchObject({
+      workspaceId: globalWorkspace.workspace.id,
+      userId: login.user.id,
+    });
+  });
+
   it("rejects invite creation without MANAGE_INVITES membership and blocks banned invite joins", async () => {
     const app = createTestApp();
     const owner = await register(app, "invite-owner-2@example.com");

@@ -796,6 +796,25 @@ async function routeRequest(
     return jsonResponse(result, 200, requestId);
   }
 
+  const voiceParticipantsMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/channels\/([^/]+)\/voice\/participants$/,
+  );
+  if (voiceParticipantsMatch) {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    const channelId = parseUuidPathParameter(
+      requirePathPart(voiceParticipantsMatch, 0),
+      "channelId",
+    );
+    const participants = await requireVoiceService(options).listParticipants({
+      channelId,
+      userId: authenticated.userId,
+    });
+
+    return jsonResponse({ participants }, 200, requestId);
+  }
+
   const voiceLeaveMatch = matchPath(url.pathname, /^\/api\/v1\/workspaces\/([^/]+)\/voice\/leave$/);
   if (voiceLeaveMatch) {
     assertMethod(request, "POST");

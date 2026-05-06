@@ -131,7 +131,29 @@ export class AuthService {
       return this.createSessionForUser(linked);
     }
 
-    throw unauthorized("Invite required before Keycloak login.");
+    try {
+      const user = await this.repository.createUser({
+        displayName: input.displayName || emailNormalized,
+        email: emailNormalized,
+        emailNormalized,
+        keycloakSubject: input.subject,
+        linkedAt: this.now(),
+        passwordHash: "external:keycloak",
+      });
+
+      return this.createSessionForUser(user);
+    } catch (error) {
+      if (error instanceof DuplicateEmailError) {
+        const user = await this.repository.findUserByEmailNormalized(emailNormalized);
+        if (user) {
+          return this.createSessionForUser(
+            await this.repository.linkUserToKeycloakSubject(user.id, input.subject, this.now()),
+          );
+        }
+      }
+
+      throw error;
+    }
   }
 
   public async authenticate(

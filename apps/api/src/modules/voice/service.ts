@@ -8,6 +8,7 @@ import {
   VideoQualityProfile,
   type VoiceJoinResponse,
   type VoiceLeaveResponse,
+  type VoiceParticipant,
   type VoicePermissions,
   type VoiceState,
   type VoiceStateUpdatePayload,
@@ -41,6 +42,11 @@ export interface JoinVoiceCommand {
   readonly selfDeafened: boolean;
   readonly selfMuted: boolean;
   readonly sessionId: string;
+  readonly userId: string;
+}
+
+export interface ListVoiceParticipantsCommand {
+  readonly channelId: string;
   readonly userId: string;
 }
 
@@ -199,6 +205,44 @@ export class VoiceService {
     }
 
     return { state: null };
+  }
+
+  public async listParticipants(
+    command: ListVoiceParticipantsCommand,
+  ): Promise<readonly VoiceParticipant[]> {
+    const { channel } = await this.channelService.requireChannelPermission(
+      command.channelId,
+      command.userId,
+      Permission.VIEW_CHANNEL,
+    );
+
+    if (channel.type !== ChannelType.VOICE && channel.type !== ChannelType.COMBINED) {
+      throw badRequest("Voice participants are only available for voice and combined channels.", {
+        field: "channelId",
+      });
+    }
+
+    const states = await this.repository.listVoiceStatesForChannel(command.channelId);
+    const participants = await Promise.all(
+      states.map(async (state): Promise<VoiceParticipant | null> => {
+        const user = await this.repository.findUserById(state.userId);
+        if (!user) {
+          return null;
+        }
+
+        return {
+          state: toPublicVoiceState(state),
+          user: {
+            displayName: user.displayName,
+            id: user.id,
+          },
+        };
+      }),
+    );
+
+    return participants.filter((participant): participant is VoiceParticipant =>
+      Boolean(participant),
+    );
   }
 
   public async updateSelfState(command: UpdateVoiceSelfStateCommand): Promise<VoiceState> {

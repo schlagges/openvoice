@@ -72,6 +72,18 @@ export interface VoiceLeaveResponse {
   readonly state: VoiceState | null;
 }
 
+export interface VoiceParticipant {
+  readonly state: VoiceState;
+  readonly user: {
+    readonly displayName: string;
+    readonly id: string;
+  };
+}
+
+export interface VoiceParticipantsResponse {
+  readonly participants: readonly VoiceParticipant[];
+}
+
 export interface VoiceStateUpdatePayload {
   readonly state: VoiceState | null;
   readonly workspaceId: string;

@@ -2,12 +2,15 @@ import { describe, expect, it } from "vitest";
 import type { Room } from "livekit-client";
 
 import {
+  AudioMode,
   ChannelType,
   MessageContentFormat,
   VideoContentMode,
   VideoQualityProfile,
   type ClientRtcQualitySample,
   type ChannelTreeNode,
+  type VoiceParticipant,
+  type VoiceState,
 } from "@openvoice/shared";
 import { reconnectDelayMs, renderChatPanel, renderMessage } from "../src/chat/chat-panel";
 import { renderChannelTree } from "../src/channels/channel-tree";
@@ -26,6 +29,7 @@ import {
   createScreenSharePublishOptions,
 } from "../src/voice/media-profiles";
 import {
+  collectVoiceParticipants,
   collectVideoTiles,
   formatVoiceRequestError,
   renderVoiceControlsPanel,
@@ -123,6 +127,32 @@ describe("web foundation", () => {
     expect(html).toContain('type="button" disabled aria-label="Kamera einschalten"');
     expect(html).toContain("Media Einstellungen");
     expect(html).toContain("Nicht verbunden");
+  });
+
+  it("renders server-side voice participants even before LiveKit exposes remotes", () => {
+    const state = createVoiceState("workspace", "channel", "user-local");
+    const participants: VoiceParticipant[] = [
+      {
+        state,
+        user: { displayName: "Boris Backes", id: "user-local" },
+      },
+      {
+        state: createVoiceState("workspace", "channel", "user-remote"),
+        user: { displayName: "Hans Dampf", id: "user-remote" },
+      },
+    ];
+    const room = {
+      activeSpeakers: [],
+      localParticipant: {
+        identity: "user-local",
+        name: "",
+      },
+      remoteParticipants: new Map(),
+    } as unknown as Room;
+
+    expect(
+      collectVoiceParticipants(room, state, participants).map((participant) => participant.name),
+    ).toEqual(["Boris Backes", "Hans Dampf"]);
   });
 
   it("renders an escaped channel tree", () => {
@@ -386,3 +416,25 @@ describe("web foundation", () => {
     expect(collectVideoTiles(room)[0]?.key).toBe("local:active");
   });
 });
+
+function createVoiceState(workspaceId: string, channelId: string, userId: string): VoiceState {
+  return {
+    audioMode: AudioMode.VOICE,
+    cameraEnabled: false,
+    cameraQuality: VideoQualityProfile.P720,
+    channelId,
+    connectedAt: new Date(0).toISOString(),
+    screenShareContentMode: VideoContentMode.DETAIL,
+    screenShareEnabled: false,
+    screenShareQuality: VideoQualityProfile.P1080,
+    selfDeafened: false,
+    selfMuted: false,
+    serverDeafened: false,
+    serverMuted: false,
+    sessionId: "session",
+    speaking: false,
+    updatedAt: new Date(0).toISOString(),
+    userId,
+    workspaceId,
+  };
+}

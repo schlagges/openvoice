@@ -25,6 +25,8 @@ import type {
   VideoQualityProfile as QualityProfile,
   RtcStatsIngestResponse,
   VoiceJoinResponse,
+  VoiceParticipant,
+  VoiceParticipantsResponse,
   VoiceState,
 } from "@openvoice/shared";
 
@@ -62,6 +64,8 @@ export class OpenVoiceVoiceClient {
   private csrfToken: string | null;
   private lastSpeaking = false;
   private readonly room: Room;
+  private participantPollTimer: ReturnType<typeof setInterval> | null = null;
+  private serverParticipants: readonly VoiceParticipant[] = [];
   private state: VoiceState | null = null;
   private statsReportTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -84,18 +88,21 @@ export class OpenVoiceVoiceClient {
     this.canPublishScreen = response.permissions.canPublishScreen;
     this.canPublishScreen4k = response.permissions.canPublishScreen4k;
     this.state = response.state;
+    await this.refreshParticipants();
     this.attachSpeakingListener(response.state.workspaceId);
 
     if (response.permissions.canPublishAudio && !response.state.selfMuted) {
       await this.room.localParticipant.setMicrophoneEnabled(true);
     }
     this.startStatsReporting();
+    this.startParticipantPolling();
 
     return response;
   }
 
   public async leave(): Promise<void> {
     this.stopStatsReporting();
+    this.stopParticipantPolling();
     const workspaceId = this.state?.workspaceId;
     if (workspaceId) {
       await this.fetchJson(`/workspaces/${workspaceId}/voice/leave`, { method: "POST" });
@@ -105,6 +112,7 @@ export class OpenVoiceVoiceClient {
     this.canPublishCamera = false;
     this.canPublishScreen = false;
     this.canPublishScreen4k = false;
+    this.serverParticipants = [];
     this.state = null;
     this.lastSpeaking = false;
   }
@@ -115,6 +123,20 @@ export class OpenVoiceVoiceClient {
       this.canPublishAudio && !state.selfMuted && !state.serverMuted && !state.serverDeafened,
     );
     return state;
+  }
+
+  public async refreshParticipants(): Promise<readonly VoiceParticipant[]> {
+    if (!this.state) {
+      this.serverParticipants = [];
+      return this.serverParticipants;
+    }
+
+    const result = await this.fetchJson<VoiceParticipantsResponse>(
+      `/channels/${this.state.channelId}/voice/participants`,
+    );
+    this.serverParticipants = result.participants;
+    window.dispatchEvent(new Event("openvoice:voice-participants-refreshed"));
+    return this.serverParticipants;
   }
 
   public async setCameraEnabled(
@@ -254,6 +276,10 @@ export class OpenVoiceVoiceClient {
     return this.room;
   }
 
+  public get currentParticipants(): readonly VoiceParticipant[] {
+    return this.serverParticipants;
+  }
+
   private attachSpeakingListener(workspaceId: string): void {
     this.room.off(RoomEvent.ActiveSpeakersChanged, this.handleActiveSpeakersChanged);
     this.room.on(RoomEvent.ActiveSpeakersChanged, this.handleActiveSpeakersChanged);
@@ -300,6 +326,22 @@ export class OpenVoiceVoiceClient {
     }, 30_000);
   }
 
+  private startParticipantPolling(): void {
+    this.stopParticipantPolling();
+    this.participantPollTimer = setInterval(() => {
+      void this.refreshParticipants().catch(() => undefined);
+    }, 5_000);
+  }
+
+  private stopParticipantPolling(): void {
+    if (!this.participantPollTimer) {
+      return;
+    }
+
+    clearInterval(this.participantPollTimer);
+    this.participantPollTimer = null;
+  }
+
   private stopStatsReporting(): void {
     if (!this.statsReportTimer) {
       return;
@@ -331,6 +373,7 @@ export class OpenVoiceVoiceClient {
       },
     );
     this.state = result.state;
+    void this.refreshParticipants().catch(() => undefined);
     return result.state;
   }
 
@@ -433,7 +476,11 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   const screenButton = root.querySelector<HTMLButtonElement>("#voice-screen");
   const mediaButtons = [leaveButton, muteButton, deafenButton, cameraButton, screenButton];
   const renderParticipants = (): void => {
-    const participants = collectVoiceParticipants(client.liveKitRoom, client.currentState);
+    const participants = collectVoiceParticipants(
+      client.liveKitRoom,
+      client.currentState,
+      client.currentParticipants,
+    );
     if (participantStage) {
       participantStage.innerHTML = renderVoiceParticipantStage(participants);
     }
@@ -444,6 +491,7 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
   if (videoGrid) {
     mountVideoGrid(videoGrid, client.liveKitRoom, renderParticipants);
   }
+  window.addEventListener("openvoice:voice-participants-refreshed", renderParticipants);
   const setStatus = (text: string): void => {
     if (status) {
       status.value = text;
@@ -501,6 +549,10 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
         setVoiceActionsEnabled(true);
         setStatus(`Verbunden: ${result.roomName}`);
         updateControlStates();
+        void client
+          .refreshParticipants()
+          .then(renderParticipants)
+          .catch(() => undefined);
       })
       .catch((error: unknown) => {
         joiningChannelId = null;
@@ -737,6 +789,7 @@ export function renderVoiceParticipantStage(participants: readonly VoiceParticip
 export function collectVoiceParticipants(
   room: Room,
   state: VoiceState | null,
+  serverParticipants: readonly VoiceParticipant[] = [],
 ): VoiceParticipantView[] {
   if (!state) {
     return [];
@@ -744,24 +797,59 @@ export function collectVoiceParticipants(
 
   const storedDisplayName =
     typeof localStorage === "undefined" ? null : localStorage.getItem("openvoice.displayName");
-  const localName = room.localParticipant.name || storedDisplayName;
-  const participants: VoiceParticipantView[] = [
-    {
-      cameraEnabled: Boolean(state.cameraEnabled),
-      identity: room.localParticipant.identity || state.userId,
-      isLocal: true,
-      isSpeaking: room.activeSpeakers.some(
-        (participant) => participant.identity === room.localParticipant.identity,
-      ),
-      name: localName || `Du ${state.userId.slice(0, 8)}`,
-      screenShareEnabled: Boolean(state.screenShareEnabled),
-      selfDeafened: Boolean(state.selfDeafened || state.serverDeafened),
-      selfMuted: Boolean(state.selfMuted || state.serverMuted),
-      statusLabel: "Lokaler Teilnehmer",
-    },
-  ];
+  const participants: VoiceParticipantView[] = [];
+  const seenIdentities = new Set<string>();
+  const remoteByIdentity = new Map<string, RemoteParticipant>();
 
   for (const participant of room.remoteParticipants.values()) {
+    remoteByIdentity.set(participant.identity, participant);
+  }
+
+  const sourceParticipants =
+    serverParticipants.length > 0
+      ? serverParticipants
+      : [
+          {
+            state,
+            user: {
+              displayName:
+                room.localParticipant.name || storedDisplayName || `Du ${state.userId.slice(0, 8)}`,
+              id: state.userId,
+            },
+          },
+        ];
+
+  for (const participant of sourceParticipants) {
+    const participantState = participant.state;
+    const remote = remoteByIdentity.get(participant.user.id);
+    const isLocal = participant.user.id === state.userId;
+    const identity = remote?.identity ?? participant.user.id;
+    seenIdentities.add(identity);
+    participants.push({
+      cameraEnabled: Boolean(
+        participantState.cameraEnabled || hasActiveVideo(remote, Track.Source.Camera),
+      ),
+      identity,
+      isLocal,
+      isSpeaking:
+        Boolean(participantState.speaking) ||
+        room.activeSpeakers.some((speaker) => speaker.identity === identity),
+      name: isLocal
+        ? room.localParticipant.name || storedDisplayName || participant.user.displayName
+        : participant.user.displayName,
+      screenShareEnabled: Boolean(
+        participantState.screenShareEnabled || hasActiveVideo(remote, Track.Source.ScreenShare),
+      ),
+      selfDeafened: Boolean(participantState.selfDeafened || participantState.serverDeafened),
+      selfMuted: Boolean(participantState.selfMuted || participantState.serverMuted),
+      statusLabel: isLocal ? "Lokaler Teilnehmer" : "Remote Teilnehmer",
+    });
+  }
+
+  for (const participant of room.remoteParticipants.values()) {
+    if (seenIdentities.has(participant.identity)) {
+      continue;
+    }
     participants.push({
       cameraEnabled: hasActiveVideo(participant, Track.Source.Camera),
       identity: participant.identity,
@@ -867,7 +955,11 @@ function countRemoteVideoTracks(room: Room): number {
   return count;
 }
 
-function hasActiveVideo(participant: RemoteParticipant, source: Track.Source): boolean {
+function hasActiveVideo(participant: RemoteParticipant | undefined, source: Track.Source): boolean {
+  if (!participant) {
+    return false;
+  }
+
   for (const publication of participant.videoTrackPublications.values()) {
     if (publication.source === source && publication.videoTrack && !publication.isMuted) {
       return true;

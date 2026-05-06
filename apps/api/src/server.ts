@@ -1,4 +1,4 @@
-import { createServer } from "node:http";
+import { createServer, type OutgoingHttpHeaders } from "node:http";
 import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 
@@ -151,7 +151,7 @@ export function createOpenVoiceApiServer() {
     } as RequestInit);
     const response = await handler(request);
 
-    outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+    outgoing.writeHead(response.status, toOutgoingHeaders(response.headers));
     const body = await response.arrayBuffer();
     outgoing.end(Buffer.from(body));
     logRequest({
@@ -185,6 +185,29 @@ export function createOpenVoiceApiServer() {
   });
 
   return server;
+}
+
+export function toOutgoingHeaders(headers: Headers): OutgoingHttpHeaders {
+  const outgoing: OutgoingHttpHeaders = {};
+  for (const [name, value] of headers.entries()) {
+    if (name.toLowerCase() !== "set-cookie") {
+      outgoing[name] = value;
+    }
+  }
+
+  const setCookie = (
+    headers as Headers & { readonly getSetCookie?: () => readonly string[] }
+  ).getSetCookie?.();
+  if (setCookie && setCookie.length > 0) {
+    outgoing["set-cookie"] = [...setCookie];
+  } else {
+    const fallback = headers.get("set-cookie");
+    if (fallback) {
+      outgoing["set-cookie"] = fallback;
+    }
+  }
+
+  return outgoing;
 }
 
 function logRequest(input: {
