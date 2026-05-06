@@ -825,6 +825,24 @@ async function createInvite(workspaceId: string): Promise<WorkspaceInviteRespons
   return (await response.json()) as WorkspaceInviteResponse;
 }
 
+function createInviteLink(code: string): string {
+  const url = new URL(window.location.href);
+  url.searchParams.set("invite", code);
+  url.hash = "";
+  return url.toString();
+}
+
+function readInviteCodeFromLocation(): string {
+  const params = new URLSearchParams(window.location.search);
+  return params.get("invite")?.trim() ?? "";
+}
+
+function clearInviteCodeFromLocation(): void {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("invite");
+  window.history.replaceState({}, document.title, `${url.pathname}${url.search}${url.hash}`);
+}
+
 async function guestJoinInvite(
   code: string,
   displayName: string,
