@@ -345,9 +345,10 @@ Erwartung:
 - Ohne Basic Auth liefert die Weboberflaeche `401`.
 - Mit Basic Auth liefert die Weboberflaeche `200`.
 - `/api/v1/me` liefert mit Basic Auth, aber ohne OpenVoice-Session, ein JSON-`401` der App.
-- `/livekit/` darf nicht vom Web-Basic-Auth-Schutz blockiert werden. Ein HTTP-`401` von LiveKit
-  ist ohne Join-Token normal, darf aber nicht durch einen weitergeleiteten Basic-Auth-Header
-  verursacht werden.
+- `/livekit/` darf nicht vom Web-Basic-Auth-Schutz blockiert werden. Der Aufruf sollte per Proxy
+  die SFU erreichen und typischerweise HTTP-`200` liefern. Ein HTTP-`401` ist nur dann ok, wenn es
+  aus der LiveKit-Authentifizierung selbst kommt und nicht aus einem weitergeleiteten
+  Basic-Auth-Header.
 
 Das ausgelieferte Web-Bundle darf fuer die API nicht `http://localhost:3000/api/v1` enthalten. Fuer
 oeffentliche Deployments muss die API relativ ueber `/api/v1` laufen.
