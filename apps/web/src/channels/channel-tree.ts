@@ -28,14 +28,20 @@ function renderNode(node: ChannelTreeNode): string {
     <li class="channel-tree__item${isCategory ? " is-category" : ""}" data-channel-id="${escapeHtml(
       node.id,
     )}" data-channel-name="${escapeHtml(node.name)}" data-channel-type="${escapeHtml(node.type)}">
-      <button class="channel-tree__label" type="button" ${isCategory ? "disabled" : ""}>
-        <span class="channel-tree__icon" aria-hidden="true">${escapeHtml(typeIcon(node.type))}</span>
-        <span class="channel-tree__content">
-          <span class="channel-tree__name">${escapeHtml(node.name)}</span>
-          <span class="channel-tree__badge">${escapeHtml(typeLabel(node.type))}</span>
-        </span>
-        <span class="channel-tree__count" title="Teilnehmer im aktiven Voice Channel">-</span>
-      </button>
+      <div class="channel-tree__row">
+        <button class="channel-tree__label" type="button" ${isCategory ? "disabled" : ""}>
+          <span class="channel-tree__icon" aria-hidden="true">${escapeHtml(typeIcon(node.type))}</span>
+          <span class="channel-tree__content">
+            <span class="channel-tree__name">${escapeHtml(node.name)}</span>
+            <span class="channel-tree__badge">${escapeHtml(typeLabel(node.type))}</span>
+          </span>
+          <span class="channel-tree__count" title="Teilnehmer im aktiven Voice Channel">-</span>
+        </button>
+        <div class="channel-tree__actions" aria-label="Channel Aktionen">
+          <button class="channel-tree__action" type="button" data-channel-action="edit" disabled title="Channel bearbeiten ist noch nicht verfuegbar" aria-label="Channel bearbeiten">✎</button>
+          <button class="channel-tree__action" type="button" data-channel-action="delete" disabled title="Channel loeschen ist noch nicht verfuegbar" aria-label="Channel loeschen">×</button>
+        </div>
+      </div>
       ${childList}
     </li>
   `;

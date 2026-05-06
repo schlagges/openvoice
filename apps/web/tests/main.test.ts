@@ -108,7 +108,8 @@ describe("web foundation", () => {
       "workspace-1",
     );
 
-    expect(html).toContain("Team Voice");
+    expect(html).toContain("18 Löcher");
+    expect(html).not.toContain("Team Voice");
     expect(html).toContain("is-active");
     expect(html).toContain("Server, Mitglieder und Einladungen");
     expect(html).toContain("3 Mitglieder");
@@ -141,8 +142,9 @@ describe("web foundation", () => {
       "global-workspace",
     );
 
-    expect(html.indexOf("Public Voice")).toBeLessThan(html.indexOf("18 Löcher2"));
+    expect(html.indexOf("18 Löcher")).toBeLessThan(html.indexOf("18 Löcher2"));
     expect(html).toContain("workspace-switcher__item--private");
+    expect(html).toContain("Neuer Workspace");
   });
 
   it("renders the empty workspace start card as the primary entry point", () => {
@@ -410,6 +412,8 @@ describe("web foundation", () => {
 
     expect(renderChannelTree(channels)).toContain("&lt;general&gt;");
     expect(renderChannelTree(channels)).toContain('type="button"');
+    expect(renderChannelTree(channels)).toContain('data-channel-action="edit"');
+    expect(renderChannelTree(channels)).toContain('data-channel-action="delete"');
   });
 
   it("renders escaped chat messages", () => {

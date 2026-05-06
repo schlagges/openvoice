@@ -252,6 +252,7 @@ export function renderWorkspaceSwitcher(
         </div>
       </header>
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
+      <button id="create-shell-workspace" class="primary-action workspace-create-shell" type="button">Neuer Workspace</button>
       <p id="workspace-status" class="workspace-switcher__status" role="status"></p>
     </section>
   `;
@@ -278,14 +279,24 @@ export function mountWebApp(app: HTMLDivElement | null): void {
           </div>
         </header>
         ${renderWorkspaceSwitcher()}
-        <section class="channel-browser" aria-label="Channels">
-          <header class="section-header">
+        <section class="channel-browser workspace-channel-box" aria-label="Aktiver Workspace">
+          <header class="workspace-channel-box__header">
             <div>
-              <h2>Channels</h2>
-              <p>Chat, Voice und Screen-Räume.</p>
+              <p class="eyebrow">Workspace</p>
+              <h2 id="active-workspace-card-title">Workspace wählen</h2>
+            </div>
+            <div class="workspace-channel-box__actions">
+              <button class="workspace-channel-box__action" type="button" disabled title="Workspace bearbeiten ist noch nicht verfuegbar" aria-label="Workspace bearbeiten">✎</button>
+              <button class="workspace-channel-box__action" type="button" disabled title="Workspace loeschen ist noch nicht verfuegbar" aria-label="Workspace loeschen">×</button>
             </div>
           </header>
-          <nav id="channel-tree" class="channel-tree" aria-label="Channel Tree"></nav>
+          <div class="workspace-channel-box__section">
+            <header class="workspace-channel-box__subheader">
+              <span>Channels</span>
+              <button id="create-channel-button" class="ghost-button compact" type="button" disabled>+ Channel</button>
+            </header>
+            <nav id="channel-tree" class="channel-tree" aria-label="Channel Tree"></nav>
+          </div>
           <section id="sidebar-participants" class="sidebar-participants" aria-label="Teilnehmer"></section>
         </section>
         ${renderOnboardingDialog()}
@@ -327,11 +338,13 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   if (channelTree) {
     mountChannelTree(channelTree, []);
   }
+  updateCreateChannelButton(app, 0);
 
   hydrateSessionFromCookies();
   bindOnboarding(app);
   bindInviteDialog(app);
   bindWorkspaceNavigation(app);
+  bindWorkspaceActions(app);
   bindOidcLogin(app);
   bindParticipantUpdates(app);
   bindThemeToggle(app);
@@ -559,6 +572,9 @@ function bindWorkspaceNavigation(root: HTMLElement): void {
   });
 
   channelTree?.addEventListener("click", (event) => {
+    if ((event.target as Element | null)?.closest("[data-channel-action]")) {
+      return;
+    }
     const item =
       (event.target as Element | null)?.closest<HTMLElement>(".channel-tree__item") ?? null;
     const channel = readChannelDataset(item);
@@ -570,6 +586,30 @@ function bindWorkspaceNavigation(root: HTMLElement): void {
   });
 
   void loadWorkspaces(root).catch(() => undefined);
+}
+
+function bindWorkspaceActions(root: HTMLElement): void {
+  root
+    .querySelector<HTMLButtonElement>("#create-shell-workspace")
+    ?.addEventListener("click", () => {
+      void createWorkspaceShell(root).catch((error: unknown) =>
+        setWorkspaceStatus(
+          root,
+          error instanceof Error ? error.message : "Workspace konnte nicht erstellt werden.",
+          "error",
+        ),
+      );
+    });
+
+  root.querySelector<HTMLButtonElement>("#create-channel-button")?.addEventListener("click", () => {
+    void createChannelInActiveWorkspace(root).catch((error: unknown) =>
+      setWorkspaceStatus(
+        root,
+        error instanceof Error ? error.message : "Channel konnte nicht erstellt werden.",
+        "error",
+      ),
+    );
+  });
 }
 
 function bindOidcLogin(root: HTMLElement): void {
@@ -905,6 +945,7 @@ interface WorkspaceFlowResult {
   readonly csrfToken: string;
   readonly workspace: {
     readonly id: string;
+    readonly name?: string;
   };
 }
 
@@ -994,6 +1035,104 @@ async function createWorkspaceFlow(input: CreateWorkspaceInput): Promise<Workspa
     csrfToken,
     workspace: workspaceBody.workspace,
   };
+}
+
+async function createWorkspaceShell(root: HTMLElement): Promise<void> {
+  if (!hasStoredSession()) {
+    prepareOnboarding(root, "create");
+    openDialog(root.querySelector<HTMLDialogElement>("#onboarding-dialog"));
+    return;
+  }
+
+  setWorkspaceStatus(root, "Workspace wird erstellt.", "loading");
+  const displayName = readSessionDisplayName() ?? currentStoredDisplayName() ?? "OpenVoice";
+  const workspaceName = `${displayName}s Raum`;
+  const workspace = await createWorkspaceWithFallbackName(workspaceName);
+  await loadWorkspaces(root, workspace.id);
+  setWorkspaceStatus(root, "Workspace erstellt. Lege jetzt den ersten Channel an.", "success");
+}
+
+async function createWorkspaceWithFallbackName(name: string): Promise<{ readonly id: string }> {
+  for (let index = 1; index <= 5; index += 1) {
+    const candidate = index === 1 ? name : `${name} ${index}`;
+    try {
+      return await createWorkspaceOnly(candidate);
+    } catch (error) {
+      if (
+        !(error instanceof Error) ||
+        !error.message.includes("Workspace name is already in use")
+      ) {
+        throw error;
+      }
+    }
+  }
+
+  throw new Error("Workspace-Name ist bereits vergeben.");
+}
+
+async function createWorkspaceOnly(name: string): Promise<{ readonly id: string }> {
+  const response = await fetch("/api/v1/workspaces", {
+    body: JSON.stringify({ name }),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...authHeader(),
+      ...csrfHeader(),
+    },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+  const body = (await response.json()) as { workspace: { id: string } };
+  return body.workspace;
+}
+
+async function createChannelInActiveWorkspace(root: HTMLElement): Promise<void> {
+  const workspaceId = root.dataset.activeWorkspaceId;
+  const currentCount = Number(root.dataset.activeWorkspaceChannelCount ?? "0");
+  if (!workspaceId) {
+    throw new Error("Bitte zuerst einen Workspace auswählen.");
+  }
+  if (currentCount >= 5) {
+    throw new Error("Maximal 5 Channels pro Workspace sind in dieser Ansicht vorgesehen.");
+  }
+
+  setWorkspaceStatus(root, "Channel wird erstellt.", "loading");
+  const channel = await createChannel(workspaceId, nextChannelName(currentCount), currentCount);
+  await selectWorkspace(root, workspaceId);
+  selectChannel(root, toTreeNode(channel, workspaceId));
+  setWorkspaceStatus(root, "Channel erstellt.", "success");
+}
+
+async function createChannel(
+  workspaceId: string,
+  name: string,
+  position: number,
+): Promise<WorkspaceFlowResult["channel"]> {
+  const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/channels`, {
+    body: JSON.stringify({
+      name,
+      position,
+      type: "combined",
+    }),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...authHeader(),
+      ...csrfHeader(),
+    },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+  const body = (await response.json()) as { channel: WorkspaceFlowResult["channel"] };
+  return body.channel;
+}
+
+function nextChannelName(currentCount: number): string {
+  return ["Windfang", "Abschlag", "Fairway", "Green", "Clubhaus"][currentCount] ?? "Channel";
 }
 
 async function joinWorkspaceFlow(
@@ -1202,8 +1341,12 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
   }
   markActiveWorkspace(root, workspaceId);
   const workspaceName =
-    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active .workspace-switcher__name")
-      ?.textContent ?? "Workspace";
+    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active")?.dataset.workspaceName ??
+    "Workspace";
+  root.dataset.activeWorkspaceId = workspaceId;
+  root.dataset.activeWorkspaceChannelCount = String(countSelectableChannels(body.channels));
+  updateActiveWorkspaceCard(root, workspaceName, body.channels.length);
+  updateCreateChannelButton(root, countSelectableChannels(body.channels));
   updateWorkspaceHeader(root, workspaceName, "Channel auswählen", null);
   updateInviteContext(root, workspaceName);
   setWorkspaceStatus(root, "Workspace geladen.", "success");
@@ -1212,6 +1355,40 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
   if (firstChannel) {
     selectChannel(root, firstChannel);
   }
+}
+
+function updateActiveWorkspaceCard(
+  root: HTMLElement,
+  workspaceName: string,
+  totalChannels: number,
+): void {
+  const title = root.querySelector<HTMLElement>("#active-workspace-card-title");
+  if (title) {
+    title.textContent = workspaceName;
+  }
+  const box = root.querySelector<HTMLElement>(".workspace-channel-box");
+  if (box) {
+    box.dataset.state = totalChannels === 0 ? "empty" : "ready";
+  }
+}
+
+function updateCreateChannelButton(root: HTMLElement, channelCount: number): void {
+  const button = root.querySelector<HTMLButtonElement>("#create-channel-button");
+  if (!button) {
+    return;
+  }
+  const hasWorkspace = Boolean(root.dataset.activeWorkspaceId);
+  button.hidden = hasWorkspace && channelCount >= 5;
+  button.disabled = !hasWorkspace || channelCount >= 5;
+  button.textContent = channelCount === 0 ? "+ Ersten Channel anlegen" : "+ Channel";
+}
+
+function countSelectableChannels(nodes: readonly ChannelTreeNode[]): number {
+  return nodes.reduce(
+    (count, node) =>
+      count + (node.type === ChannelType.CATEGORY ? 0 : 1) + countSelectableChannels(node.children),
+    0,
+  );
 }
 
 function renderWorkspaceList(
@@ -1251,32 +1428,43 @@ function renderWorkspaceListItems(
   const sortedWorkspaces = [...workspaces].sort(compareWorkspacesForNavigation);
 
   return `<ol class="workspace-switcher__list">${sortedWorkspaces
-    .map(
-      (workspace) => `
+    .map((workspace) => {
+      const displayName = displayWorkspaceName(workspace);
+      return `
         <li>
           <button class="workspace-switcher__item workspace-switcher__item--${workspace.accessMode === "global_authenticated" ? "global" : "private"}${
             workspace.id === activeWorkspaceId ? " is-active" : ""
-          }" type="button" data-workspace-id="${escapeAttribute(workspace.id)}">
-            <span class="workspace-switcher__avatar" aria-hidden="true">${escapeHtml(initials(workspace.name))}</span>
+          }" type="button" data-workspace-id="${escapeAttribute(workspace.id)}" data-workspace-name="${escapeAttribute(displayName)}">
+            <span class="workspace-switcher__avatar" aria-hidden="true">${escapeHtml(initials(displayName))}</span>
             <span class="workspace-switcher__content">
-              <span class="workspace-switcher__name">${escapeHtml(workspace.name)}${workspace.accessMode === "global_authenticated" ? ' <small class="workspace-switcher__badge">Global</small>' : ""}</span>
+              <span class="workspace-switcher__name">${escapeHtml(displayName)}${workspace.accessMode === "global_authenticated" ? ' <small class="workspace-switcher__badge">Global</small>' : ""}</span>
               <small>${escapeHtml(formatWorkspaceMembers(workspace))} · ${workspace.accessMode === "global_authenticated" ? "Keycloak" : `Privat`}</small>
             </span>
           </button>
         </li>
-      `,
-    )
+      `;
+    })
     .join("")}</ol>`;
 }
 
 function compareWorkspacesForNavigation(left: PublicWorkspace, right: PublicWorkspace): number {
   const leftRank = left.accessMode === "global_authenticated" ? 0 : 1;
   const rightRank = right.accessMode === "global_authenticated" ? 0 : 1;
-  return leftRank - rightRank || left.name.localeCompare(right.name);
+  return (
+    leftRank - rightRank || displayWorkspaceName(left).localeCompare(displayWorkspaceName(right))
+  );
+}
+
+function displayWorkspaceName(workspace: PublicWorkspace): string {
+  return workspace.accessMode === "global_authenticated" ? "18 Löcher" : workspace.name;
 }
 
 function renderWorkspaceEmptyState(root: HTMLElement): void {
   updateWorkspaceHeader(root, "Kein Workspace", "Noch kein Workspace", null);
+  root.dataset.activeWorkspaceId = "";
+  root.dataset.activeWorkspaceChannelCount = "0";
+  updateActiveWorkspaceCard(root, "Workspace wählen", 0);
+  updateCreateChannelButton(root, 0);
   const channelTree = root.querySelector<HTMLElement>("#channel-tree");
   if (channelTree) {
     mountChannelTree(channelTree, []);
