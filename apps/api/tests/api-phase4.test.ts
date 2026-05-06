@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { EventEmitter } from "node:events";
 import type { IncomingMessage } from "node:http";
+import type { Duplex } from "node:stream";
 
 import {
   GatewayOp,
@@ -24,8 +25,10 @@ import {
 import { InMemoryPresenceStore } from "../src/modules/gateway/presence.js";
 import { InMemoryGatewayPubSub } from "../src/modules/gateway/pubsub.js";
 import { GatewayService } from "../src/modules/gateway/service.js";
+import { createGatewayWebSocketUpgradeHandler } from "../src/modules/gateway/websocket.js";
 import { InMemoryMessageEventHub } from "../src/modules/messages/events.js";
 import { MessageService } from "../src/modules/messages/service.js";
+import { createMessageWebSocketUpgradeHandler } from "../src/modules/messages/websocket.js";
 import { WorkspaceService } from "../src/modules/workspaces/service.js";
 import type { PasswordHasher } from "../src/security/password.js";
 
@@ -40,8 +43,11 @@ class TestPasswordHasher implements PasswordHasher {
 }
 
 interface TestApp {
+  readonly authService: AuthService;
   readonly gatewayService: GatewayService;
   readonly handler: (request: Request) => Promise<Response>;
+  readonly messageEventHub: InMemoryMessageEventHub;
+  readonly messageService: MessageService;
   readonly repository: InMemoryOpenVoiceRepository;
 }
 
@@ -132,6 +138,72 @@ describe("Phase 4 gateway and presence", () => {
 
     stopOwnerHeartbeat();
   });
+
+  it("rejects cookie-authenticated WebSocket upgrades from untrusted origins", async () => {
+    const app = await createTestApp();
+    const owner = await register(app, "owner@example.com");
+    const workspace = await createWorkspace(app, owner);
+    const channel = await createChannel(app, owner, workspace.id, {
+      name: "General",
+      type: "text",
+    });
+    const config = {
+      corsAllowedOrigins: ["http://local.test"],
+      sessionCookieName: "openvoice_session",
+    };
+
+    const gatewaySocket = new TestUpgradeSocket();
+    createGatewayWebSocketUpgradeHandler(app.gatewayService, config).handle(
+      {
+        headers: {
+          cookie: owner.cookie,
+          host: "local.test",
+          origin: "https://evil.example",
+        },
+        url: "/api/v1/gateway",
+      } as IncomingMessage,
+      gatewaySocket as unknown as Duplex,
+      Buffer.alloc(0),
+    );
+    expect(gatewaySocket.writes.join("")).toContain("403 Forbidden");
+    expect(gatewaySocket.destroyedByHandler).toBe(true);
+
+    const messageSocket = new TestUpgradeSocket();
+    createMessageWebSocketUpgradeHandler({
+      authService: app.authService,
+      config,
+      eventHub: app.messageEventHub,
+      messageService: app.messageService,
+    }).handle(
+      {
+        headers: {
+          cookie: owner.cookie,
+          host: "local.test",
+          origin: "https://evil.example",
+        },
+        url: `/api/v1/channels/${channel.id}/messages/ws`,
+      } as IncomingMessage,
+      messageSocket as unknown as Duplex,
+      Buffer.alloc(0),
+    );
+    expect(messageSocket.writes.join("")).toContain("403 Forbidden");
+    expect(messageSocket.destroyedByHandler).toBe(true);
+  });
+
+  it("rate limits excessive gateway frames", async () => {
+    const app = await createTestApp();
+    const owner = await register(app, "owner@example.com");
+    await createWorkspace(app, owner);
+    const gateway = await connectGateway(app, owner);
+
+    for (let index = 0; index < 241; index += 1) {
+      gateway.clientSend({ op: GatewayOp.HEARTBEAT });
+    }
+
+    const error = await waitForOp(gateway, GatewayOp.ERROR);
+    expect(error.d).toMatchObject({ code: "RATE_LIMITED" });
+    await waitForClose(gateway);
+  });
 });
 
 async function createTestApp(
@@ -179,7 +251,14 @@ async function createTestApp(
     pubSub,
     workspaceService,
   });
-  return { gatewayService, handler, repository };
+  return {
+    authService,
+    gatewayService,
+    handler,
+    messageEventHub,
+    messageService,
+    repository,
+  };
 }
 
 async function connectGateway(app: TestApp, session: TestSession): Promise<GatewaySocket> {
@@ -497,5 +576,21 @@ class TestWebSocket extends EventEmitter {
 
     this.readyState = WebSocket.CLOSED;
     this.emit("close");
+  }
+}
+
+class TestUpgradeSocket extends EventEmitter {
+  public readonly writes: string[] = [];
+  public destroyedByHandler = false;
+
+  public write(data: string): boolean {
+    this.writes.push(data);
+    return true;
+  }
+
+  public destroy(): this {
+    this.destroyedByHandler = true;
+    this.emit("close");
+    return this;
   }
 }

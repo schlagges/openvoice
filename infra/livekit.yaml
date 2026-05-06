@@ -1,5 +1,6 @@
-# Development LiveKit config for Docker Compose.
-# Replace the placeholder key/secret before any production deployment.
+# LiveKit config reference for OpenVoice.
+# Docker Compose generates its runtime LiveKit config from LIVEKIT_API_KEY and
+# LIVEKIT_API_SECRET. Do not commit concrete LiveKit keys or secrets here.
 
 port: 7880
 bind_addresses:
@@ -11,8 +12,7 @@ rtc:
   port_range_end: 50100
   use_external_ip: false
 
-keys:
-  devkey: replace-with-livekit-api-secret-32chars
+keys: {}
 
 logging:
   level: info

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import type { Room } from "livekit-client";
 
 import {
   ChannelType,
@@ -8,20 +9,66 @@ import {
   type ClientRtcQualitySample,
   type ChannelTreeNode,
 } from "@openvoice/shared";
-import { renderChatPanel } from "../src/chat/chat-panel";
+import { renderChatPanel, renderMessage } from "../src/chat/chat-panel";
 import { renderChannelTree } from "../src/channels/channel-tree";
-import { formatWebTitle } from "../src/main";
+import {
+  formatWebTitle,
+  renderDesktopQrPanel,
+  renderOperationsLinks,
+  renderQuickStartPanel,
+} from "../src/main";
 import { renderAuditLog } from "../src/moderation/audit-log";
 import {
   createCameraCaptureOptions,
   createScreenShareCaptureOptions,
   createScreenSharePublishOptions,
 } from "../src/voice/media-profiles";
-import { toRtcStatsRequestBody } from "../src/voice/voice-client";
+import {
+  collectVideoTiles,
+  formatVoiceRequestError,
+  renderVoiceControlsPanel,
+  toRtcStatsRequestBody,
+} from "../src/voice/voice-client";
 
 describe("web foundation", () => {
   it("formats the phase title", () => {
     expect(formatWebTitle(9)).toBe("OpenVoice Phase 9");
+  });
+
+  it("renders local operations links", () => {
+    const html = renderOperationsLinks();
+
+    expect(html).toContain("/healthz");
+    expect(html).toContain("/readyz");
+    expect(html).toContain("/metrics");
+    expect(html).toContain("http://localhost:9090");
+    expect(html).toContain("http://localhost:3001");
+  });
+
+  it("renders a desktop QR panel for mobile handoff", () => {
+    const html = renderDesktopQrPanel("https://voice.schnick-schnack.info/test");
+
+    expect(html).toContain("Auf dem Handy");
+    expect(html).toContain("<svg");
+    expect(html).toContain("https://voice.schnick-schnack.info/test");
+  });
+
+  it("renders a UI quick start flow without console use", () => {
+    const html = renderQuickStartPanel();
+
+    expect(html).toContain("Testumgebung erstellen");
+    expect(html).toContain("Channel-Typ");
+    expect(html).toContain('value="combined"');
+    expect(html).toContain("Voice beitreten");
+  });
+
+  it("renders voice controls with an explicit join-first flow", () => {
+    const html = renderVoiceControlsPanel();
+
+    expect(html).toContain("Voice beitreten");
+    expect(html).toContain("Kamera");
+    expect(html).toContain('id="voice-camera" type="button" disabled');
+    expect(html).toContain("Nicht verbunden");
   });
 
   it("renders an escaped channel tree", () => {
@@ -86,6 +133,35 @@ describe("web foundation", () => {
 
     expect(html).toContain("&lt;script&gt;");
     expect(html).toContain("bearbeitet");
+  });
+
+  it("renders an actionable chat empty state", () => {
+    const html = renderChatPanel([]);
+
+    expect(html).toContain("Noch keine Nachrichten");
+    expect(html).toContain("Nachricht senden");
+    expect(html).toContain("chat-composer-status");
+  });
+
+  it("exports escaped message rendering for dynamic appends", () => {
+    const now = new Date().toISOString();
+
+    expect(
+      renderMessage({
+        authorId: "author",
+        channelId: "channel",
+        clientMessageId: "client",
+        content: "<b>hello</b>",
+        contentFormat: MessageContentFormat.MARKDOWN,
+        createdAt: now,
+        deletedAt: null,
+        deletedBy: null,
+        editedAt: null,
+        id: "message",
+        updatedAt: now,
+        workspaceId: "workspace",
+      }),
+    ).toContain("&lt;b&gt;hello&lt;/b&gt;");
   });
 
   it("renders escaped audit log entries", () => {
@@ -173,5 +249,42 @@ describe("web foundation", () => {
       channelId: "channel",
       connection: { selectedCandidateType: "relay" },
     });
+  });
+
+  it("formats actionable voice request errors", async () => {
+    await expect(formatVoiceRequestError(new Response(null, { status: 401 }))).resolves.toContain(
+      "Nicht angemeldet",
+    );
+    await expect(formatVoiceRequestError(new Response(null, { status: 403 }))).resolves.toContain(
+      "Kein Zugriff",
+    );
+    await expect(formatVoiceRequestError(new Response(null, { status: 500 }))).resolves.toBe(
+      "OpenVoice voice request failed with 500.",
+    );
+    await expect(
+      formatVoiceRequestError(
+        Response.json({ error: { message: "Invalid CSRF token." } }, { status: 403 }),
+      ),
+    ).resolves.toContain("CSRF");
+  });
+
+  it("omits muted video publications from the RTC video grid model", () => {
+    const activeTrack = { attach: () => undefined, detach: () => undefined };
+    const mutedTrack = { attach: () => undefined, detach: () => undefined };
+    const room = {
+      localParticipant: {
+        videoTrackPublications: new Map([
+          [
+            "active",
+            { isMuted: false, source: "camera", trackSid: "active", videoTrack: activeTrack },
+          ],
+          ["muted", { isMuted: true, source: "camera", trackSid: "muted", videoTrack: mutedTrack }],
+        ]),
+      },
+      remoteParticipants: new Map(),
+    } as unknown as Room;
+
+    expect(collectVideoTiles(room)).toHaveLength(1);
+    expect(collectVideoTiles(room)[0]?.key).toBe("local:active");
   });
 });

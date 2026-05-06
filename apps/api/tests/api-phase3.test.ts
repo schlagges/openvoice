@@ -222,6 +222,33 @@ describe("Phase 3 message API", () => {
     );
     expect(limitedResponse.status).toBe(429);
   });
+
+  it("rejects edits when a channel override removes VIEW_CHANNEL", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "owner@example.com");
+    const workspace = await createWorkspace(app, owner);
+    const channel = await createChannel(app, owner, workspace.id, {
+      name: "Private Later",
+      type: "text",
+    });
+    const member = await register(app, "member@example.com");
+    const memberRole = addWorkspaceMember(app.repository, workspace.id, member.user.id, "member");
+    const message = await createMessage(app, member, channel.id, "visible before override");
+
+    await putOverride(app, owner, channel.id, "role", memberRole.id, {
+      allow: "0",
+      deny: serializePermissionMask(Permission.VIEW_CHANNEL),
+    });
+
+    const editResponse = await app.handler(
+      patchRequest(
+        `/api/v1/messages/${message.id}`,
+        { content: "edited after hidden", contentFormat: "markdown" },
+        authHeaders(member),
+      ),
+    );
+    expect(editResponse.status).toBe(403);
+  });
 });
 
 function createTestApp(): TestApp {

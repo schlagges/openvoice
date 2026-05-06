@@ -8,7 +8,9 @@ import { ObservabilityService } from "../modules/observability/service.js";
 import { VoiceService } from "../modules/voice/service.js";
 import { WorkspaceService } from "../modules/workspaces/service.js";
 import { readRequestToken } from "../security/request-auth.js";
+import { runWithAuditContext } from "../modules/audit/context.js";
 import { clearSessionCookie, createSessionCookie } from "./cookies.js";
+import { createAuditIpHash, getClientAddressFromRequest } from "./client-ip.js";
 import {
   ApiError,
   jsonResponse,
@@ -57,7 +59,10 @@ export interface ApiHandlerOptions {
     | "sessionCookieName"
     | "sessionCookieSecure"
     | "sessionTtlSeconds"
-  >;
+  > & {
+    readonly auditIpHashSecret?: string;
+    readonly trustedProxyIps?: readonly string[];
+  };
   readonly messageService: MessageService;
   readonly moderationService?: ModerationService;
   readonly observabilityService?: ObservabilityService;
@@ -77,17 +82,27 @@ interface AuthenticatedRequest {
 export function createApiHandler(
   options: ApiHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  const rateLimiter = options.rateLimiter ?? new ApiRequestRateLimiter();
+  const rateLimiter =
+    options.rateLimiter ??
+    new ApiRequestRateLimiter({ trustedProxyIps: options.config.trustedProxyIps });
 
   return async (request) => {
     const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
     const url = new URL(request.url);
 
     try {
-      const response =
-        request.method === "OPTIONS"
-          ? createCorsPreflightResponse(request, options.config, requestId)
-          : await routeRequest(request, url, requestId, options, rateLimiter);
+      const clientAddress = getClientAddressFromRequest(request, options.config);
+      const response = await runWithAuditContext(
+        {
+          ipHash: options.config.auditIpHashSecret
+            ? createAuditIpHash(clientAddress, options.config.auditIpHashSecret)
+            : null,
+        },
+        async () =>
+          request.method === "OPTIONS"
+            ? createCorsPreflightResponse(request, options.config, requestId)
+            : await routeRequest(request, url, requestId, options, rateLimiter),
+      );
       response.headers.set("x-request-id", requestId);
       options.observabilityService?.metrics.recordHttpRequest({
         method: request.method,
@@ -226,7 +241,7 @@ async function routeRequest(
     assertMethod(request, "GET");
     const authenticated = await authenticateRequest(request, options);
     return jsonResponse(
-      requireVoiceService(options).createIceServers(authenticated.userId),
+      await requireVoiceService(options).createIceServers(authenticated.userId),
       200,
       requestId,
     );

@@ -11,6 +11,7 @@ import {
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import { DuplicateEmailError } from "./errors.js";
+import { getAuditIpHash } from "../modules/audit/context.js";
 import type {
   AuditLogEntry,
   AuditMetadata,
@@ -988,6 +989,14 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
   }
 
+  public async findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null> {
+    const result = await this.pool.query<VoiceStateRow>(
+      "SELECT * FROM voice_states WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
+      [userId],
+    );
+    return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
+  }
+
   public async listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]> {
     const result = await this.pool.query<VoiceStateRow>(
       `SELECT *
@@ -1242,7 +1251,7 @@ async function insertWorkspaceCreationAuditEntries(
   for (const entry of entries) {
     const result = await client.query<AuditLogRow>(
       `INSERT INTO audit_log (id, workspace_id, actor_id, event, target_type, target_id, reason, metadata, ip_hash, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, null, $7, null, now())
+       VALUES ($1, $2, $3, $4, $5, $6, null, $7, $8, now())
        RETURNING *`,
       [
         randomUUID(),
@@ -1252,6 +1261,7 @@ async function insertWorkspaceCreationAuditEntries(
         entry.targetType,
         entry.targetId,
         JSON.stringify(entry.metadata),
+        getAuditIpHash(),
       ],
     );
     auditLogEntries.push(mapAuditLogEntry(result.rows[0]));
@@ -1432,7 +1442,7 @@ async function insertAuditLog(
 ): Promise<AuditLogEntry> {
   const result = await client.query<AuditLogRow>(
     `INSERT INTO audit_log (id, workspace_id, actor_id, event, target_type, target_id, reason, metadata, ip_hash, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, null, now())
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
      RETURNING *`,
     [
       randomUUID(),
@@ -1443,6 +1453,7 @@ async function insertAuditLog(
       input.targetId,
       input.reason ?? null,
       JSON.stringify(input.metadata),
+      getAuditIpHash(),
     ],
   );
 

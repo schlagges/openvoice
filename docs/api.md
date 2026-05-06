@@ -16,6 +16,11 @@ Die verbindliche API-Spezifikation steht in `docs/lastenheft.md`. Diese Datei is
 - CSRF: Cookie-authentifizierte unsafe Requests brauchen `x-openvoice-csrf-token`; vorhandene
   `Origin`/`Referer` muessen zur Allowlist passen
 
+## v0.1.0-rc1 Scope
+
+`v0.1.0-rc1` ist ein API-/Backend-Release-Candidate. Diese Kurzreferenz markiert Endpunkte, die im
+aktuellen RC noch nicht implementiert sind, explizit mit `(nicht in v0.1.0-rc1)`.
+
 ---
 
 ## Fehlerformat
@@ -41,8 +46,8 @@ Die verbindliche API-Spezifikation steht in `docs/lastenheft.md`. Diese Datei is
 POST /api/v1/auth/register
 POST /api/v1/auth/login
 POST /api/v1/auth/logout
-POST /api/v1/auth/password-reset/request
-POST /api/v1/auth/password-reset/confirm
+POST /api/v1/auth/password-reset/request (nicht in v0.1.0-rc1)
+POST /api/v1/auth/password-reset/confirm (nicht in v0.1.0-rc1)
 GET  /api/v1/me
 ```
 
@@ -65,11 +70,11 @@ clientseitig vertrauenswürdige User-ID.
 
 ```http
 POST   /api/v1/workspaces
-GET    /api/v1/workspaces
-GET    /api/v1/workspaces/:workspaceId
-PATCH  /api/v1/workspaces/:workspaceId
-DELETE /api/v1/workspaces/:workspaceId
-GET    /api/v1/workspaces/:workspaceId/members
+GET    /api/v1/workspaces (nicht in v0.1.0-rc1)
+GET    /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
+PATCH  /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
+DELETE /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
+GET    /api/v1/workspaces/:workspaceId/members (nicht in v0.1.0-rc1)
 GET    /api/v1/workspaces/:workspaceId/tree
 GET    /api/v1/workspaces/:workspaceId/audit-log
 ```
@@ -82,9 +87,9 @@ GET    /api/v1/workspaces/:workspaceId/audit-log
 
 ```http
 POST   /api/v1/workspaces/:workspaceId/channels
-GET    /api/v1/channels/:channelId
-PATCH  /api/v1/channels/:channelId
-DELETE /api/v1/channels/:channelId
+GET    /api/v1/channels/:channelId (nicht in v0.1.0-rc1)
+PATCH  /api/v1/channels/:channelId (nicht in v0.1.0-rc1)
+DELETE /api/v1/channels/:channelId (nicht in v0.1.0-rc1)
 POST   /api/v1/workspaces/:workspaceId/channels/reorder
 ```
 
@@ -129,13 +134,13 @@ Gateway-Konventionen:
 ## Roles
 
 ```http
-GET    /api/v1/workspaces/:workspaceId/roles
-POST   /api/v1/workspaces/:workspaceId/roles
-PATCH  /api/v1/roles/:roleId
-DELETE /api/v1/roles/:roleId
-POST   /api/v1/workspaces/:workspaceId/roles/reorder
-PUT    /api/v1/workspaces/:workspaceId/members/:userId/roles/:roleId
-DELETE /api/v1/workspaces/:workspaceId/members/:userId/roles/:roleId
+GET    /api/v1/workspaces/:workspaceId/roles (nicht in v0.1.0-rc1)
+POST   /api/v1/workspaces/:workspaceId/roles (nicht in v0.1.0-rc1)
+PATCH  /api/v1/roles/:roleId (nicht in v0.1.0-rc1)
+DELETE /api/v1/roles/:roleId (nicht in v0.1.0-rc1)
+POST   /api/v1/workspaces/:workspaceId/roles/reorder (nicht in v0.1.0-rc1)
+PUT    /api/v1/workspaces/:workspaceId/members/:userId/roles/:roleId (nicht in v0.1.0-rc1)
+DELETE /api/v1/workspaces/:workspaceId/members/:userId/roles/:roleId (nicht in v0.1.0-rc1)
 ```
 
 ## Moderation

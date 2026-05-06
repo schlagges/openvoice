@@ -17,7 +17,10 @@ import {
 import { WebSocket } from "ws";
 
 import type { ApiConfig } from "../../config/env.js";
+import { ApiError } from "../../http/errors.js";
+import { getClientAddressFromIncoming } from "../../http/client-ip.js";
 import { readRequestToken } from "../../security/request-auth.js";
+import { InMemoryRateLimiter } from "../../security/rate-limit.js";
 import { AuthService, toPublicUser } from "../auth/service.js";
 import type { ChannelService } from "../channels/service.js";
 import type { OpenVoiceMetrics } from "../observability/metrics.js";
@@ -28,7 +31,9 @@ import type { PresenceStore } from "./presence.js";
 export interface GatewayServiceOptions {
   readonly authService: AuthService;
   readonly channelService: ChannelService;
-  readonly config: Pick<ApiConfig, "sessionCookieName">;
+  readonly config: Pick<ApiConfig, "sessionCookieName"> & {
+    readonly trustedProxyIps?: readonly string[];
+  };
   readonly heartbeatIntervalMs?: number;
   readonly metrics?: OpenVoiceMetrics;
   readonly presenceStore: PresenceStore;
@@ -40,6 +45,7 @@ export interface GatewayServiceOptions {
 interface GatewayConnection {
   readonly connectionId: string;
   readonly initialToken: string | null;
+  readonly rateLimitKey: string;
   readonly webSocket: WebSocket;
   heartbeatTimer: NodeJS.Timeout | null;
   identified: boolean;
@@ -63,8 +69,11 @@ interface ResumeSession {
 export class GatewayService {
   private readonly authService: AuthService;
   private readonly channelService: ChannelService;
-  private readonly config: Pick<ApiConfig, "sessionCookieName">;
+  private readonly config: Pick<ApiConfig, "sessionCookieName"> & {
+    readonly trustedProxyIps?: readonly string[];
+  };
   private readonly connections = new Map<string, GatewayConnection>();
+  private readonly frameRateLimiter = new InMemoryRateLimiter();
   private readonly heartbeatIntervalMs: number;
   private readonly metrics: OpenVoiceMetrics | null;
   private readonly presenceStore: PresenceStore;
@@ -94,6 +103,7 @@ export class GatewayService {
       initialToken: readInitialToken(incoming, this.config.sessionCookieName),
       lastHeartbeatAt: Date.now(),
       resumeToken: null,
+      rateLimitKey: getClientAddressFromIncoming(incoming, this.config),
       sequence: 0,
       status: PresenceStatus.ONLINE,
       userId: null,
@@ -136,6 +146,10 @@ export class GatewayService {
   }
 
   private async handleIncomingMessage(connection: GatewayConnection, raw: string): Promise<void> {
+    if (!this.assertGatewayFrameAllowed(connection, "frame")) {
+      return;
+    }
+
     const envelope = parseGatewayEnvelope(raw);
     if (!envelope) {
       this.sendError(connection, "BAD_PAYLOAD", "Gateway payload must be a JSON object.");
@@ -143,6 +157,9 @@ export class GatewayService {
     }
 
     if (envelope.op === GatewayOp.IDENTIFY) {
+      if (!this.assertGatewayFrameAllowed(connection, "identify")) {
+        return;
+      }
       await this.identify(connection, envelope.d);
       return;
     }
@@ -167,6 +184,9 @@ export class GatewayService {
       envelope.op === GatewayOp.DISPATCH &&
       envelope.t === ClientGatewayEventType.PRESENCE_UPDATE
     ) {
+      if (!this.assertGatewayFrameAllowed(connection, "presence")) {
+        return;
+      }
       await this.updatePresence(connection, envelope.d);
       return;
     }
@@ -433,6 +453,34 @@ export class GatewayService {
       d: payload,
       op: GatewayOp.ERROR,
     });
+  }
+
+  private assertGatewayFrameAllowed(
+    connection: GatewayConnection,
+    scope: "frame" | "identify" | "presence",
+  ): boolean {
+    const rule =
+      scope === "identify"
+        ? { capacity: 5, refillAmount: 5, refillIntervalMs: 60_000 }
+        : scope === "presence"
+          ? { capacity: 60, refillAmount: 60, refillIntervalMs: 60_000 }
+          : { capacity: 240, refillAmount: 240, refillIntervalMs: 60_000 };
+
+    try {
+      this.frameRateLimiter.assertAllowed(
+        `gateway:${scope}:${connection.userId ?? connection.rateLimitKey}`,
+        rule,
+      );
+      return true;
+    } catch (error) {
+      const retryAfterSeconds =
+        error instanceof ApiError && typeof error.details?.retryAfterSeconds === "number"
+          ? error.details.retryAfterSeconds
+          : 1;
+      this.sendError(connection, "RATE_LIMITED", "Gateway rate limit exceeded.");
+      connection.webSocket.close(4008, `rate limited; retry after ${retryAfterSeconds}s`);
+      return false;
+    }
   }
 
   private get presenceTtlMs(): number {

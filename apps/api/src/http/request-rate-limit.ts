@@ -1,5 +1,6 @@
 import { InMemoryRateLimiter } from "../security/rate-limit.js";
 import type { RateLimitRule } from "../security/rate-limit.js";
+import { getClientAddressFromRequest, type ClientAddressConfig } from "./client-ip.js";
 
 const API_RATE_LIMITS = {
   authLogin: {
@@ -40,9 +41,11 @@ const API_RATE_LIMITS = {
 } as const satisfies Record<string, RateLimitRule>;
 
 export class ApiRequestRateLimiter {
+  private readonly config: ClientAddressConfig;
   private readonly limiter: InMemoryRateLimiter;
 
-  public constructor(limiter = new InMemoryRateLimiter()) {
+  public constructor(options: ClientAddressConfig = {}, limiter = new InMemoryRateLimiter()) {
+    this.config = options;
     this.limiter = limiter;
   }
 
@@ -52,7 +55,10 @@ export class ApiRequestRateLimiter {
       return;
     }
 
-    this.limiter.assertAllowed(`${route.name}:${clientAddress(request)}`, route.rule);
+    this.limiter.assertAllowed(
+      `${route.name}:${getClientAddressFromRequest(request, this.config)}`,
+      route.rule,
+    );
   }
 }
 
@@ -91,13 +97,4 @@ function classifyRoute(
   return request.method === "GET"
     ? { name: "api:read", rule: API_RATE_LIMITS.generalRead }
     : { name: "api:write", rule: API_RATE_LIMITS.generalWrite };
-}
-
-function clientAddress(request: Request): string {
-  const forwardedFor = request.headers.get("x-forwarded-for");
-  if (forwardedFor) {
-    return forwardedFor.split(",")[0]?.trim() || "unknown";
-  }
-
-  return request.headers.get("x-real-ip") ?? "local";
 }

@@ -334,18 +334,20 @@ export class OpenVoiceVoiceClient {
   }
 
   private async fetchJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+    const csrfToken = readStoredCsrfToken() ?? this.csrfToken;
+    this.csrfToken = csrfToken;
     const response = await fetch(`${this.apiBaseUrl}${path}`, {
       ...init,
       credentials: "include",
       headers: {
         ...(init.body ? { "content-type": "application/json" } : {}),
-        ...(this.csrfToken ? { "x-openvoice-csrf-token": this.csrfToken } : {}),
+        ...(csrfToken ? { "x-openvoice-csrf-token": csrfToken } : {}),
         ...init.headers,
       },
     });
 
     if (!response.ok) {
-      throw new Error(`OpenVoice voice request failed with ${response.status}.`);
+      throw new Error(await formatVoiceRequestError(response));
     }
 
     return (await response.json()) as T;
@@ -353,6 +355,36 @@ export class OpenVoiceVoiceClient {
 }
 
 export type RtcStatsRequestPayload = Omit<ClientRtcQualitySample, "userId">;
+
+export async function formatVoiceRequestError(response: Response): Promise<string> {
+  const errorMessage = await readApiErrorMessage(response);
+  if (errorMessage === "Missing CSRF token." || errorMessage === "Invalid CSRF token.") {
+    return `${errorMessage} Bitte den aktuellen CSRF-Token per Anleitung neu speichern.`;
+  }
+
+  const status = response.status;
+  if (status === 401) {
+    return "Nicht angemeldet. Bitte erst registrieren oder einloggen und den CSRF-Token im Browser speichern.";
+  }
+
+  if (status === 403) {
+    return "Kein Zugriff auf diesen Voice-Channel oder fehlende Voice-Rechte.";
+  }
+
+  return `OpenVoice voice request failed with ${status}.`;
+}
+
+async function readApiErrorMessage(response: Response): Promise<string | null> {
+  const contentType = response.headers.get("content-type") ?? "";
+  if (!contentType.includes("application/json")) {
+    return null;
+  }
+
+  const body = (await response.json().catch(() => null)) as {
+    error?: { message?: unknown };
+  } | null;
+  return typeof body?.error?.message === "string" ? body.error.message : null;
+}
 
 export function toRtcStatsRequestBody(sample: ClientRtcQualitySample): RtcStatsRequestPayload {
   return {
@@ -367,21 +399,120 @@ export function toRtcStatsRequestBody(sample: ClientRtcQualitySample): RtcStatsR
 }
 
 export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoiceClient()): void {
-  root.insertAdjacentHTML(
-    "beforeend",
-    `
+  root.insertAdjacentHTML("beforeend", renderVoiceControlsPanel());
+  const input = root.querySelector<HTMLInputElement>("#voice-channel-id");
+  const cameraQuality = root.querySelector<HTMLSelectElement>("#voice-camera-quality");
+  const screenQuality = root.querySelector<HTMLSelectElement>("#voice-screen-quality");
+  const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
+  const status = root.querySelector<HTMLOutputElement>("#voice-status");
+  const videoGrid = root.querySelector<HTMLElement>("#voice-video-grid");
+  const leaveButton = root.querySelector<HTMLButtonElement>("#voice-leave");
+  const muteButton = root.querySelector<HTMLButtonElement>("#voice-mute");
+  const deafenButton = root.querySelector<HTMLButtonElement>("#voice-deafen");
+  const cameraButton = root.querySelector<HTMLButtonElement>("#voice-camera");
+  const screenButton = root.querySelector<HTMLButtonElement>("#voice-screen");
+  const mediaButtons = [leaveButton, muteButton, deafenButton, cameraButton, screenButton];
+  if (videoGrid) {
+    mountVideoGrid(videoGrid, client.liveKitRoom);
+  }
+  const setStatus = (text: string): void => {
+    if (status) {
+      status.value = text;
+    }
+  };
+  const setVoiceActionsEnabled = (enabled: boolean): void => {
+    for (const button of mediaButtons) {
+      if (button) {
+        button.disabled = !enabled;
+      }
+    }
+  };
+  setVoiceActionsEnabled(false);
+
+  root.querySelector<HTMLButtonElement>("#voice-join")?.addEventListener("click", () => {
+    const channelId = input?.value.trim() ?? "";
+    if (!channelId) {
+      setStatus("Channel fehlt");
+      return;
+    }
+
+    setStatus("Voice-Verbindung wird aufgebaut.");
+    void client
+      .join(channelId)
+      .then((result) => {
+        setVoiceActionsEnabled(true);
+        setStatus(`Verbunden: ${result.roomName}`);
+      })
+      .catch((error: unknown) => {
+        setVoiceActionsEnabled(false);
+        setStatus(error instanceof Error ? error.message : "Voice join failed");
+      });
+  });
+  leaveButton?.addEventListener("click", () => {
+    void client.leave().then(() => {
+      setVoiceActionsEnabled(false);
+      setStatus("Getrennt");
+    });
+  });
+  muteButton?.addEventListener("click", () => {
+    const nextMuted = !client.currentState?.selfMuted;
+    void client
+      .setSelfMuted(nextMuted)
+      .then((state) => setStatus(state.selfMuted ? "Stumm" : "Mic an"));
+  });
+  deafenButton?.addEventListener("click", () => {
+    const nextDeafened = !client.currentState?.selfDeafened;
+    void client
+      .setSelfDeafened(nextDeafened)
+      .then((state) => setStatus(state.selfDeafened ? "Taub" : "Audio an"));
+  });
+  cameraButton?.addEventListener("click", () => {
+    const nextEnabled = !client.currentState?.cameraEnabled;
+    void client
+      .setCameraEnabled(nextEnabled, parseQualitySelection(cameraQuality, VideoQualityProfile.P720))
+      .then((state) => setStatus(state.cameraEnabled ? "Kamera an" : "Kamera aus"))
+      .catch((error: unknown) =>
+        setStatus(error instanceof Error ? error.message : "Camera failed"),
+      );
+  });
+  screenButton?.addEventListener("click", () => {
+    const nextEnabled = !client.currentState?.screenShareEnabled;
+    void client
+      .setScreenShareEnabled(
+        nextEnabled,
+        parseQualitySelection(screenQuality, VideoQualityProfile.P1080),
+        parseContentModeSelection(screenMode),
+      )
+      .then((state) => setStatus(state.screenShareEnabled ? "Screen an" : "Screen aus"))
+      .catch((error: unknown) =>
+        setStatus(error instanceof Error ? error.message : "Screenshare failed"),
+      );
+  });
+}
+
+export function renderVoiceControlsPanel(): string {
+  return `
       <section class="voice-panel" aria-label="Voice">
-        <label class="voice-panel__field">
-          <span>Voice channel ID</span>
-          <input id="voice-channel-id" class="voice-panel__input" autocomplete="off" />
-        </label>
-        <div class="voice-panel__actions">
-          <button id="voice-join" type="button">Join</button>
-          <button id="voice-leave" type="button">Leave</button>
-          <button id="voice-mute" type="button">Mute</button>
-          <button id="voice-deafen" type="button">Deafen</button>
-          <button id="voice-camera" type="button">Camera</button>
-          <button id="voice-screen" type="button">Share</button>
+        <header class="voice-panel__header">
+          <div>
+            <p class="eyebrow">RTC</p>
+            <h2>Voice Session</h2>
+          </div>
+          <output id="voice-status" class="voice-panel__status">Nicht verbunden</output>
+        </header>
+        <div class="voice-panel__join">
+          <label class="voice-panel__field">
+            <span>Voice channel ID</span>
+            <input id="voice-channel-id" class="voice-panel__input" autocomplete="off" />
+          </label>
+          <button id="voice-join" class="voice-panel__primary" type="button">Voice beitreten</button>
+        </div>
+        <div class="voice-panel__actions" aria-label="Voice Aktionen">
+          <button id="voice-leave" type="button" disabled>Verlassen</button>
+          <button id="voice-mute" type="button" disabled>Stummschalten</button>
+          <button id="voice-deafen" type="button" disabled>Deafen</button>
+          <button id="voice-camera" type="button" disabled>Kamera</button>
+          <button id="voice-screen" type="button" disabled>Bildschirm teilen</button>
         </div>
         <div class="voice-panel__media">
           <label class="voice-panel__field">
@@ -411,76 +542,8 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
           </label>
         </div>
         <div id="voice-video-grid" class="voice-video-grid" aria-label="Video Grid"></div>
-        <output id="voice-status" class="voice-panel__status"></output>
       </section>
-    `,
-  );
-  const input = root.querySelector<HTMLInputElement>("#voice-channel-id");
-  const cameraQuality = root.querySelector<HTMLSelectElement>("#voice-camera-quality");
-  const screenQuality = root.querySelector<HTMLSelectElement>("#voice-screen-quality");
-  const screenMode = root.querySelector<HTMLSelectElement>("#voice-screen-mode");
-  const status = root.querySelector<HTMLOutputElement>("#voice-status");
-  const videoGrid = root.querySelector<HTMLElement>("#voice-video-grid");
-  if (videoGrid) {
-    mountVideoGrid(videoGrid, client.liveKitRoom);
-  }
-  const setStatus = (text: string): void => {
-    if (status) {
-      status.value = text;
-    }
-  };
-
-  root.querySelector<HTMLButtonElement>("#voice-join")?.addEventListener("click", () => {
-    const channelId = input?.value.trim() ?? "";
-    if (!channelId) {
-      setStatus("Channel fehlt");
-      return;
-    }
-
-    void client
-      .join(channelId)
-      .then((result) => setStatus(`Verbunden: ${result.roomName}`))
-      .catch((error: unknown) =>
-        setStatus(error instanceof Error ? error.message : "Voice join failed"),
-      );
-  });
-  root.querySelector<HTMLButtonElement>("#voice-leave")?.addEventListener("click", () => {
-    void client.leave().then(() => setStatus("Getrennt"));
-  });
-  root.querySelector<HTMLButtonElement>("#voice-mute")?.addEventListener("click", () => {
-    const nextMuted = !client.currentState?.selfMuted;
-    void client
-      .setSelfMuted(nextMuted)
-      .then((state) => setStatus(state.selfMuted ? "Stumm" : "Mic an"));
-  });
-  root.querySelector<HTMLButtonElement>("#voice-deafen")?.addEventListener("click", () => {
-    const nextDeafened = !client.currentState?.selfDeafened;
-    void client
-      .setSelfDeafened(nextDeafened)
-      .then((state) => setStatus(state.selfDeafened ? "Taub" : "Audio an"));
-  });
-  root.querySelector<HTMLButtonElement>("#voice-camera")?.addEventListener("click", () => {
-    const nextEnabled = !client.currentState?.cameraEnabled;
-    void client
-      .setCameraEnabled(nextEnabled, parseQualitySelection(cameraQuality, VideoQualityProfile.P720))
-      .then((state) => setStatus(state.cameraEnabled ? "Kamera an" : "Kamera aus"))
-      .catch((error: unknown) =>
-        setStatus(error instanceof Error ? error.message : "Camera failed"),
-      );
-  });
-  root.querySelector<HTMLButtonElement>("#voice-screen")?.addEventListener("click", () => {
-    const nextEnabled = !client.currentState?.screenShareEnabled;
-    void client
-      .setScreenShareEnabled(
-        nextEnabled,
-        parseQualitySelection(screenQuality, VideoQualityProfile.P1080),
-        parseContentModeSelection(screenMode),
-      )
-      .then((state) => setStatus(state.screenShareEnabled ? "Screen an" : "Screen aus"))
-      .catch((error: unknown) =>
-        setStatus(error instanceof Error ? error.message : "Screenshare failed"),
-      );
-  });
+    `;
 }
 
 export function mountVideoGrid(root: HTMLElement, room: Room): () => void {
@@ -490,6 +553,8 @@ export function mountVideoGrid(root: HTMLElement, room: Room): () => void {
   room.on(RoomEvent.TrackUnsubscribed, render);
   room.on(RoomEvent.TrackPublished, render);
   room.on(RoomEvent.TrackUnpublished, render);
+  room.on(RoomEvent.TrackMuted, render);
+  room.on(RoomEvent.TrackUnmuted, render);
   room.on(RoomEvent.LocalTrackPublished, render);
   room.on(RoomEvent.LocalTrackUnpublished, render);
   room.on(RoomEvent.ParticipantConnected, render);
@@ -501,6 +566,8 @@ export function mountVideoGrid(root: HTMLElement, room: Room): () => void {
     room.off(RoomEvent.TrackUnsubscribed, render);
     room.off(RoomEvent.TrackPublished, render);
     room.off(RoomEvent.TrackUnpublished, render);
+    room.off(RoomEvent.TrackMuted, render);
+    room.off(RoomEvent.TrackUnmuted, render);
     room.off(RoomEvent.LocalTrackPublished, render);
     room.off(RoomEvent.LocalTrackUnpublished, render);
     room.off(RoomEvent.ParticipantConnected, render);
@@ -509,12 +576,13 @@ export function mountVideoGrid(root: HTMLElement, room: Room): () => void {
   };
 }
 
-function renderVideoGrid(root: HTMLElement, room: Room): void {
+export function renderVideoGrid(root: HTMLElement, room: Room): void {
   const focusedKey = root.dataset.focusedTrack;
   clearAttachedVideos(root);
 
   const tiles = collectVideoTiles(room);
   if (tiles.length === 0) {
+    delete root.dataset.focusedTrack;
     root.replaceChildren();
     return;
   }
@@ -558,7 +626,7 @@ function renderVideoGrid(root: HTMLElement, room: Room): void {
   root.replaceChildren(fragment);
 }
 
-interface VideoTile {
+export interface VideoTile {
   readonly isLocal: boolean;
   readonly key: string;
   readonly label: string;
@@ -567,12 +635,12 @@ interface VideoTile {
     | NonNullable<RemoteTrackPublication["videoTrack"]>;
 }
 
-function collectVideoTiles(room: Room): VideoTile[] {
+export function collectVideoTiles(room: Room): VideoTile[] {
   const tiles: VideoTile[] = [];
 
   for (const publication of room.localParticipant.videoTrackPublications.values()) {
     const track = publication.videoTrack;
-    if (!track) {
+    if (!track || publication.isMuted) {
       continue;
     }
 
@@ -596,7 +664,7 @@ function collectRemoteVideoTiles(participant: RemoteParticipant, tiles: VideoTil
 
   for (const publication of participant.videoTrackPublications.values()) {
     const track = publication.videoTrack;
-    if (!track) {
+    if (!track || publication.isMuted) {
       continue;
     }
 
@@ -658,7 +726,7 @@ function parseContentModeSelection(select: HTMLSelectElement | null): ContentMod
 }
 
 function defaultApiBaseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000/api/v1";
+  return import.meta.env.VITE_API_BASE_URL ?? "/api/v1";
 }
 
 function readStoredCsrfToken(): string | null {

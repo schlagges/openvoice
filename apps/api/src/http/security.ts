@@ -58,6 +58,13 @@ export function assertTrustedCsrfOrigin(request: Request, config: HttpSecurityCo
   }
 }
 
+export function isTrustedHttpOrigin(
+  origin: string | null,
+  config: Pick<HttpSecurityConfig, "corsAllowedOrigins">,
+): boolean {
+  return isAllowedOrigin(origin, config);
+}
+
 function setSecurityHeaders(headers: Headers, config: HttpSecurityConfig): void {
   headers.set("content-security-policy", createContentSecurityPolicy(config));
   headers.set("cross-origin-opener-policy", "same-origin");
@@ -105,7 +112,10 @@ function createContentSecurityPolicy(config: HttpSecurityConfig): string {
   ].join("; ");
 }
 
-function isAllowedOrigin(origin: string | null, config: HttpSecurityConfig): origin is string {
+function isAllowedOrigin(
+  origin: string | null,
+  config: Pick<HttpSecurityConfig, "corsAllowedOrigins">,
+): origin is string {
   return Boolean(origin && config.corsAllowedOrigins.includes(origin));
 }
 

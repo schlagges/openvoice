@@ -80,6 +80,7 @@ export interface OpenVoiceRepository {
     channelIds: readonly string[],
   ): Promise<readonly PermissionOverrideRecord[]>;
   findVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
+  findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null>;
   listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]>;
   listWorkspacesForUser(userId: string): Promise<readonly Workspace[]>;
   moveVoiceMember(input: MoveVoiceMemberInput): Promise<MoveVoiceMemberResult | null>;

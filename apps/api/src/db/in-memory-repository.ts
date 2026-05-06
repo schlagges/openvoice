@@ -52,6 +52,7 @@ import type {
   WorkspaceTimeoutRecord,
 } from "./models.js";
 import { DuplicateEmailError } from "./errors.js";
+import { getAuditIpHash } from "../modules/audit/context.js";
 
 export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
   public readonly auditLogEntries: AuditLogEntry[] = [];
@@ -177,7 +178,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "WORKSPACE_CREATE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { workspaceName: input.name },
         reason: null,
         targetId: workspace.id,
@@ -189,7 +190,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "ROLE_CREATE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: {
           defaultRole: true,
           key: role.key,
@@ -205,7 +206,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "MEMBER_ROLE_ASSIGN",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { roleKey: ownerRole.key },
         reason: null,
         targetId: member.id,
@@ -317,7 +318,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: now,
       event: "CHANNEL_CREATE",
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: { channelName: input.name, type: input.type },
       reason: null,
       targetId: channel.id,
@@ -389,7 +390,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: now,
       event: "CHANNEL_MOVE",
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: { movedCount: input.moves.length },
       reason: null,
       targetId: null,
@@ -476,7 +477,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: new Date(),
         event: "PERMISSION_OVERRIDE_DELETE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { targetId, targetType },
         reason: null,
         targetId: channelId,
@@ -577,7 +578,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "MESSAGE_DELETE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { channelId: message.channelId },
         reason: null,
         targetId: message.id,
@@ -781,6 +782,10 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     );
   }
 
+  public async findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null> {
+    return this.voiceStates.find((state) => state.userId === userId) ?? null;
+  }
+
   public async listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]> {
     return this.voiceStates.filter((state) => state.channelId === channelId);
   }
@@ -849,7 +854,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: now,
       event: input.serverMuted !== undefined ? "VOICE_SERVER_MUTE" : "VOICE_SERVER_DEAFEN",
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: {
         channelId: existing.channelId,
         serverDeafened: replacement.serverDeafened,
@@ -946,7 +951,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt,
       event,
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: {
         allow: serializePermissionMask(input.allow),
         deny: serializePermissionMask(input.deny),
@@ -992,7 +997,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: new Date(),
       event: input.event,
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: input.metadata,
       reason: input.reason ?? null,
       targetId: input.targetId,

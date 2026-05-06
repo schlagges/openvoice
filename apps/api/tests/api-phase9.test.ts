@@ -1,7 +1,10 @@
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import { InMemoryOpenVoiceRepository } from "../src/db/in-memory-repository.js";
 import { createApiHandler } from "../src/http/app.js";
+import { INTERNAL_REMOTE_ADDRESS_HEADER } from "../src/http/client-ip.js";
 import { AuthService, type PublicUser } from "../src/modules/auth/service.js";
 import { ChannelService } from "../src/modules/channels/service.js";
 import { InMemoryMessageEventHub } from "../src/modules/messages/events.js";
@@ -116,10 +119,139 @@ describe("Phase 9 hardening", () => {
     expect(attempts[10]?.status).toBe(429);
     expect(attempts[10]?.headers.get("retry-after")).toBeTruthy();
   });
+
+  it("does not trust spoofed x-forwarded-for without a trusted proxy", async () => {
+    const app = createTestApp();
+    await register(app, "spoofed-rate@example.com");
+
+    const attempts: Response[] = [];
+    for (let index = 0; index < 11; index += 1) {
+      attempts.push(
+        await app.handler(
+          jsonRequest(
+            "/api/v1/auth/login",
+            {
+              email: "spoofed-rate@example.com",
+              password: "wrong-password",
+            },
+            {
+              [INTERNAL_REMOTE_ADDRESS_HEADER]: "203.0.113.10",
+              "x-forwarded-for": `198.51.100.${index}`,
+            },
+          ),
+        ),
+      );
+    }
+
+    expect(attempts[10]?.status).toBe(429);
+  });
+
+  it("trusts x-forwarded-for from configured exact and CIDR proxy addresses", async () => {
+    const exactProxyApp = createTestApp({ trustedProxyIps: ["172.18.0.2"] });
+    await register(exactProxyApp, "exact-proxy@example.com");
+
+    const exactAttempts: Response[] = [];
+    for (let index = 0; index < 11; index += 1) {
+      exactAttempts.push(
+        await exactProxyApp.handler(
+          jsonRequest(
+            "/api/v1/auth/login",
+            {
+              email: "exact-proxy@example.com",
+              password: "wrong-password",
+            },
+            {
+              [INTERNAL_REMOTE_ADDRESS_HEADER]: "172.18.0.2",
+              "x-forwarded-for": `198.51.100.${index}`,
+            },
+          ),
+        ),
+      );
+    }
+
+    expect(exactAttempts.every((response) => response.status === 401)).toBe(true);
+
+    const cidrProxyApp = createTestApp({ trustedProxyIps: ["172.18.0.0/16"] });
+    await register(cidrProxyApp, "cidr-proxy@example.com");
+
+    const cidrAttempts: Response[] = [];
+    for (let index = 0; index < 11; index += 1) {
+      cidrAttempts.push(
+        await cidrProxyApp.handler(
+          jsonRequest(
+            "/api/v1/auth/login",
+            {
+              email: "cidr-proxy@example.com",
+              password: "wrong-password",
+            },
+            {
+              [INTERNAL_REMOTE_ADDRESS_HEADER]: "172.18.42.7",
+              "x-forwarded-for": `203.0.113.${index}`,
+            },
+          ),
+        ),
+      );
+    }
+
+    expect(cidrAttempts.every((response) => response.status === 401)).toBe(true);
+  });
+
+  it("stores hashed request IPs for audit log entries when configured", async () => {
+    const app = createTestApp({ auditIpHashSecret: "audit-hash-secret" });
+    const session = await register(app, "audit-ip@example.com");
+
+    const response = await app.handler(
+      jsonRequest(
+        "/api/v1/workspaces",
+        { name: "Audit IP" },
+        {
+          ...authHeaders(session),
+          [INTERNAL_REMOTE_ADDRESS_HEADER]: "203.0.113.77",
+        },
+      ),
+    );
+
+    expect(response.status).toBe(201);
+    expect(app.repository.auditLogEntries[0]?.ipHash).toMatch(/^sha256:[0-9a-f]{64}$/);
+    expect(app.repository.auditLogEntries[0]?.ipHash).not.toContain("203.0.113.77");
+  });
+
+  it("keeps release compose and examples free of runnable default secrets", () => {
+    const compose = readFileSync("infra/docker-compose.yml", "utf8");
+    const envExample = readFileSync(".env.example", "utf8");
+    const livekitConfig = readFileSync("infra/livekit.yaml", "utf8");
+
+    for (const unsafe of [
+      "replace-with-generated",
+      "replace-with-local",
+      "openvoice_dev_password",
+      "devkey",
+      "CHANGE_ME",
+    ]) {
+      expect(compose).not.toContain(unsafe);
+      expect(envExample).not.toContain(unsafe);
+      expect(livekitConfig).not.toContain(unsafe);
+    }
+
+    for (const required of [
+      "CSRF_SECRET",
+      "AUDIT_IP_HASH_SECRET",
+      "POSTGRES_PASSWORD",
+      "LIVEKIT_API_SECRET",
+      "PASSWORD_PEPPER",
+      "SESSION_SECRET",
+      "TURN_SHARED_SECRET",
+      "GRAFANA_ADMIN_PASSWORD",
+    ]) {
+      expect(compose).toContain(`${required}:?`);
+      expect(envExample).toContain(`${required}=`);
+    }
+  });
 });
 
 interface TestApp {
   readonly handler: (request: Request) => Promise<Response>;
+  readonly repository: InMemoryOpenVoiceRepository;
 }
 
 interface TestSession {
@@ -127,7 +259,12 @@ interface TestSession {
   readonly csrfToken: string;
 }
 
-function createTestApp(): TestApp {
+function createTestApp(
+  options: {
+    readonly auditIpHashSecret?: string;
+    readonly trustedProxyIps?: readonly string[];
+  } = {},
+): TestApp {
   const repository = new InMemoryOpenVoiceRepository();
   const authService = new AuthService({
     csrfSecret: "test-csrf-secret",
@@ -143,9 +280,11 @@ function createTestApp(): TestApp {
     config: {
       corsAllowedOrigins: ["http://local.test"],
       enableHsts: false,
+      ...(options.auditIpHashSecret ? { auditIpHashSecret: options.auditIpHashSecret } : {}),
       sessionCookieName: "openvoice_session",
       sessionCookieSecure: false,
       sessionTtlSeconds: 3600,
+      ...(options.trustedProxyIps ? { trustedProxyIps: options.trustedProxyIps } : {}),
     },
     messageService: new MessageService({
       channelService,
@@ -155,7 +294,7 @@ function createTestApp(): TestApp {
     workspaceService: new WorkspaceService({ repository }),
   });
 
-  return { handler };
+  return { handler, repository };
 }
 
 async function register(app: TestApp, email: string): Promise<TestSession> {
@@ -169,6 +308,13 @@ async function register(app: TestApp, email: string): Promise<TestSession> {
   return {
     cookie: response.headers.get("set-cookie") ?? "",
     csrfToken: body.csrfToken,
+  };
+}
+
+function authHeaders(session: TestSession): HeadersInit {
+  return {
+    cookie: session.cookie,
+    "x-openvoice-csrf-token": session.csrfToken,
   };
 }
 

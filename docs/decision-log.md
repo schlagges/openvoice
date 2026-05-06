@@ -131,3 +131,64 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - License check: Phase 9 adds a local `scripts/check-licenses.mjs` scanner over installed
   `node_modules` manifests instead of a new license-check package to avoid broadening the supply
   chain during hardening.
+
+## 2026-05-05: Closed-Beta P1 Security Stabilization
+
+- Trusted proxy handling: `x-forwarded-for` is ignored unless the immediate socket IP is listed in
+  `TRUSTED_PROXY_IPS`. The configuration intentionally accepts exact proxy IPs only for rc1; CIDR
+  support can be added later if production topology requires it.
+- Audit IP hashes: audit logging uses a request-scoped HMAC-SHA256 hash with
+  `AUDIT_IP_HASH_SECRET`. The raw IP address is not persisted, and the secret is required by the
+  release Compose path instead of being stored in the repository.
+- TURN credential scope: the standalone `/api/v1/turn/credentials` endpoint is limited to users
+  with an active voice state and current `VIEW_CHANNEL` plus `CONNECT_VOICE`. Voice join remains
+  the primary path for initial ICE server delivery.
+- WebSocket rate limits: Gateway and legacy message WebSocket limits use the existing in-process
+  limiter to avoid adding dependencies during feature freeze. Redis/Valkey-backed distributed
+  limits remain a horizontal-scaling improvement.
+
+## 2026-05-06: Local RTC Stabilization Notes
+
+- Local manual RTC testing confirmed `voice/join`, LiveKit participant join, microphone publish,
+  RTC stats upload and voice state updates through the Docker Compose stack.
+- coturn starts and local TURNS handshakes work, but local logs still include avoidable warnings:
+  `--lt-cred-mech` is configured together with `--use-auth-secret`, and coturn therefore reports
+  that shared-secret auth overrides username/password auth. A follow-up stabilization task should
+  remove the redundant auth flag while preserving REST TURN credentials.
+- coturn also logs listener/relay address autodiscovery warnings in local Compose. These are
+  acceptable for local development, but production deployment should configure explicit external
+  listener/relay addresses according to `docs/deployment.md`.
+
+## 2026-05-06: Public Reverse Proxy Deployment
+
+- Public host binding: for `voice.schnick-schnack.info`, the external host Nginx should proxy to
+  the OpenVoice web container on local port `3000`. The web container is the public entrypoint
+  because it serves the SPA and forwards `/api/` plus WebSocket upgrades to the API container
+  internally.
+- API binding: the API container should not own host port `3000` in this deployment. Bind it to a
+  separate loopback-only port, for example `127.0.0.1:3002`, or leave it unexposed behind the web
+  container where operational access allows that.
+- Trusted proxies: `TRUSTED_PROXY_IPS` now accepts IPv4 CIDR entries so Docker bridge proxy
+  addresses can be trusted without hardcoding a single ephemeral container IP. This keeps
+  `x-forwarded-for` useful for rate limits and audit IP hashes while still ignoring spoofed
+  forwarded headers from untrusted direct clients.
+
+## 2026-05-06: Temporary Site Password Protection
+
+- Public web access is protected with HTTP Basic Auth in the OpenVoice web container. This keeps
+  the protection bundled with the deployable web image and avoids storing application-specific
+  access passwords in the host Nginx config.
+- Basic Auth protects the SPA and `/api/`; LiveKit remains routed separately by the host Nginx
+  because RTC WebSocket clients authenticate through SFU tokens and should not receive Basic Auth
+  challenges.
+- The web container strips `Authorization: Basic ...` before proxying to the API while preserving
+  other `Authorization` values. This keeps the temporary site password separate from OpenVoice
+  session and bearer-token authentication.
+
+## 2026-05-06: Desktop QR Handoff
+
+- The desktop UI renders a small QR code for the current page URL so testers can open the same
+  public OpenVoice deployment on a phone without copying links manually.
+- Dependency decision: `qrcode-generator@1.4.4` was added only to `apps/web`. It is MIT licensed,
+  has bundled TypeScript declarations, does not call external services and avoids embedding a
+  fixed production-only QR image.

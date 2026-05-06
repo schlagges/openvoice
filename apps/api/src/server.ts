@@ -5,6 +5,7 @@ import { readApiConfig } from "./config/env.js";
 import { createPostgresPool } from "./db/pool.js";
 import { PostgresOpenVoiceRepository } from "./db/postgres-repository.js";
 import { createApiHandler } from "./http/app.js";
+import { INTERNAL_REMOTE_ADDRESS_HEADER } from "./http/client-ip.js";
 import { AuthService } from "./modules/auth/service.js";
 import { ChannelService } from "./modules/channels/service.js";
 import {
@@ -131,6 +132,8 @@ export function createOpenVoiceApiServer() {
   });
 
   const server = createServer(async (incoming, outgoing) => {
+    const headers = new Headers(incoming.headers as HeadersInit);
+    headers.set(INTERNAL_REMOTE_ADDRESS_HEADER, incoming.socket.remoteAddress ?? "");
     const request = new Request(
       `http://${incoming.headers.host ?? "localhost"}${incoming.url ?? "/"}`,
       {
@@ -139,7 +142,7 @@ export function createOpenVoiceApiServer() {
             ? undefined
             : (Readable.toWeb(incoming) as BodyInit),
         duplex: "half",
-        headers: incoming.headers as HeadersInit,
+        headers,
         method: incoming.method,
       } as RequestInit,
     );
@@ -149,7 +152,7 @@ export function createOpenVoiceApiServer() {
     const body = await response.arrayBuffer();
     outgoing.end(Buffer.from(body));
   });
-  const gatewayUpgradeHandler = createGatewayWebSocketUpgradeHandler(gatewayService);
+  const gatewayUpgradeHandler = createGatewayWebSocketUpgradeHandler(gatewayService, config);
   const messageUpgradeHandler = createMessageWebSocketUpgradeHandler({
     authService,
     config,

@@ -14,7 +14,7 @@ COPY packages/shared/package.json packages/shared/package.json
 RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
-ARG VITE_API_BASE_URL=http://localhost:3000/api/v1
+ARG VITE_API_BASE_URL=/api/v1
 ENV VITE_API_BASE_URL=${VITE_API_BASE_URL}
 COPY . .
 RUN pnpm build
@@ -29,6 +29,9 @@ EXPOSE 3000
 CMD ["sh", "-c", "node apps/api/dist/db/migrate.js && node apps/api/dist/server.js"]
 
 FROM nginx:1.27-alpine AS web
+RUN apk add --no-cache apache2-utils
 COPY infra/nginx.conf /etc/nginx/conf.d/default.conf
+COPY infra/docker-entrypoint.d/15-openvoice-basic-auth.sh /docker-entrypoint.d/15-openvoice-basic-auth.sh
+RUN chmod +x /docker-entrypoint.d/15-openvoice-basic-auth.sh
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 80

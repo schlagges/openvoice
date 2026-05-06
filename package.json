@@ -16,7 +16,9 @@
   },
   "scripts": {
     "build": "pnpm -r --sort --if-present build",
+    "env:local": "node scripts/create-local-env.mjs",
     "db:migrate": "pnpm --filter @openvoice/api build && pnpm --filter @openvoice/api migrate",
+    "docker:export": "node scripts/export-docker-images.mjs",
     "format": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"scripts/*.mjs\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,yaml,yml}\" \"docs/{api,backup-restore,data-retention,decision-log,deployment,e2e-test-matrix,security,testing}.md\" \"pnpm-workspace.yaml\" --write",
     "format:check": "prettier \"apps/**/*.{html,json,ts}\" \"packages/**/*.{json,ts}\" \"scripts/*.mjs\" \"infra/*.{yaml,yml}\" \"*.{json,md,mjs,yaml,yml}\" \"docs/{api,backup-restore,data-retention,decision-log,deployment,e2e-test-matrix,security,testing}.md\" \"pnpm-workspace.yaml\" --check",
     "license:check": "node scripts/check-licenses.mjs",

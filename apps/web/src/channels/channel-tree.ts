@@ -2,7 +2,7 @@ import { ChannelType, type ChannelTreeNode } from "@openvoice/shared";
 
 export function renderChannelTree(nodes: readonly ChannelTreeNode[]): string {
   if (nodes.length === 0) {
-    return `<p class="channel-tree__empty">Keine sichtbaren Channels</p>`;
+    return `<p class="channel-tree__empty"><strong>Noch keine sichtbaren Channels.</strong><span>Schnellstart erstellt einen Combined-Channel fuer Chat und Voice.</span></p>`;
   }
 
   return `<ol class="channel-tree__list">${nodes.map(renderNode).join("")}</ol>`;

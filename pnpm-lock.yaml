@@ -75,6 +75,9 @@ importers:
       livekit-client:
         specifier: 2.18.9
         version: 2.18.9(@types/dom-mediacapture-record@1.0.22)
+      qrcode-generator:
+        specifier: 1.4.4
+        version: 1.4.4
     devDependencies:
       typescript:
         specifier: 5.9.3
@@ -995,6 +998,9 @@ packages:
   punycode@2.3.1:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
+
+  qrcode-generator@1.4.4:
+    resolution: {integrity: sha512-HM7yY8O2ilqhmULxGMpcHSF1EhJJ9yBj8gvDEuZ6M+KGJ0YY2hKpnXvRD+hZPLrDVck3ExIGhmPtSdcjC+guuw==}
 
   quick-lru@6.1.2:
     resolution: {integrity: sha512-AAFUA5O1d83pIHEhJwWCq/RQcRukCkn/NSm2QsTEMle5f2hP0ChI2+3Xb051PZCkLryI/Ir1MVKviT2FIloaTQ==}
@@ -2021,6 +2027,8 @@ snapshots:
   prettier@3.7.4: {}
 
   punycode@2.3.1: {}
+
+  qrcode-generator@1.4.4: {}
 
   quick-lru@6.1.2: {}
 

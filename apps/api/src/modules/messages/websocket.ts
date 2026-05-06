@@ -4,14 +4,19 @@ import type { Duplex } from "node:stream";
 import { WebSocket, WebSocketServer } from "ws";
 
 import type { ApiConfig } from "../../config/env.js";
+import { getClientAddressFromIncoming } from "../../http/client-ip.js";
+import { isTrustedHttpOrigin } from "../../http/security.js";
 import { readRequestToken } from "../../security/request-auth.js";
+import { InMemoryRateLimiter } from "../../security/rate-limit.js";
 import type { AuthService } from "../auth/service.js";
 import type { InMemoryMessageEventHub } from "./events.js";
 import type { MessageService } from "./service.js";
 
 export interface MessageWebSocketOptions {
   readonly authService: AuthService;
-  readonly config: Pick<ApiConfig, "sessionCookieName">;
+  readonly config: Pick<ApiConfig, "corsAllowedOrigins" | "sessionCookieName"> & {
+    readonly trustedProxyIps?: readonly string[];
+  };
   readonly eventHub: InMemoryMessageEventHub;
   readonly messageService: MessageService;
 }
@@ -40,11 +45,19 @@ export function createMessageWebSocketUpgradeHandler(
   options: MessageWebSocketOptions,
 ): MessageWebSocketUpgradeHandler {
   const webSocketServer = new WebSocketServer({ noServer: true });
+  const rateLimiter = new InMemoryRateLimiter();
 
   return {
     canHandle: (incoming) => matchMessageSocketPath(readPathname(incoming)) !== null,
     handle: (incoming, socket, head) => {
-      void handleMessageSocketUpgrade(webSocketServer, options, incoming, socket, head);
+      void handleMessageSocketUpgrade(
+        webSocketServer,
+        options,
+        rateLimiter,
+        incoming,
+        socket,
+        head,
+      );
     },
   };
 }
@@ -52,6 +65,7 @@ export function createMessageWebSocketUpgradeHandler(
 async function handleMessageSocketUpgrade(
   webSocketServer: WebSocketServer,
   options: MessageWebSocketOptions,
+  rateLimiter: InMemoryRateLimiter,
   incoming: IncomingMessage,
   socket: Duplex,
   head: Buffer,
@@ -59,6 +73,25 @@ async function handleMessageSocketUpgrade(
   const channelId = matchMessageSocketPath(readPathname(incoming));
   if (!channelId) {
     rejectUpgrade(socket, 404);
+    return;
+  }
+
+  if (!isTrustedWebSocketOrigin(incoming, options.config)) {
+    rejectUpgrade(socket, 403);
+    return;
+  }
+
+  try {
+    rateLimiter.assertAllowed(
+      `message-ws:upgrade:${getClientAddressFromIncoming(incoming, options.config)}`,
+      {
+        capacity: 60,
+        refillAmount: 60,
+        refillIntervalMs: 60_000,
+      },
+    );
+  } catch {
+    rejectUpgrade(socket, 429);
     return;
   }
 
@@ -119,13 +152,41 @@ function readPathname(incoming: IncomingMessage): string {
   return url.pathname;
 }
 
-function rejectUpgrade(socket: Duplex, statusCode: 401 | 404): void {
-  socket.write(
-    `HTTP/1.1 ${statusCode} ${statusCode === 401 ? "Unauthorized" : "Not Found"}\r\n\r\n`,
-  );
+function rejectUpgrade(socket: Duplex, statusCode: 401 | 403 | 404 | 429): void {
+  const reason =
+    statusCode === 401
+      ? "Unauthorized"
+      : statusCode === 403
+        ? "Forbidden"
+        : statusCode === 429
+          ? "Too Many Requests"
+          : "Not Found";
+  socket.write(`HTTP/1.1 ${statusCode} ${reason}\r\n\r\n`);
   socket.destroy();
 }
 
 function isUuid(value: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+}
+
+function isTrustedWebSocketOrigin(
+  incoming: IncomingMessage,
+  config: Pick<ApiConfig, "corsAllowedOrigins" | "sessionCookieName">,
+): boolean {
+  const origin = readHeader(incoming, "origin");
+  if (origin) {
+    return isTrustedHttpOrigin(origin, config);
+  }
+
+  return !hasCookieAuth(incoming, config.sessionCookieName);
+}
+
+function hasCookieAuth(incoming: IncomingMessage, cookieName: string): boolean {
+  const cookie = readHeader(incoming, "cookie");
+  return Boolean(cookie?.split(";").some((part) => part.trim().startsWith(`${cookieName}=`)));
+}
+
+function readHeader(incoming: IncomingMessage, name: string): string | null {
+  const value = incoming.headers[name];
+  return typeof value === "string" ? value : null;
 }
