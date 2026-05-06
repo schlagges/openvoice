@@ -11,6 +11,7 @@ import {
 import type { Pool, PoolClient, QueryResultRow } from "pg";
 
 import { DuplicateEmailError } from "./errors.js";
+import { getAuditIpHash } from "../modules/audit/context.js";
 import type {
   AuditLogEntry,
   AuditMetadata,
@@ -22,6 +23,8 @@ import type {
   CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
+  CreateWorkspaceInviteInput,
+  CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
   DisconnectVoiceMemberInput,
@@ -36,6 +39,8 @@ import type {
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
+  RedeemWorkspaceInviteInput,
+  RedeemWorkspaceInviteResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -51,7 +56,9 @@ import type {
   Workspace,
   WorkspaceAccessContext,
   WorkspaceBanRecord,
+  WorkspaceInvite,
   WorkspaceMember,
+  WorkspaceWithMemberCount,
   WorkspaceTimeoutRecord,
 } from "./models.js";
 import type { OpenVoiceRepository } from "./repository.js";
@@ -204,6 +211,150 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     }
   }
 
+  public async createWorkspaceInvite(
+    input: CreateWorkspaceInviteInput,
+  ): Promise<CreateWorkspaceInviteResult> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      const inviteResult = await client.query<WorkspaceInviteRow>(
+        `INSERT INTO invites (id, workspace_id, code_hash, created_by, expires_at, revoked_at, used_count, created_at)
+         VALUES ($1, $2, $3, $4, $5, null, 0, now())
+         RETURNING *`,
+        [randomUUID(), input.workspaceId, input.codeHash, input.actorId, input.expiresAt],
+      );
+      const invite = mapWorkspaceInvite(inviteResult.rows[0]);
+      const auditLogEntry = await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "INVITE_CREATE",
+        metadata: { expiresAt: invite.expiresAt.toISOString() },
+        targetId: invite.id,
+        targetType: "invite",
+        workspaceId: input.workspaceId,
+      });
+      await client.query("COMMIT");
+
+      return { auditLogEntry, invite };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async redeemWorkspaceInvite(
+    input: RedeemWorkspaceInviteInput,
+  ): Promise<RedeemWorkspaceInviteResult | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      const inviteResult = await client.query<WorkspaceInviteRow>(
+        `SELECT *
+         FROM invites
+         WHERE code_hash = $1
+           AND revoked_at IS NULL
+           AND expires_at > $2
+         FOR UPDATE`,
+        [input.codeHash, input.now],
+      );
+      const invite = inviteResult.rows[0] ? mapWorkspaceInvite(inviteResult.rows[0]) : null;
+      if (!invite) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+
+      const workspaceResult = await client.query<WorkspaceRow>(
+        "SELECT * FROM workspaces WHERE id = $1",
+        [invite.workspaceId],
+      );
+      const workspace = workspaceResult.rows[0] ? mapWorkspace(workspaceResult.rows[0]) : null;
+      if (!workspace) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+
+      const existingMemberResult = await client.query<WorkspaceMemberRow>(
+        "SELECT * FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+        [invite.workspaceId, input.actorId],
+      );
+      if (existingMemberResult.rows[0]) {
+        await client.query("COMMIT");
+        return {
+          auditLogEntries: [],
+          alreadyMember: true,
+          member: mapWorkspaceMember(existingMemberResult.rows[0]),
+          role: null,
+          workspace,
+        };
+      }
+
+      const memberResult = await client.query<WorkspaceMemberRow>(
+        `INSERT INTO workspace_members (id, workspace_id, user_id, created_at)
+         VALUES ($1, $2, $3, now())
+         RETURNING *`,
+        [randomUUID(), invite.workspaceId, input.actorId],
+      );
+      const member = mapWorkspaceMember(memberResult.rows[0]);
+      const roleResult = await client.query<RoleRow>(
+        "SELECT * FROM roles WHERE workspace_id = $1 AND key = 'member'",
+        [invite.workspaceId],
+      );
+      const role = roleResult.rows[0] ? mapRole(roleResult.rows[0]) : null;
+      if (role) {
+        await client.query(
+          `INSERT INTO member_roles (workspace_member_id, role_id, created_at)
+           VALUES ($1, $2, now())`,
+          [member.id, role.id],
+        );
+      }
+
+      await client.query("UPDATE invites SET used_count = used_count + 1 WHERE id = $1", [
+        invite.id,
+      ]);
+
+      const auditLogEntries = [
+        await insertAuditLog(client, {
+          actorId: input.actorId,
+          event: "MEMBER_JOIN",
+          metadata: { inviteId: invite.id },
+          targetId: member.id,
+          targetType: "workspace_member",
+          workspaceId: invite.workspaceId,
+        }),
+        ...(role
+          ? [
+              await insertAuditLog(client, {
+                actorId: input.actorId,
+                event: "MEMBER_ROLE_ASSIGN",
+                metadata: { roleKey: role.key },
+                targetId: member.id,
+                targetType: "workspace_member",
+                workspaceId: invite.workspaceId,
+              }),
+            ]
+          : []),
+      ];
+
+      await client.query("COMMIT");
+
+      return {
+        auditLogEntries,
+        alreadyMember: false,
+        member,
+        role,
+        workspace,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   public async findWorkspaceAccessContext(
     workspaceId: string,
     userId: string,
@@ -270,6 +421,15 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows[0] ? mapWorkspaceMember(result.rows[0]) : null;
   }
 
+  public async findWorkspaceByNameNormalized(nameNormalized: string): Promise<Workspace | null> {
+    const result = await this.pool.query<WorkspaceRow>(
+      "SELECT * FROM workspaces WHERE lower(trim(name)) = $1 LIMIT 1",
+      [nameNormalized],
+    );
+
+    return result.rows[0] ? mapWorkspace(result.rows[0]) : null;
+  }
+
   public async findActiveWorkspaceBan(
     workspaceId: string,
     userId: string,
@@ -284,6 +444,22 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     );
 
     return result.rows[0] ? mapWorkspaceBan(result.rows[0]) : null;
+  }
+
+  public async findActiveWorkspaceInvite(
+    codeHash: string,
+    now: Date,
+  ): Promise<WorkspaceInvite | null> {
+    const result = await this.pool.query<WorkspaceInviteRow>(
+      `SELECT *
+       FROM invites
+       WHERE code_hash = $1
+         AND revoked_at IS NULL
+         AND expires_at > $2`,
+      [codeHash, now],
+    );
+
+    return result.rows[0] ? mapWorkspaceInvite(result.rows[0]) : null;
   }
 
   public async findActiveWorkspaceTimeout(
@@ -390,17 +566,22 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows.map(mapAuditLogEntry);
   }
 
-  public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
-    const result = await this.pool.query<WorkspaceRow>(
-      `SELECT w.*
+  public async listWorkspacesForUser(userId: string): Promise<readonly WorkspaceWithMemberCount[]> {
+    const result = await this.pool.query<WorkspaceRow & { readonly member_count: string }>(
+      `SELECT w.*, count(all_members.id) AS member_count
        FROM workspaces w
        JOIN workspace_members wm ON wm.workspace_id = w.id
+       LEFT JOIN workspace_members all_members ON all_members.workspace_id = w.id
        WHERE wm.user_id = $1
+       GROUP BY w.id
        ORDER BY w.created_at ASC`,
       [userId],
     );
 
-    return result.rows.map(mapWorkspace);
+    return result.rows.map((row) => ({
+      ...mapWorkspace(row),
+      memberCount: Number(row.member_count),
+    }));
   }
 
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {
@@ -988,6 +1169,14 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
   }
 
+  public async findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null> {
+    const result = await this.pool.query<VoiceStateRow>(
+      "SELECT * FROM voice_states WHERE user_id = $1 ORDER BY updated_at DESC LIMIT 1",
+      [userId],
+    );
+    return result.rows[0] ? mapVoiceState(result.rows[0]) : null;
+  }
+
   public async listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]> {
     const result = await this.pool.query<VoiceStateRow>(
       `SELECT *
@@ -1242,7 +1431,7 @@ async function insertWorkspaceCreationAuditEntries(
   for (const entry of entries) {
     const result = await client.query<AuditLogRow>(
       `INSERT INTO audit_log (id, workspace_id, actor_id, event, target_type, target_id, reason, metadata, ip_hash, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, null, $7, null, now())
+       VALUES ($1, $2, $3, $4, $5, $6, null, $7, $8, now())
        RETURNING *`,
       [
         randomUUID(),
@@ -1252,6 +1441,7 @@ async function insertWorkspaceCreationAuditEntries(
         entry.targetType,
         entry.targetId,
         JSON.stringify(entry.metadata),
+        getAuditIpHash(),
       ],
     );
     auditLogEntries.push(mapAuditLogEntry(result.rows[0]));
@@ -1292,6 +1482,17 @@ interface WorkspaceMemberRow extends QueryResultRow {
   readonly created_at: Date;
   readonly id: string;
   readonly user_id: string;
+  readonly workspace_id: string;
+}
+
+interface WorkspaceInviteRow extends QueryResultRow {
+  readonly code_hash: string;
+  readonly created_at: Date;
+  readonly created_by: string;
+  readonly expires_at: Date;
+  readonly id: string;
+  readonly revoked_at: Date | null;
+  readonly used_count: number;
   readonly workspace_id: string;
 }
 
@@ -1432,7 +1633,7 @@ async function insertAuditLog(
 ): Promise<AuditLogEntry> {
   const result = await client.query<AuditLogRow>(
     `INSERT INTO audit_log (id, workspace_id, actor_id, event, target_type, target_id, reason, metadata, ip_hash, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, null, now())
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now())
      RETURNING *`,
     [
       randomUUID(),
@@ -1443,6 +1644,7 @@ async function insertAuditLog(
       input.targetId,
       input.reason ?? null,
       JSON.stringify(input.metadata),
+      getAuditIpHash(),
     ],
   );
 
@@ -1529,6 +1731,23 @@ function mapWorkspaceMember(row: WorkspaceMemberRow | undefined): WorkspaceMembe
     createdAt: row.created_at,
     id: row.id,
     userId: row.user_id,
+    workspaceId: row.workspace_id,
+  };
+}
+
+function mapWorkspaceInvite(row: WorkspaceInviteRow | undefined): WorkspaceInvite {
+  if (!row) {
+    throw new Error("Expected workspace invite row.");
+  }
+
+  return {
+    codeHash: row.code_hash,
+    createdAt: row.created_at,
+    createdBy: row.created_by,
+    expiresAt: row.expires_at,
+    id: row.id,
+    revokedAt: row.revoked_at,
+    usedCount: row.used_count,
     workspaceId: row.workspace_id,
   };
 }

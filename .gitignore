@@ -2,9 +2,12 @@ node_modules/
 .pnpm-store/
 dist/
 coverage/
+test-results/
 .env
 .env.*
 !.env.example
+.token
+infra/certs/
 .DS_Store
 *.log
 .turbo/

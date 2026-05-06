@@ -114,6 +114,19 @@ describe("Phase 5 voice API", () => {
     );
   });
 
+  it("rejects standalone TURN credentials before an active voice session exists", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "owner@example.com");
+
+    const turnResponse = await app.handler(
+      new Request("http://local.test/api/v1/turn/credentials", {
+        headers: { cookie: owner.cookie },
+      }),
+    );
+
+    expect(turnResponse.status).toBe(403);
+  });
+
   it("denies CONNECT_VOICE and allows CONNECT_VOICE without SPEAK as receive-only", async () => {
     const app = createTestApp();
     const owner = await register(app, "owner@example.com");

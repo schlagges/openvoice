@@ -11,7 +11,8 @@
   },
   "dependencies": {
     "@openvoice/shared": "workspace:*",
-    "livekit-client": "2.18.9"
+    "livekit-client": "2.18.9",
+    "qrcode-generator": "1.4.4"
   },
   "devDependencies": {
     "typescript": "5.9.3",

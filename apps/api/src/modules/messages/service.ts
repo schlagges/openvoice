@@ -182,6 +182,11 @@ export class MessageService {
       `message:edit:${command.userId}:${existing.channelId}`,
       MESSAGE_RATE_LIMITS.edit,
     );
+    await this.channelService.requireChannelPermission(
+      existing.channelId,
+      command.userId,
+      Permission.VIEW_CHANNEL,
+    );
     await this.requireChatPermission(
       existing.channelId,
       command.userId,

@@ -122,3 +122,29 @@ Eine Aufgabe ist nur fertig, wenn:
 - Relevante Dokumentation aktualisiert wurde.
 - Keine Secrets oder privaten Schlüssel enthalten sind.
 - Keine Anforderungen aus `docs/lastenheft.md` verletzt werden.
+
+## Review guidelines
+
+Codex must flag the following as P0:
+
+- Any API route without authentication where authentication is required.
+- Any workspace, channel, message, role, voice, or moderation action without server-side permission check.
+- Any static TURN secret exposed to frontend code.
+- Any SFU join token issued without checking workspace membership and channel permissions.
+- Any WebSocket event that can leak private channel, member, message, or voice state data.
+- Any plaintext password handling.
+- Any committed secret, token, private key, certificate key, or production credential.
+- Any migration that can destroy user data without explicit documented intent.
+
+Codex must flag the following as P1:
+
+- Missing tests for permission logic.
+- Missing tests for auth/session behavior.
+- Missing tests for TURN credential generation.
+- Missing tests for voice join permission checks.
+- Missing rate limits on auth, chat, invites, or voice join endpoints.
+- Missing audit log for moderation actions.
+- Missing documentation for deployment or environment variables.
+- Missing error handling for WebRTC/SFU connection failures.
+
+Codex must not suggest new product features during release stabilization.

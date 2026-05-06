@@ -8,6 +8,8 @@ import type {
   CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
+  CreateWorkspaceInviteInput,
+  CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
   DisconnectVoiceMemberInput,
@@ -22,6 +24,8 @@ import type {
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
+  RedeemWorkspaceInviteInput,
+  RedeemWorkspaceInviteResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -35,7 +39,9 @@ import type {
   User,
   VoiceStateRecord,
   Workspace,
+  WorkspaceWithMemberCount,
   WorkspaceBanRecord,
+  WorkspaceInvite,
   WorkspaceMember,
   WorkspaceTimeoutRecord,
   WorkspaceAccessContext,
@@ -47,6 +53,10 @@ export interface OpenVoiceRepository {
   createSession(input: CreateSessionInput): Promise<Session>;
   createUser(input: CreateUserInput): Promise<User>;
   createWorkspaceWithDefaults(input: CreateWorkspaceInput): Promise<CreateWorkspaceResult>;
+  createWorkspaceInvite(input: CreateWorkspaceInviteInput): Promise<CreateWorkspaceInviteResult>;
+  redeemWorkspaceInvite(
+    input: RedeemWorkspaceInviteInput,
+  ): Promise<RedeemWorkspaceInviteResult | null>;
   banWorkspaceMember(input: BanWorkspaceMemberInput): Promise<BanWorkspaceMemberResult>;
   deletePermissionOverride(
     channelId: string,
@@ -60,7 +70,9 @@ export interface OpenVoiceRepository {
   findRoleById(roleId: string): Promise<Role | null>;
   findUserByEmailNormalized(emailNormalized: string): Promise<User | null>;
   findUserById(userId: string): Promise<User | null>;
+  findWorkspaceByNameNormalized(nameNormalized: string): Promise<Workspace | null>;
   findActiveWorkspaceBan(workspaceId: string, userId: string): Promise<WorkspaceBanRecord | null>;
+  findActiveWorkspaceInvite(codeHash: string, now: Date): Promise<WorkspaceInvite | null>;
   findActiveWorkspaceTimeout(
     workspaceId: string,
     userId: string,
@@ -80,8 +92,9 @@ export interface OpenVoiceRepository {
     channelIds: readonly string[],
   ): Promise<readonly PermissionOverrideRecord[]>;
   findVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
+  findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null>;
   listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]>;
-  listWorkspacesForUser(userId: string): Promise<readonly Workspace[]>;
+  listWorkspacesForUser(userId: string): Promise<readonly WorkspaceWithMemberCount[]>;
   moveVoiceMember(input: MoveVoiceMemberInput): Promise<MoveVoiceMemberResult | null>;
   disconnectVoiceMember(
     input: DisconnectVoiceMemberInput,

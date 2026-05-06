@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { describe, expect, it } from "vitest";
 
 import { InMemoryOpenVoiceRepository } from "../src/db/in-memory-repository.js";
@@ -154,6 +156,224 @@ describe("Phase 1 API", () => {
     ).toHaveLength(5);
   });
 
+  it("rejects duplicate workspace names", async () => {
+    const app = createTestApp();
+    const firstOwner = await register(app, "duplicate-owner@example.com");
+    const secondOwner = await register(app, "duplicate-other@example.com");
+
+    await createWorkspace(app, firstOwner, "Shared Name");
+    const duplicate = await app.handler(
+      jsonRequest(
+        "/api/v1/workspaces",
+        { name: " shared name " },
+        {
+          cookie: secondOwner.cookie,
+          "x-openvoice-csrf-token": secondOwner.csrfToken,
+        },
+      ),
+    );
+
+    expect(duplicate.status).toBe(409);
+  });
+
+  it("lists only workspaces the authenticated user belongs to", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "owner@example.com");
+    const other = await register(app, "other@example.com");
+
+    await createWorkspace(app, owner, "Owner Workspace");
+    await createWorkspace(app, other, "Other Workspace");
+
+    const response = await app.handler(
+      new Request("http://local.test/api/v1/workspaces", {
+        headers: { cookie: owner.cookie },
+      }),
+    );
+    const body = (await response.json()) as {
+      workspaces: Array<{ memberCount: number; name: string; ownerId: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.workspaces).toHaveLength(1);
+    expect(body.workspaces[0]).toMatchObject({
+      memberCount: 1,
+      name: "Owner Workspace",
+      ownerId: owner.user.id,
+    });
+  });
+
+  it("creates membership-scoped invites and lets another user join the workspace", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "invite-owner@example.com");
+    const invited = await register(app, "invite-user@example.com");
+    const workspace = await createWorkspace(app, owner, "Invite Workspace");
+
+    const inviteResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.workspace.id}/invites`,
+        {},
+        {
+          cookie: owner.cookie,
+          "x-openvoice-csrf-token": owner.csrfToken,
+        },
+      ),
+    );
+    const inviteBody = (await inviteResponse.json()) as { code: string; workspaceId: string };
+
+    expect(inviteResponse.status).toBe(201);
+    expect(inviteBody.workspaceId).toBe(workspace.workspace.id);
+    expect(app.repository.workspaceInvites[0]?.codeHash).toBeTruthy();
+    expect(app.repository.workspaceInvites[0]?.codeHash).not.toBe(inviteBody.code);
+
+    const joinResponse = await app.handler(
+      jsonRequest(
+        "/api/v1/invites/join",
+        { code: inviteBody.code },
+        {
+          cookie: invited.cookie,
+          "x-openvoice-csrf-token": invited.csrfToken,
+        },
+      ),
+    );
+    const joinBody = (await joinResponse.json()) as {
+      alreadyMember: boolean;
+      role: { key: string } | null;
+      workspace: { id: string };
+    };
+
+    expect(joinResponse.status).toBe(200);
+    expect(joinBody.alreadyMember).toBe(false);
+    expect(joinBody.role?.key).toBe("member");
+    expect(joinBody.workspace.id).toBe(workspace.workspace.id);
+    expect(app.repository.auditLogEntries.map((entry) => entry.event)).toContain("MEMBER_JOIN");
+
+    const listed = await app.handler(
+      new Request("http://local.test/api/v1/workspaces", {
+        headers: { cookie: invited.cookie },
+      }),
+    );
+    const listedBody = (await listed.json()) as {
+      workspaces: Array<{ id: string; memberCount: number }>;
+    };
+    expect(listedBody.workspaces).toContainEqual(
+      expect.objectContaining({ id: workspace.workspace.id, memberCount: 2 }),
+    );
+  });
+
+  it("creates short-lived invites by default", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "short-invite-owner@example.com");
+    const workspace = await createWorkspace(app, owner, "Short Invite Workspace");
+    const before = Date.now();
+
+    const inviteResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.workspace.id}/invites`,
+        {},
+        {
+          cookie: owner.cookie,
+          "x-openvoice-csrf-token": owner.csrfToken,
+        },
+      ),
+    );
+    const inviteBody = (await inviteResponse.json()) as { expiresAt: string };
+    const expiresAt = new Date(inviteBody.expiresAt).getTime();
+
+    expect(inviteResponse.status).toBe(201);
+    expect(expiresAt - before).toBeGreaterThan(295_000);
+    expect(expiresAt - before).toBeLessThan(305_000);
+  });
+
+  it("exposes OIDC login configuration and can disable local password auth", async () => {
+    const app = createTestApp({
+      localPasswordAuthEnabled: false,
+      oidcClientId: "openvoice-web",
+      oidcIssuerUrl: "https://auth.schnick-schnack.info/realms/schnick-schnack",
+    });
+
+    const configResponse = await app.handler(new Request("http://local.test/api/v1/auth/config"));
+    const configBody = (await configResponse.json()) as {
+      localPasswordAuthEnabled: boolean;
+      oidc: { clientId: string; issuerUrl: string };
+    };
+
+    expect(configResponse.status).toBe(200);
+    expect(configBody).toEqual({
+      localPasswordAuthEnabled: false,
+      oidc: {
+        clientId: "openvoice-web",
+        issuerUrl: "https://auth.schnick-schnack.info/realms/schnick-schnack",
+      },
+    });
+
+    const registerResponse = await app.handler(
+      jsonRequest("/api/v1/auth/register", {
+        email: "disabled@example.com",
+        password: "very-secure-password",
+      }),
+    );
+
+    expect(registerResponse.status).toBe(403);
+  });
+
+  it("rejects invite creation without MANAGE_INVITES membership and blocks banned invite joins", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "invite-owner-2@example.com");
+    const outsider = await register(app, "invite-outsider@example.com");
+    const banned = await register(app, "invite-banned@example.com");
+    const workspace = await createWorkspace(app, owner, "Invite Guard Workspace");
+
+    const forbiddenCreate = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.workspace.id}/invites`,
+        {},
+        {
+          cookie: outsider.cookie,
+          "x-openvoice-csrf-token": outsider.csrfToken,
+        },
+      ),
+    );
+    expect(forbiddenCreate.status).toBe(403);
+
+    const inviteResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.workspace.id}/invites`,
+        {},
+        {
+          cookie: owner.cookie,
+          "x-openvoice-csrf-token": owner.csrfToken,
+        },
+      ),
+    );
+    const inviteBody = (await inviteResponse.json()) as { code: string };
+    app.repository.workspaceBans.push({
+      bannedBy: owner.user.id,
+      createdAt: new Date(),
+      id: randomUUID(),
+      reason: "manual test ban",
+      revokedAt: null,
+      revokedBy: null,
+      userId: banned.user.id,
+      workspaceId: workspace.workspace.id,
+    });
+
+    const bannedJoin = await app.handler(
+      jsonRequest(
+        "/api/v1/invites/join",
+        { code: inviteBody.code },
+        {
+          cookie: banned.cookie,
+          "x-openvoice-csrf-token": banned.csrfToken,
+        },
+      ),
+    );
+
+    expect(bannedJoin.status).toBe(403);
+    expect(
+      await app.repository.findWorkspaceMember(workspace.workspace.id, banned.user.id),
+    ).toBeNull();
+  });
+
   it("rejects workspace creation without authentication", async () => {
     const app = createTestApp();
     const response = await app.handler(jsonRequest("/api/v1/workspaces", { name: "Nope" }));
@@ -162,7 +382,19 @@ describe("Phase 1 API", () => {
   });
 });
 
-function createTestApp(): TestApp {
+interface TestSession {
+  readonly cookie: string;
+  readonly csrfToken: string;
+  readonly user: PublicUser;
+}
+
+function createTestApp(
+  configOverrides: Partial<{
+    readonly localPasswordAuthEnabled: boolean;
+    readonly oidcClientId: string;
+    readonly oidcIssuerUrl: string;
+  }> = {},
+): TestApp {
   const repository = new InMemoryOpenVoiceRepository();
   const passwordHasher = new TestPasswordHasher();
   const authService = new AuthService({
@@ -185,6 +417,7 @@ function createTestApp(): TestApp {
     config: {
       corsAllowedOrigins: ["http://local.test"],
       enableHsts: false,
+      ...configOverrides,
       sessionCookieName: "openvoice_session",
       sessionCookieSecure: false,
       sessionTtlSeconds: 3600,
@@ -209,4 +442,38 @@ function jsonRequest(path: string, body: unknown, headers?: HeadersInit): Reques
     },
     method: "POST",
   });
+}
+
+async function register(app: TestApp, email: string): Promise<TestSession> {
+  const response = await app.handler(
+    jsonRequest("/api/v1/auth/register", {
+      email,
+      password: "very-secure-password",
+    }),
+  );
+  const body = (await response.json()) as { csrfToken: string; user: PublicUser };
+  return {
+    cookie: response.headers.get("set-cookie") ?? "",
+    csrfToken: body.csrfToken,
+    user: body.user,
+  };
+}
+
+async function createWorkspace(
+  app: TestApp,
+  session: TestSession,
+  name: string,
+): Promise<{ readonly workspace: { readonly id: string } }> {
+  const response = await app.handler(
+    jsonRequest(
+      "/api/v1/workspaces",
+      { name },
+      {
+        cookie: session.cookie,
+        "x-openvoice-csrf-token": session.csrfToken,
+      },
+    ),
+  );
+  expect(response.status).toBe(201);
+  return (await response.json()) as { workspace: { id: string } };
 }

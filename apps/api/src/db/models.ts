@@ -39,10 +39,25 @@ export interface Workspace {
   readonly updatedAt: Date;
 }
 
+export interface WorkspaceWithMemberCount extends Workspace {
+  readonly memberCount: number;
+}
+
 export interface WorkspaceMember {
   readonly createdAt: Date;
   readonly id: string;
   readonly userId: string;
+  readonly workspaceId: string;
+}
+
+export interface WorkspaceInvite {
+  readonly codeHash: string;
+  readonly createdAt: Date;
+  readonly createdBy: string;
+  readonly expiresAt: Date;
+  readonly id: string;
+  readonly revokedAt: Date | null;
+  readonly usedCount: number;
   readonly workspaceId: string;
 }
 
@@ -186,6 +201,32 @@ export interface CreateWorkspaceResult {
   readonly auditLogEntries: readonly AuditLogEntry[];
   readonly member: WorkspaceMember;
   readonly roles: readonly Role[];
+  readonly workspace: Workspace;
+}
+
+export interface CreateWorkspaceInviteInput {
+  readonly actorId: string;
+  readonly codeHash: string;
+  readonly expiresAt: Date;
+  readonly workspaceId: string;
+}
+
+export interface CreateWorkspaceInviteResult {
+  readonly auditLogEntry: AuditLogEntry;
+  readonly invite: WorkspaceInvite;
+}
+
+export interface RedeemWorkspaceInviteInput {
+  readonly actorId: string;
+  readonly codeHash: string;
+  readonly now: Date;
+}
+
+export interface RedeemWorkspaceInviteResult {
+  readonly auditLogEntries: readonly AuditLogEntry[];
+  readonly alreadyMember: boolean;
+  readonly member: WorkspaceMember;
+  readonly role: Role | null;
   readonly workspace: Workspace;
 }
 

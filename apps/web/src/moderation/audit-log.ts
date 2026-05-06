@@ -6,7 +6,7 @@ export function renderAuditLog(entries: readonly PublicAuditLogEntry[]): string 
       <h2>Audit Log</h2>
       ${
         entries.length === 0
-          ? '<p class="audit-log__empty">Keine Audit-Einträge</p>'
+          ? '<p class="audit-log__empty">Noch keine Audit-Eintraege fuer diesen Testkontext.</p>'
           : `<ol class="audit-log__list">${entries.map(renderAuditEntry).join("")}</ol>`
       }
     </section>

@@ -4,7 +4,9 @@ import {
   AudioMode,
   ChannelType,
   MessageContentFormat,
+  Permission,
   type PublicAuditLogEntry,
+  serializePermissionMask,
   type VoiceJoinResponse,
 } from "@openvoice/shared";
 import { describe, expect, it } from "vitest";
@@ -238,6 +240,43 @@ describe("Phase 7 moderation API", () => {
     );
   });
 
+  it("rejects voice moderation when channel overrides remove actor visibility", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "owner@example.com");
+    const moderator = await register(app, "moderator@example.com");
+    const member = await register(app, "member@example.com");
+    const workspace = await createWorkspace(app, owner);
+    const moderatorRole = addWorkspaceMember(
+      app.repository,
+      workspace.id,
+      moderator.user.id,
+      "moderator",
+    );
+    addWorkspaceMember(app.repository, workspace.id, member.user.id, "member");
+    const channel = await createChannel(app, owner, workspace.id, ChannelType.VOICE);
+
+    expect(await joinVoice(app, member, channel.id)).toHaveProperty("status", 200);
+    await putOverride(app, owner, channel.id, "role", moderatorRole.id, {
+      allow: serializePermissionMask(Permission.MUTE_MEMBERS, Permission.DISCONNECT_MEMBERS),
+      deny: serializePermissionMask(Permission.VIEW_CHANNEL),
+    });
+
+    const muteDenied = await postVoiceModeration(app, moderator, workspace.id, "server-mute", {
+      enabled: true,
+      targetUserId: member.user.id,
+    });
+    expect(muteDenied.status).toBe(403);
+
+    const disconnectDenied = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.id}/voice/disconnect`,
+        { reason: "hidden", targetUserId: member.user.id },
+        authHeaders(moderator),
+      ),
+    );
+    expect(disconnectDenied.status).toBe(403);
+  });
+
   it("lists audit log entries for users with VIEW_AUDIT_LOG", async () => {
     const app = createTestApp();
     const owner = await register(app, "owner@example.com");
@@ -411,6 +450,31 @@ async function postVoiceModeration(
   return app.handler(
     jsonRequest(`/api/v1/workspaces/${workspaceId}/voice/${action}`, body, authHeaders(session)),
   );
+}
+
+async function putOverride(
+  app: TestApp,
+  session: TestSession,
+  channelId: string,
+  targetType: "member" | "role",
+  targetId: string,
+  body: { readonly allow: string; readonly deny: string },
+): Promise<void> {
+  const response = await app.handler(
+    new Request(
+      `http://local.test/api/v1/channels/${channelId}/permission-overrides/${targetType}/${targetId}`,
+      {
+        body: JSON.stringify(body),
+        headers: {
+          "content-type": "application/json",
+          ...authHeaders(session),
+        },
+        method: "PUT",
+      },
+    ),
+  );
+
+  expect(response.status).toBe(200);
 }
 
 async function joinVoice(app: TestApp, session: TestSession, channelId: string): Promise<Response> {

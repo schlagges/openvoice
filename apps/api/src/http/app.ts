@@ -8,7 +8,9 @@ import { ObservabilityService } from "../modules/observability/service.js";
 import { VoiceService } from "../modules/voice/service.js";
 import { WorkspaceService } from "../modules/workspaces/service.js";
 import { readRequestToken } from "../security/request-auth.js";
+import { runWithAuditContext } from "../modules/audit/context.js";
 import { clearSessionCookie, createSessionCookie } from "./cookies.js";
+import { createAuditIpHash, getClientAddressFromRequest } from "./client-ip.js";
 import {
   ApiError,
   jsonResponse,
@@ -16,6 +18,7 @@ import {
   notFound,
   toErrorResponse,
   unauthorized,
+  forbidden,
 } from "./errors.js";
 import { ApiRequestRateLimiter } from "./request-rate-limit.js";
 import {
@@ -27,6 +30,7 @@ import {
   parseCreateChannelRequest,
   parseCreateMessageRequest,
   parseCreateWorkspaceRequest,
+  parseJoinWorkspaceInviteRequest,
   parseListAuditLogQuery,
   parseListMessagesQuery,
   parseLoginRequest,
@@ -57,7 +61,14 @@ export interface ApiHandlerOptions {
     | "sessionCookieName"
     | "sessionCookieSecure"
     | "sessionTtlSeconds"
-  >;
+  > & {
+    readonly auditIpHashSecret?: string;
+    readonly localPasswordAuthEnabled?: boolean;
+    readonly oidcClientId?: string;
+    readonly oidcIssuerUrl?: string;
+    readonly rateLimitsEnabled?: boolean | undefined;
+    readonly trustedProxyIps?: readonly string[];
+  };
   readonly messageService: MessageService;
   readonly moderationService?: ModerationService;
   readonly observabilityService?: ObservabilityService;
@@ -77,17 +88,30 @@ interface AuthenticatedRequest {
 export function createApiHandler(
   options: ApiHandlerOptions,
 ): (request: Request) => Promise<Response> {
-  const rateLimiter = options.rateLimiter ?? new ApiRequestRateLimiter();
+  const rateLimiter =
+    options.rateLimiter ??
+    new ApiRequestRateLimiter({
+      enabled: options.config.rateLimitsEnabled,
+      trustedProxyIps: options.config.trustedProxyIps,
+    });
 
   return async (request) => {
     const requestId = request.headers.get("x-request-id") ?? crypto.randomUUID();
     const url = new URL(request.url);
 
     try {
-      const response =
-        request.method === "OPTIONS"
-          ? createCorsPreflightResponse(request, options.config, requestId)
-          : await routeRequest(request, url, requestId, options, rateLimiter);
+      const clientAddress = getClientAddressFromRequest(request, options.config);
+      const response = await runWithAuditContext(
+        {
+          ipHash: options.config.auditIpHashSecret
+            ? createAuditIpHash(clientAddress, options.config.auditIpHashSecret)
+            : null,
+        },
+        async () =>
+          request.method === "OPTIONS"
+            ? createCorsPreflightResponse(request, options.config, requestId)
+            : await routeRequest(request, url, requestId, options, rateLimiter),
+      );
       response.headers.set("x-request-id", requestId);
       options.observabilityService?.metrics.recordHttpRequest({
         method: request.method,
@@ -152,6 +176,7 @@ async function routeRequest(
 
   if (url.pathname === "/api/v1/auth/register") {
     assertMethod(request, "POST");
+    assertLocalPasswordAuthEnabled(options);
     const result = await options.authService.register(
       parseRegisterRequest(await readJsonObject(request)),
     );
@@ -175,6 +200,7 @@ async function routeRequest(
 
   if (url.pathname === "/api/v1/auth/login") {
     assertMethod(request, "POST");
+    assertLocalPasswordAuthEnabled(options);
     const result = await options.authService.login(
       parseLoginRequest(await readJsonObject(request)),
     );
@@ -193,6 +219,23 @@ async function routeRequest(
           secure: options.config.sessionCookieSecure,
         }),
       },
+    );
+  }
+
+  if (url.pathname === "/api/v1/auth/config") {
+    assertMethod(request, "GET");
+    return jsonResponse(
+      {
+        localPasswordAuthEnabled: options.config.localPasswordAuthEnabled ?? true,
+        oidc: {
+          clientId: options.config.oidcClientId ?? "openvoice-web",
+          issuerUrl:
+            options.config.oidcIssuerUrl ??
+            "https://auth.schnick-schnack.info/realms/schnick-schnack",
+        },
+      },
+      200,
+      requestId,
     );
   }
 
@@ -226,7 +269,7 @@ async function routeRequest(
     assertMethod(request, "GET");
     const authenticated = await authenticateRequest(request, options);
     return jsonResponse(
-      requireVoiceService(options).createIceServers(authenticated.userId),
+      await requireVoiceService(options).createIceServers(authenticated.userId),
       200,
       requestId,
     );
@@ -249,12 +292,49 @@ async function routeRequest(
   }
 
   if (url.pathname === "/api/v1/workspaces") {
-    assertMethod(request, "POST");
     const authenticated = await authenticateRequest(request, options);
+    if (request.method === "GET") {
+      const workspaces = await options.workspaceService.listWorkspacesForUser(authenticated.userId);
+      return jsonResponse({ workspaces }, 200, requestId);
+    }
+
+    assertMethod(request, "POST");
     assertCsrf(request, authenticated, options);
     const result = await options.workspaceService.createWorkspace({
       ...parseCreateWorkspaceRequest(await readJsonObject(request)),
       ownerId: authenticated.userId,
+    });
+
+    return jsonResponse(result, 201, requestId);
+  }
+
+  if (url.pathname === "/api/v1/invites/join") {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const result = await options.workspaceService.joinByInvite({
+      ...parseJoinWorkspaceInviteRequest(await readJsonObject(request)),
+      userId: authenticated.userId,
+    });
+
+    return jsonResponse(result, 200, requestId);
+  }
+
+  const workspaceInvitesMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/invites$/,
+  );
+  if (workspaceInvitesMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(workspaceInvitesMatch, 0),
+      "workspaceId",
+    );
+    const result = await options.workspaceService.createInvite({
+      actorId: authenticated.userId,
+      workspaceId,
     });
 
     return jsonResponse(result, 201, requestId);
@@ -671,6 +751,12 @@ async function routeRequest(
   }
 
   throw notFound();
+}
+
+function assertLocalPasswordAuthEnabled(options: ApiHandlerOptions): void {
+  if (options.config.localPasswordAuthEnabled === false) {
+    throw forbidden("Local password authentication is disabled.");
+  }
 }
 
 async function authenticateRequest(

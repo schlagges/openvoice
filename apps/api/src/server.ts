@@ -1,10 +1,12 @@
 import { createServer } from "node:http";
+import { performance } from "node:perf_hooks";
 import { Readable } from "node:stream";
 
 import { readApiConfig } from "./config/env.js";
 import { createPostgresPool } from "./db/pool.js";
 import { PostgresOpenVoiceRepository } from "./db/postgres-repository.js";
 import { createApiHandler } from "./http/app.js";
+import { INTERNAL_REMOTE_ADDRESS_HEADER } from "./http/client-ip.js";
 import { AuthService } from "./modules/auth/service.js";
 import { ChannelService } from "./modules/channels/service.js";
 import {
@@ -27,6 +29,7 @@ import { VoiceService } from "./modules/voice/service.js";
 import { createMessageWebSocketUpgradeHandler } from "./modules/messages/websocket.js";
 import { WorkspaceService } from "./modules/workspaces/service.js";
 import { Argon2idPasswordHasher } from "./security/password.js";
+import { InMemoryRateLimiter } from "./security/rate-limit.js";
 
 export function createOpenVoiceApiServer() {
   const config = readApiConfig();
@@ -63,6 +66,7 @@ export function createOpenVoiceApiServer() {
   });
   const workspaceService = new WorkspaceService({
     eventPublisher: gatewayEventPublisher,
+    inviteTtlSeconds: config.inviteTtlSeconds,
     repository,
   });
   const messageService = new MessageService({
@@ -72,6 +76,7 @@ export function createOpenVoiceApiServer() {
       new GatewayMessageEventPublisher(gatewayEventPublisher),
     ]),
     metrics,
+    rateLimiter: new InMemoryRateLimiter({ enabled: config.rateLimitsEnabled }),
     repository,
   });
   const voiceService = new VoiceService({
@@ -131,25 +136,33 @@ export function createOpenVoiceApiServer() {
   });
 
   const server = createServer(async (incoming, outgoing) => {
-    const request = new Request(
-      `http://${incoming.headers.host ?? "localhost"}${incoming.url ?? "/"}`,
-      {
-        body:
-          incoming.method === "GET" || incoming.method === "HEAD"
-            ? undefined
-            : (Readable.toWeb(incoming) as BodyInit),
-        duplex: "half",
-        headers: incoming.headers as HeadersInit,
-        method: incoming.method,
-      } as RequestInit,
-    );
+    const startedAt = performance.now();
+    const headers = new Headers(incoming.headers as HeadersInit);
+    headers.set(INTERNAL_REMOTE_ADDRESS_HEADER, incoming.socket.remoteAddress ?? "");
+    const requestUrl = `http://${incoming.headers.host ?? "localhost"}${incoming.url ?? "/"}`;
+    const request = new Request(requestUrl, {
+      body:
+        incoming.method === "GET" || incoming.method === "HEAD"
+          ? undefined
+          : (Readable.toWeb(incoming) as BodyInit),
+      duplex: "half",
+      headers,
+      method: incoming.method,
+    } as RequestInit);
     const response = await handler(request);
 
     outgoing.writeHead(response.status, Object.fromEntries(response.headers.entries()));
     const body = await response.arrayBuffer();
     outgoing.end(Buffer.from(body));
+    logRequest({
+      durationMs: performance.now() - startedAt,
+      method: incoming.method ?? "GET",
+      path: new URL(requestUrl).pathname,
+      requestId: response.headers.get("x-request-id") ?? "-",
+      status: response.status,
+    });
   });
-  const gatewayUpgradeHandler = createGatewayWebSocketUpgradeHandler(gatewayService);
+  const gatewayUpgradeHandler = createGatewayWebSocketUpgradeHandler(gatewayService, config);
   const messageUpgradeHandler = createMessageWebSocketUpgradeHandler({
     authService,
     config,
@@ -172,6 +185,25 @@ export function createOpenVoiceApiServer() {
   });
 
   return server;
+}
+
+function logRequest(input: {
+  readonly durationMs: number;
+  readonly method: string;
+  readonly path: string;
+  readonly requestId: string;
+  readonly status: number;
+}): void {
+  process.stdout.write(
+    JSON.stringify({
+      durationMs: Math.round(input.durationMs),
+      event: "api_request",
+      method: input.method,
+      path: input.path,
+      requestId: input.requestId,
+      status: input.status,
+    }) + "\n",
+  );
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

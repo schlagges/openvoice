@@ -77,6 +77,22 @@ Phase 7 speichert temporäre Einschränkungen pro Workspace/User:
 
 Aktive Timeouts verhindern serverseitig das Schreiben von Chat-Nachrichten und Audio-Publish.
 
+## `invites`
+
+Workspace-Invites ermoeglichen den Beitritt mehrerer echter User in denselben Workspace, ohne eine
+serverweite Workspace-Suche einzufuehren:
+
+- `workspace_id`
+- `code_hash`
+- `created_by`
+- `expires_at`
+- `revoked_at`
+- `used_count`
+- `created_at`
+
+Der rohe Invite-Code wird nur einmal an den Ersteller zurueckgegeben und nicht persistiert. Joins
+werden serverseitig gegen aktive Bans geprueft und weisen die Default-Rolle `member` zu.
+
 ---
 
 ## Kritische Indizes
@@ -103,4 +119,8 @@ WHERE revoked_at IS NULL;
 
 CREATE INDEX idx_member_timeouts_active
 ON member_timeouts(workspace_id, timed_out_until DESC);
+
+CREATE INDEX idx_invites_active_code
+ON invites(code_hash, expires_at)
+WHERE revoked_at IS NULL;
 ```

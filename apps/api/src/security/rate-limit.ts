@@ -6,6 +6,10 @@ export interface RateLimitRule {
   readonly refillIntervalMs: number;
 }
 
+export interface RateLimiterOptions {
+  readonly enabled?: boolean | undefined;
+}
+
 interface BucketState {
   readonly resetAt: number;
   readonly tokens: number;
@@ -14,8 +18,17 @@ interface BucketState {
 
 export class InMemoryRateLimiter {
   private readonly buckets = new Map<string, BucketState>();
+  private readonly enabled: boolean;
+
+  public constructor(options: RateLimiterOptions = {}) {
+    this.enabled = options.enabled ?? true;
+  }
 
   public assertAllowed(key: string, rule: RateLimitRule, now = Date.now()): void {
+    if (!this.enabled) {
+      return;
+    }
+
     const current = this.buckets.get(key) ?? {
       resetAt: now + rule.refillIntervalMs,
       tokens: rule.capacity,

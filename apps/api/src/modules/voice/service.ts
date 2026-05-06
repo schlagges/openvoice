@@ -292,10 +292,20 @@ export class VoiceService {
       throw notFound("Voice state not found.");
     }
 
+    await this.channelService.requireChannelPermission(
+      targetState.channelId,
+      command.actorId,
+      Permission.VIEW_CHANNEL,
+    );
     const source = await this.channelService.requireChannelPermission(
       targetState.channelId,
       command.actorId,
       Permission.MOVE_MEMBERS,
+    );
+    await this.channelService.requireChannelPermission(
+      command.targetChannelId,
+      command.actorId,
+      Permission.VIEW_CHANNEL,
     );
     const destination = await this.channelService.requireChannelPermission(
       command.targetChannelId,
@@ -364,6 +374,11 @@ export class VoiceService {
       throw notFound("Voice state not found.");
     }
 
+    await this.channelService.requireChannelPermission(
+      targetState.channelId,
+      command.actorId,
+      Permission.VIEW_CHANNEL,
+    );
     const source = await this.channelService.requireChannelPermission(
       targetState.channelId,
       command.actorId,
@@ -397,7 +412,21 @@ export class VoiceService {
     return toPublicVoiceState(result.state);
   }
 
-  public createIceServers(userId: string): IceServersResponse {
+  public async createIceServers(userId: string): Promise<IceServersResponse> {
+    const state = await this.repository.findVoiceStateByUserId(userId);
+    if (!state) {
+      throw forbidden("Active voice session required for TURN credentials.");
+    }
+    await this.channelService.requireChannelPermission(
+      state.channelId,
+      userId,
+      Permission.VIEW_CHANNEL,
+    );
+    await this.channelService.requireChannelPermission(
+      state.channelId,
+      userId,
+      Permission.CONNECT_VOICE,
+    );
     this.metrics?.recordTurnCredentialsIssued();
     return this.turnCredentialService.createIceServers({ userId });
   }
@@ -415,6 +444,11 @@ export class VoiceService {
       throw notFound("Voice state not found.");
     }
 
+    await this.channelService.requireChannelPermission(
+      targetState.channelId,
+      command.actorId,
+      Permission.VIEW_CHANNEL,
+    );
     const permissionResult = await this.channelService.requireChannelPermission(
       targetState.channelId,
       command.actorId,

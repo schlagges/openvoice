@@ -4,3 +4,10 @@ export class DuplicateEmailError extends Error {
     this.name = "DuplicateEmailError";
   }
 }
+
+export class DuplicateWorkspaceNameError extends Error {
+  public constructor() {
+    super("Workspace name already exists.");
+    this.name = "DuplicateWorkspaceNameError";
+  }
+}

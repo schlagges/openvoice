@@ -1,4 +1,5 @@
 export interface ApiConfig {
+  readonly auditIpHashSecret: string;
   readonly apiPort: number;
   readonly corsAllowedOrigins: readonly string[];
   readonly csrfSecret: string;
@@ -9,8 +10,14 @@ export interface ApiConfig {
   readonly livekitInternalUrl: string;
   readonly livekitTokenTtlSeconds: number;
   readonly livekitUrl: string;
+  readonly localPasswordAuthEnabled: boolean;
   readonly mediaProvider: "livekit";
+  readonly oidcAudience: string;
+  readonly oidcClientId: string;
+  readonly oidcIssuerUrl: string;
+  readonly inviteTtlSeconds: number;
   readonly passwordPepper: string;
+  readonly rateLimitsEnabled: boolean;
   readonly redisUrl: string;
   readonly sessionCookieName: string;
   readonly sessionCookieSecure: boolean;
@@ -22,11 +29,13 @@ export interface ApiConfig {
   readonly turnTtlSeconds: number;
   readonly turnsPort: number;
   readonly turnUrl: string;
+  readonly trustedProxyIps: readonly string[];
 }
 
 export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     apiPort: readInteger(env.API_PORT, 3000),
+    auditIpHashSecret: readRequired(env.AUDIT_IP_HASH_SECRET, "AUDIT_IP_HASH_SECRET"),
     corsAllowedOrigins: readAllowedOrigins(env),
     csrfSecret: readRequired(env.CSRF_SECRET, "CSRF_SECRET"),
     databaseUrl: readRequired(env.DATABASE_URL, "DATABASE_URL"),
@@ -36,8 +45,18 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     livekitInternalUrl: env.LIVEKIT_INTERNAL_URL ?? readRequired(env.LIVEKIT_URL, "LIVEKIT_URL"),
     livekitTokenTtlSeconds: readInteger(env.LIVEKIT_TOKEN_TTL_SECONDS, 60 * 10),
     livekitUrl: readRequired(env.LIVEKIT_URL, "LIVEKIT_URL"),
+    localPasswordAuthEnabled: readBoolean(
+      env.LOCAL_PASSWORD_AUTH_ENABLED,
+      env.NODE_ENV !== "production",
+    ),
     mediaProvider: readMediaProvider(env.MEDIA_PROVIDER),
+    oidcAudience: env.OIDC_AUDIENCE ?? env.OIDC_CLIENT_ID ?? "openvoice-web",
+    oidcClientId: env.OIDC_CLIENT_ID ?? "openvoice-web",
+    oidcIssuerUrl:
+      env.OIDC_ISSUER_URL ?? "https://auth.schnick-schnack.info/realms/schnick-schnack",
+    inviteTtlSeconds: readInteger(env.INVITE_TTL_SECONDS, 60 * 5),
     passwordPepper: readRequired(env.PASSWORD_PEPPER, "PASSWORD_PEPPER"),
+    rateLimitsEnabled: readBoolean(env.RATE_LIMITS_ENABLED, true),
     redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
     sessionCookieName: env.SESSION_COOKIE_NAME ?? "openvoice_session",
     sessionCookieSecure: readBoolean(env.SESSION_COOKIE_SECURE, env.NODE_ENV === "production"),
@@ -49,6 +68,7 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     turnTtlSeconds: readInteger(env.TURN_TTL_SECONDS, 60 * 20),
     turnsPort: readInteger(env.TURNS_PORT, 5349),
     turnUrl: readRequired(env.TURN_URL, "TURN_URL"),
+    trustedProxyIps: readList(env.TRUSTED_PROXY_IPS),
   };
 }
 
@@ -117,6 +137,17 @@ function readBoolean(value: string | undefined, fallback: boolean): boolean {
   }
 
   throw new Error(`Expected boolean string but received ${value}.`);
+}
+
+function readList(value: string | undefined): readonly string[] {
+  if (!value || value.trim().length === 0) {
+    return [];
+  }
+
+  return value
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
 }
 
 function readMediaProvider(value: string | undefined): "livekit" {

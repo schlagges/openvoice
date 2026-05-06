@@ -19,6 +19,8 @@ import type {
   CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
+  CreateWorkspaceInviteInput,
+  CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
   DisconnectVoiceMemberInput,
@@ -33,6 +35,8 @@ import type {
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
+  RedeemWorkspaceInviteInput,
+  RedeemWorkspaceInviteResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -48,10 +52,13 @@ import type {
   Workspace,
   WorkspaceAccessContext,
   WorkspaceBanRecord,
+  WorkspaceInvite,
   WorkspaceMember,
+  WorkspaceWithMemberCount,
   WorkspaceTimeoutRecord,
 } from "./models.js";
 import { DuplicateEmailError } from "./errors.js";
+import { getAuditIpHash } from "../modules/audit/context.js";
 
 export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
   public readonly auditLogEntries: AuditLogEntry[] = [];
@@ -67,6 +74,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
   public readonly sessions: Session[] = [];
   public readonly users: User[] = [];
   public readonly workspaceBans: WorkspaceBanRecord[] = [];
+  public readonly workspaceInvites: WorkspaceInvite[] = [];
   public readonly voiceStates: VoiceStateRecord[] = [];
   public readonly workspaceMembers: WorkspaceMember[] = [];
   public readonly workspaces: Workspace[] = [];
@@ -177,7 +185,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "WORKSPACE_CREATE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { workspaceName: input.name },
         reason: null,
         targetId: workspace.id,
@@ -189,7 +197,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "ROLE_CREATE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: {
           defaultRole: true,
           key: role.key,
@@ -205,7 +213,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "MEMBER_ROLE_ASSIGN",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { roleKey: ownerRole.key },
         reason: null,
         targetId: member.id,
@@ -226,6 +234,14 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       roles,
       workspace,
     };
+  }
+
+  public async findWorkspaceByNameNormalized(nameNormalized: string): Promise<Workspace | null> {
+    return (
+      this.workspaces.find(
+        (workspace) => normalizeWorkspaceName(workspace.name) === nameNormalized,
+      ) ?? null
+    );
   }
 
   public async findWorkspaceAccessContext(
@@ -251,6 +267,131 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     return { member, roles, workspace };
   }
 
+  public async createWorkspaceInvite(
+    input: CreateWorkspaceInviteInput,
+  ): Promise<CreateWorkspaceInviteResult> {
+    const now = new Date();
+    const invite: WorkspaceInvite = {
+      codeHash: input.codeHash,
+      createdAt: now,
+      createdBy: input.actorId,
+      expiresAt: input.expiresAt,
+      id: randomUUID(),
+      revokedAt: null,
+      usedCount: 0,
+      workspaceId: input.workspaceId,
+    };
+    const auditLogEntry: AuditLogEntry = {
+      actorId: input.actorId,
+      createdAt: now,
+      event: "INVITE_CREATE",
+      id: randomUUID(),
+      ipHash: getAuditIpHash(),
+      metadata: { expiresAt: input.expiresAt.toISOString() },
+      reason: null,
+      targetId: invite.id,
+      targetType: "invite",
+      workspaceId: input.workspaceId,
+    };
+
+    this.workspaceInvites.push(invite);
+    this.auditLogEntries.push(auditLogEntry);
+
+    return { auditLogEntry, invite };
+  }
+
+  public async redeemWorkspaceInvite(
+    input: RedeemWorkspaceInviteInput,
+  ): Promise<RedeemWorkspaceInviteResult | null> {
+    const invite = this.workspaceInvites.find(
+      (candidate) =>
+        candidate.codeHash === input.codeHash &&
+        candidate.revokedAt === null &&
+        candidate.expiresAt.getTime() > input.now.getTime(),
+    );
+    if (!invite) {
+      return null;
+    }
+
+    const workspace = this.workspaces.find((candidate) => candidate.id === invite.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+
+    const existingMember = this.workspaceMembers.find(
+      (member) => member.workspaceId === invite.workspaceId && member.userId === input.actorId,
+    );
+    if (existingMember) {
+      return {
+        auditLogEntries: [],
+        alreadyMember: true,
+        member: existingMember,
+        role: null,
+        workspace,
+      };
+    }
+
+    const now = new Date();
+    const member: WorkspaceMember = {
+      createdAt: now,
+      id: randomUUID(),
+      userId: input.actorId,
+      workspaceId: invite.workspaceId,
+    };
+    const role = this.roles.find(
+      (candidate) => candidate.workspaceId === invite.workspaceId && candidate.key === "member",
+    );
+
+    this.workspaceMembers.push(member);
+    if (role) {
+      this.memberRoles.push({ roleId: role.id, workspaceMemberId: member.id });
+    }
+    this.workspaceInvites[this.workspaceInvites.indexOf(invite)] = {
+      ...invite,
+      usedCount: invite.usedCount + 1,
+    };
+
+    const auditLogEntries: AuditLogEntry[] = [
+      {
+        actorId: input.actorId,
+        createdAt: now,
+        event: "MEMBER_JOIN",
+        id: randomUUID(),
+        ipHash: getAuditIpHash(),
+        metadata: { inviteId: invite.id },
+        reason: null,
+        targetId: member.id,
+        targetType: "workspace_member",
+        workspaceId: invite.workspaceId,
+      },
+      ...(role
+        ? [
+            {
+              actorId: input.actorId,
+              createdAt: now,
+              event: "MEMBER_ROLE_ASSIGN",
+              id: randomUUID(),
+              ipHash: getAuditIpHash(),
+              metadata: { roleKey: role.key },
+              reason: null,
+              targetId: member.id,
+              targetType: "workspace_member",
+              workspaceId: invite.workspaceId,
+            } satisfies AuditLogEntry,
+          ]
+        : []),
+    ];
+    this.auditLogEntries.push(...auditLogEntries);
+
+    return {
+      auditLogEntries,
+      alreadyMember: false,
+      member,
+      role: role ?? null,
+      workspace,
+    };
+  }
+
   public async findWorkspaceMember(
     workspaceId: string,
     userId: string,
@@ -269,6 +410,20 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     return (
       this.workspaceBans.find(
         (ban) => ban.workspaceId === workspaceId && ban.userId === userId && ban.revokedAt === null,
+      ) ?? null
+    );
+  }
+
+  public async findActiveWorkspaceInvite(
+    codeHash: string,
+    now: Date,
+  ): Promise<WorkspaceInvite | null> {
+    return (
+      this.workspaceInvites.find(
+        (invite) =>
+          invite.codeHash === codeHash &&
+          invite.revokedAt === null &&
+          invite.expiresAt.getTime() > now.getTime(),
       ) ?? null
     );
   }
@@ -317,7 +472,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: now,
       event: "CHANNEL_CREATE",
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: { channelName: input.name, type: input.type },
       reason: null,
       targetId: channel.id,
@@ -348,14 +503,20 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       .slice(0, input.limit);
   }
 
-  public async listWorkspacesForUser(userId: string): Promise<readonly Workspace[]> {
+  public async listWorkspacesForUser(userId: string): Promise<readonly WorkspaceWithMemberCount[]> {
     const workspaceIds = new Set(
       this.workspaceMembers
         .filter((member) => member.userId === userId)
         .map((member) => member.workspaceId),
     );
 
-    return this.workspaces.filter((workspace) => workspaceIds.has(workspace.id));
+    return this.workspaces
+      .filter((workspace) => workspaceIds.has(workspace.id))
+      .map((workspace) => ({
+        ...workspace,
+        memberCount: this.workspaceMembers.filter((member) => member.workspaceId === workspace.id)
+          .length,
+      }));
   }
 
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {
@@ -389,7 +550,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: now,
       event: "CHANNEL_MOVE",
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: { movedCount: input.moves.length },
       reason: null,
       targetId: null,
@@ -476,7 +637,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: new Date(),
         event: "PERMISSION_OVERRIDE_DELETE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { targetId, targetType },
         reason: null,
         targetId: channelId,
@@ -577,7 +738,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         createdAt: now,
         event: "MESSAGE_DELETE",
         id: randomUUID(),
-        ipHash: null,
+        ipHash: getAuditIpHash(),
         metadata: { channelId: message.channelId },
         reason: null,
         targetId: message.id,
@@ -781,6 +942,10 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     );
   }
 
+  public async findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null> {
+    return this.voiceStates.find((state) => state.userId === userId) ?? null;
+  }
+
   public async listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]> {
     return this.voiceStates.filter((state) => state.channelId === channelId);
   }
@@ -849,7 +1014,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: now,
       event: input.serverMuted !== undefined ? "VOICE_SERVER_MUTE" : "VOICE_SERVER_DEAFEN",
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: {
         channelId: existing.channelId,
         serverDeafened: replacement.serverDeafened,
@@ -946,7 +1111,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt,
       event,
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: {
         allow: serializePermissionMask(input.allow),
         deny: serializePermissionMask(input.deny),
@@ -992,7 +1157,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       createdAt: new Date(),
       event: input.event,
       id: randomUUID(),
-      ipHash: null,
+      ipHash: getAuditIpHash(),
       metadata: input.metadata,
       reason: input.reason ?? null,
       targetId: input.targetId,
@@ -1002,6 +1167,10 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     this.auditLogEntries.push(entry);
     return entry;
   }
+}
+
+function normalizeWorkspaceName(name: string): string {
+  return name.trim().toLowerCase();
 }
 
 function compareMessagesDesc(left: MessageRecord, right: MessageRecord): number {

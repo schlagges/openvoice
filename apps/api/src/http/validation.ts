@@ -37,6 +37,10 @@ export interface CreateWorkspaceRequestBody {
   readonly name: string;
 }
 
+export interface JoinWorkspaceInviteRequestBody {
+  readonly code: string;
+}
+
 export interface CreateChannelRequestBody {
   readonly name: string;
   readonly parentId?: string | null;
@@ -166,6 +170,17 @@ export function parseCreateWorkspaceRequest(
   return {
     name: parseDisplayName(body.name, "name"),
   };
+}
+
+export function parseJoinWorkspaceInviteRequest(
+  body: Record<string, unknown>,
+): JoinWorkspaceInviteRequestBody {
+  const code = parseNonEmptyString(body.code, "code").trim();
+  if (!/^[A-Za-z0-9_-]{16,64}$/.test(code)) {
+    throw badRequest("Invite code is invalid.", { field: "code" });
+  }
+
+  return { code };
 }
 
 export function parseCreateChannelRequest(body: Record<string, unknown>): CreateChannelRequestBody {
