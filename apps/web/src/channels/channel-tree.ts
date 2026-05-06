@@ -30,8 +30,10 @@ function renderNode(node: ChannelTreeNode): string {
     )}" data-channel-name="${escapeHtml(node.name)}" data-channel-type="${escapeHtml(node.type)}">
       <button class="channel-tree__label" type="button" ${isCategory ? "disabled" : ""}>
         <span class="channel-tree__icon" aria-hidden="true">${escapeHtml(typeIcon(node.type))}</span>
-        <span class="channel-tree__name">${escapeHtml(node.name)}</span>
-        <span class="channel-tree__badge">${escapeHtml(typeLabel(node.type))}</span>
+        <span class="channel-tree__content">
+          <span class="channel-tree__name">${escapeHtml(node.name)}</span>
+          <span class="channel-tree__badge">${escapeHtml(typeLabel(node.type))}</span>
+        </span>
         <span class="channel-tree__count" title="Teilnehmer im aktiven Voice Channel">-</span>
       </button>
       ${childList}
@@ -42,9 +44,9 @@ function renderNode(node: ChannelTreeNode): string {
 function typeIcon(type: ChannelTreeNode["type"]): string {
   switch (type) {
     case ChannelType.CATEGORY:
-      return "";
+      return "⌁";
     case ChannelType.COMBINED:
-      return "# +";
+      return "#◉";
     case ChannelType.TEXT:
       return "#";
     case ChannelType.VOICE:
@@ -57,11 +59,11 @@ function typeLabel(type: ChannelTreeNode["type"]): string {
     case ChannelType.CATEGORY:
       return "Kategorie";
     case ChannelType.COMBINED:
-      return "TXT+VOICE";
+      return "Chat + Voice";
     case ChannelType.TEXT:
-      return "TEXT";
+      return "Chat";
     case ChannelType.VOICE:
-      return "VOICE";
+      return "Voice";
   }
 }
 

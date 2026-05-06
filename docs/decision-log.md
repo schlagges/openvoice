@@ -23,6 +23,37 @@
 
 See `docs/auth-keycloak-guest-plan.md` for the migration plan.
 
+## 2026-05-06: Remove Temporary Site Basic Auth
+
+- The temporary HTTP Basic Auth protection in the web container is removed. It caused repeated
+  browser credential prompts and collided with RTC/WebSocket behavior.
+- Public access control moves to OpenVoice-level auth: short-lived invite guest sessions now use
+  Bearer tokens, and registered user login is prepared for Keycloak OIDC.
+- The web Nginx now forwards `Authorization` unchanged to the API so Bearer sessions can be used
+  consistently by REST requests.
+
+## 2026-05-06: Backend OIDC Callback
+
+- Keycloak login uses a backend Authorization Code + PKCE callback at
+  `/api/v1/auth/oidc/callback`. The API stores the PKCE verifier and state in a short-lived
+  HttpOnly state cookie, exchanges the code server-side, verifies the JWT with JWKS and then sets
+  the normal OpenVoice session cookie.
+- The Keycloak client is `openvoice` in the shared `schnick-schnack` realm. Production uses a
+  confidential client secret from runtime environment only.
+- A new Keycloak subject is not allowed to create an OpenVoice account by itself. It must match an
+  existing linked subject, an existing legacy email, or an authenticated invite guest that started
+  the link flow.
+
+## 2026-05-06: Global Keycloak Workspaces
+
+- Workspace visibility remains membership-based by default. Private workspaces stay invite-only and
+  are not exposed through a server-wide directory.
+- Global workspaces use `access_mode = global_authenticated`. Only registered OpenVoice users with
+  a linked Keycloak subject may join them. Guests are explicitly blocked from joining global
+  workspaces, even if they receive an invite code.
+- After a successful Keycloak callback, OpenVoice attempts to add the user to all configured global
+  workspaces with the default `member` role. OpenVoice roles and permissions remain authoritative.
+
 ## 2026-05-04: Phase 0 Tooling
 
 - Package manager: `pnpm`, because the project requires a TypeScript-oriented monorepo with workspace support and deterministic installs.
@@ -198,6 +229,7 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 
 ## 2026-05-06: Temporary Site Password Protection
 
+- Superseded on 2026-05-06 by `Remove Temporary Site Basic Auth`.
 - Public web access is protected with HTTP Basic Auth in the OpenVoice web container. This keeps
   the protection bundled with the deployable web image and avoids storing application-specific
   access passwords in the host Nginx config.
@@ -254,3 +286,13 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
 - Request and WebSocket rate limits remain enabled by default, but can be disabled with
   `RATE_LIMITS_ENABLED=false` for local and E2E runs. This avoids false negatives while preserving
   production protection unless explicitly opted out.
+
+## 2026-05-06: Invite Guests Use Core Workspace Tools
+
+- Invite links are meant to drop a guest directly into the target user's workspace for the core
+  OpenVoice use cases: chat, voice, camera and screenshare. The default `guest` role therefore
+  includes channel visibility, message history, sending/editing/deleting own messages, voice
+  connect/speak and basic media publish permissions.
+- Guest permissions still exclude workspace administration, invite management, moderation and
+  audit access. Global workspaces remain blocked for guests; they can only enter workspaces through
+  explicit short-lived invite links.

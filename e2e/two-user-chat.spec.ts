@@ -1,28 +1,19 @@
 import { expect, test, type Page } from "@playwright/test";
 
-const siteUser = process.env.OPENVOICE_E2E_SITE_USER ?? "openvoice";
-const sitePassword = process.env.OPENVOICE_E2E_SITE_PASSWORD ?? "keins";
-
 test("two browser contexts can join one workspace and sync chat messages", async ({ browser }) => {
   const suffix = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const workspaceName = `E2E Workspace ${suffix}`;
   const channelName = `e2e-general-${suffix}`;
 
-  const ownerContext = await browser.newContext({
-    httpCredentials: { password: sitePassword, username: siteUser },
-  });
-  const memberContext = await browser.newContext({
-    httpCredentials: { password: sitePassword, username: siteUser },
-  });
+  const ownerContext = await browser.newContext();
+  const memberContext = await browser.newContext();
   const owner = await ownerContext.newPage();
   const member = await memberContext.newPage();
 
-  await owner.goto("/");
+  await owner.goto(`/?e2e=${suffix}-owner`);
   await owner.getByRole("button", { name: "Workspace erstellen" }).click();
-  await owner.locator("#create-display-name").fill("Owner Test");
   await owner.locator("#create-workspace").fill(workspaceName);
   await owner.locator("#create-channel").fill(channelName);
-  await owner.locator("#create-channel-type").selectOption("text");
   await owner
     .locator("#onboarding-dialog")
     .getByRole("button", { name: "Workspace erstellen" })
@@ -31,21 +22,14 @@ test("two browser contexts can join one workspace and sync chat messages", async
   await expect(owner.locator("#onboarding-dialog")).not.toBeVisible();
   await expect(owner.getByRole("button", { name: new RegExp(channelName) })).toBeVisible();
 
-  await owner.getByRole("button", { name: "Personen einladen" }).click();
-  await owner.getByRole("button", { name: "Invite-Code erstellen" }).click();
+  await owner.getByRole("button", { name: "Einladen" }).click();
+  await owner.getByRole("button", { name: "Invite-Link kopieren" }).click();
   await expect(owner.locator("#invite-code")).toHaveValue(/^[A-Za-z0-9_-]{16,64}$/);
-  const inviteCode = await owner.locator("#invite-code").inputValue();
+  await expect(owner.locator("#invite-link")).toHaveValue(/invite=/);
+  const inviteLink = await owner.locator("#invite-link").inputValue();
   await owner.locator("#invite-dialog-close").click();
 
-  await member.goto("/");
-  await member.getByRole("button", { name: "Workspace beitreten" }).click();
-  await member.getByRole("tab", { name: /Beitreten/ }).click();
-  await member.locator("#join-display-name").fill("Member Test");
-  await member.locator("#join-invite-code").fill(inviteCode);
-  await member
-    .locator("#onboarding-dialog")
-    .getByRole("button", { name: "Workspace beitreten" })
-    .click();
+  await member.goto(inviteLink);
 
   await expect(member.locator("#onboarding-dialog")).not.toBeVisible();
   await expect(member.getByRole("button", { name: new RegExp(workspaceName) })).toBeVisible();

@@ -23,6 +23,14 @@ services:
       LIVEKIT_TOKEN_TTL_SECONDS: ${LIVEKIT_TOKEN_TTL_SECONDS:-600}
       LIVEKIT_URL: ${LIVEKIT_URL:?LIVEKIT_URL is required}
       MEDIA_PROVIDER: livekit
+      LOCAL_PASSWORD_AUTH_ENABLED: ${LOCAL_PASSWORD_AUTH_ENABLED:-false}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-openvoice}
+      OIDC_CALLBACK_URL: ${OIDC_CALLBACK_URL:?OIDC_CALLBACK_URL is required}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-openvoice}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:?OIDC_CLIENT_SECRET is required}
+      OIDC_ENABLED: ${OIDC_ENABLED:-true}
+      OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER is required}
+      OIDC_REQUIRED_CLIENT_ROLE: ${OIDC_REQUIRED_CLIENT_ROLE:-user}
       PASSWORD_PEPPER: ${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}
       REDIS_URL: redis://valkey:6379
       SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-openvoice_session}
@@ -54,9 +62,6 @@ services:
     image: ${OPENVOICE_WEB_IMAGE:?OPENVOICE_WEB_IMAGE is required}
     depends_on:
       - api
-    environment:
-      OPENVOICE_SITE_PASSWORD: ${OPENVOICE_SITE_PASSWORD:?OPENVOICE_SITE_PASSWORD is required}
-      OPENVOICE_SITE_USER: ${OPENVOICE_SITE_USER:-openvoice}
     ports:
       - "${WEB_PORT:-127.0.0.1:3000}:80"
 
@@ -101,7 +106,7 @@ services:
           tcp_port: 7881
           port_range_start: 50000
           port_range_end: 50100
-          use_external_ip: false
+          use_external_ip: ${LIVEKIT_USE_EXTERNAL_IP:-true}
         keys:
           $${LIVEKIT_API_KEY}: $${LIVEKIT_API_SECRET}
         logging:
@@ -127,6 +132,7 @@ services:
       - --tls-listening-port=5349
       - --realm=${TURN_REALM:?TURN_REALM is required}
       - --server-name=${TURN_REALM:?TURN_REALM is required}
+      - --external-ip=${TURN_EXTERNAL_IP:?TURN_EXTERNAL_IP is required}
       - --fingerprint
       - --lt-cred-mech
       - --use-auth-secret

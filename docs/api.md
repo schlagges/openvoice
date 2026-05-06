@@ -44,6 +44,9 @@ aktuellen RC noch nicht implementiert sind, explizit mit `(nicht in v0.1.0-rc1)`
 
 ```http
 GET  /api/v1/auth/config
+GET  /api/v1/auth/oidc/login
+GET  /api/v1/auth/oidc/callback
+POST /api/v1/auth/oidc/link-start
 POST /api/v1/auth/register
 POST /api/v1/auth/login
 POST /api/v1/auth/logout
@@ -57,6 +60,11 @@ Keycloak/OIDC-Issuer und Client-ID. Fuer den geplanten Keycloak-Betrieb zeigt
 `localPasswordAuthEnabled=false`, dass lokale E-Mail/Passwort-Registrierung und Login abgeschaltet
 sind. Bis zur vollstaendigen OIDC- und Gast-Token-Migration bleiben lokale Passwort-Endpunkte fuer
 Entwicklung und bestehende Tests aktivierbar.
+`GET /auth/oidc/login` startet den Backend-OIDC-Flow mit PKCE und State-Cookie.
+`GET /auth/oidc/callback` tauscht den Code gegen ein Keycloak-Token, verifiziert Signatur,
+Issuer, Audience und Client-Rolle und setzt danach die OpenVoice-Session. `POST
+/auth/oidc/link-start` startet denselben Flow aus einer bestehenden OpenVoice-Session heraus,
+damit ein per Invite beigetretener Gast sein Keycloak-Konto verknuepfen kann.
 
 ## Observability
 
@@ -78,6 +86,7 @@ clientseitig vertrauenswürdige User-ID.
 ```http
 POST   /api/v1/workspaces
 GET    /api/v1/workspaces
+POST   /api/v1/workspaces/:workspaceId/join-global
 GET    /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 PATCH  /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 DELETE /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
@@ -86,12 +95,17 @@ GET    /api/v1/workspaces/:workspaceId/tree
 GET    /api/v1/workspaces/:workspaceId/audit-log
 POST   /api/v1/workspaces/:workspaceId/invites
 POST   /api/v1/invites/join
+POST   /api/v1/invites/:code/guest-join
 ```
 
 `GET /workspaces` benötigt Auth und liefert nur Workspaces, in denen der aktuelle User Mitglied
 ist. Jeder Workspace enthält `memberCount` für die sichtbare Workspace-Liste. Es gibt absichtlich
 keine serverweite Workspace-Auflistung, damit private Workspace-Namen nicht an andere eingeloggte
 User leaken.
+Workspaces enthalten `accessMode` mit `private` oder `global_authenticated`.
+`POST /workspaces/:workspaceId/join-global` benötigt einen registrierten, mit Keycloak verknüpften
+User und weist die Default-Rolle `member` zu. Gäste dürfen globale Workspaces weder per Invite noch
+per Join-Endpoint betreten.
 `POST /workspaces` lehnt neue Workspaces ab, wenn der normalisierte Name bereits existiert.
 
 `GET /audit-log` benötigt `VIEW_AUDIT_LOG` und liefert die neuesten Einträge mit `limit` 1-100.
@@ -99,7 +113,9 @@ User leaken.
 einmal im Response zurück. Gespeichert wird ausschließlich ein SHA-256-Hash des Codes. Invite-Codes
 laufen standardmäßig nach 5 Minuten ab (`INVITE_TTL_SECONDS=300`).
 `POST /invites/join` benötigt Auth und CSRF, lehnt aktive Bans ab und weist die Default-Rolle
-`member` zu.
+`member` zu. `POST /invites/:code/guest-join` ist der direkte Gastzugang ohne bestehende
+OpenVoice-Session. Der Request enthält nur `displayName`, erzeugt einen Gast-User, weist die
+Default-Rolle `guest` zu und gibt einen kurzlebigen Bearer-Session-Token zurück.
 
 ---
 

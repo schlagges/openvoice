@@ -183,6 +183,14 @@ export function parseJoinWorkspaceInviteRequest(
   return { code };
 }
 
+export function parseGuestJoinWorkspaceInviteRequest(body: Record<string, unknown>): {
+  readonly displayName: string;
+} {
+  return {
+    displayName: parseDisplayName(body.displayName, "displayName"),
+  };
+}
+
 export function parseCreateChannelRequest(body: Record<string, unknown>): CreateChannelRequestBody {
   const parentId =
     body.parentId === undefined || body.parentId === null

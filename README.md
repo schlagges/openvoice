@@ -59,9 +59,8 @@ pnpm db:migrate
 ```
 
 Für den aktuellen lokalen Teststack wird die Web-App unter `http://localhost:55180/` und die API
-unter `http://localhost:53010` betrieben. Die Site ist per Basic Auth geschützt; lokal wird
-`openvoice` als Benutzer und das in `.env` gesetzte `OPENVOICE_SITE_PASSWORD` verwendet. Für den
-Browser-Testlauf wird aktuell `keins` als lokales Testpasswort genutzt.
+unter `http://localhost:53010` betrieben. Die vorgeschaltete Basic-Auth-Sperre wurde entfernt;
+Zugriffsschutz läuft über OpenVoice-Auth, Invite-Links und künftig Keycloak.
 
 Die Standardwerte in `.env.example` bleiben auf einfache Entwicklungsports gesetzt:
 Web-App `http://localhost:5173`, API `http://localhost:3000`, PostgreSQL `localhost:55436`,
@@ -93,11 +92,11 @@ Die öffentliche Testinstanz läuft hinter `https://voice.schnick-schnack.info`.
 
 ## Manueller Mehrnutzer-Test
 
-1. `http://localhost:55180/` öffnen und mit Basic Auth anmelden.
-2. `Testnutzer` öffnen, Testnutzer mit Workspace und Channel erstellen.
-3. Im selben Dialog `Invite erstellen` klicken und den Code kopieren.
+1. `http://localhost:55180/` öffnen.
+2. Workspace und Channel erstellen.
+3. `Personen einladen` klicken und den Code kopieren.
 4. Zweiten Browser oder Inkognito-Profil öffnen.
-5. Dort einen zweiten Testnutzer registrieren und mit dem Invite-Code beitreten.
+5. Dort per Invite-Code als Gast beitreten.
 6. In beiden Browsern denselben Channel anklicken.
 7. Nachrichten senden und prüfen, ob sie live und in richtiger Reihenfolge erscheinen.
 

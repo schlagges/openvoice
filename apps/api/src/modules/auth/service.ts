@@ -22,6 +22,12 @@ export interface AuthSessionResult {
   readonly user: PublicUser;
 }
 
+export interface ExternalIdentityInput {
+  readonly displayName: string;
+  readonly email: string;
+  readonly subject: string;
+}
+
 export interface PublicUser {
   readonly displayName: string;
   readonly email: string;
@@ -92,6 +98,64 @@ export class AuthService {
     return this.createSessionForUser(user);
   }
 
+  public async loginWithExternalIdentity(
+    input: ExternalIdentityInput,
+    linkUserId?: string,
+  ): Promise<AuthSessionResult> {
+    const existingBySubject = await this.repository.findUserByKeycloakSubject(input.subject);
+    if (existingBySubject) {
+      return this.createSessionForUser(existingBySubject);
+    }
+
+    if (linkUserId) {
+      const linkTarget = await this.repository.findUserById(linkUserId);
+      if (!linkTarget) {
+        throw unauthorized("Invite session required before Keycloak login.");
+      }
+      const linked = await this.repository.linkUserToKeycloakSubject(
+        linkTarget.id,
+        input.subject,
+        this.now(),
+      );
+      return this.createSessionForUser(linked);
+    }
+
+    const emailNormalized = normalizeEmail(input.email);
+    const existingByEmail = await this.repository.findUserByEmailNormalized(emailNormalized);
+    if (existingByEmail) {
+      const linked = await this.repository.linkUserToKeycloakSubject(
+        existingByEmail.id,
+        input.subject,
+        this.now(),
+      );
+      return this.createSessionForUser(linked);
+    }
+
+    try {
+      const user = await this.repository.createUser({
+        displayName: input.displayName || emailNormalized,
+        email: emailNormalized,
+        emailNormalized,
+        keycloakSubject: input.subject,
+        linkedAt: this.now(),
+        passwordHash: "external:keycloak",
+      });
+
+      return this.createSessionForUser(user);
+    } catch (error) {
+      if (error instanceof DuplicateEmailError) {
+        const user = await this.repository.findUserByEmailNormalized(emailNormalized);
+        if (user) {
+          return this.createSessionForUser(
+            await this.repository.linkUserToKeycloakSubject(user.id, input.subject, this.now()),
+          );
+        }
+      }
+
+      throw error;
+    }
+  }
+
   public async authenticate(
     rawToken: string,
   ): Promise<{ readonly session: Session; readonly user: User } | null> {
@@ -121,7 +185,7 @@ export class AuthService {
     return hashToken(csrfToken, this.csrfSecret) === session.csrfTokenHash;
   }
 
-  private async createSessionForUser(user: User): Promise<AuthSessionResult> {
+  public async createSessionForUser(user: User): Promise<AuthSessionResult> {
     const sessionToken = createSessionToken(this.sessionSecret);
     const csrfToken = createSecretToken();
     const expiresAt = new Date(this.now().getTime() + this.sessionTtlSeconds * 1000);

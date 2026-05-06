@@ -50,8 +50,16 @@ export const MEMBER_PERMISSION_MASK = createPermissionMask([
 
 export const GUEST_PERMISSION_MASK = createPermissionMask([
   Permission.VIEW_CHANNEL,
+  Permission.READ_MESSAGE_HISTORY,
+  Permission.SEND_MESSAGES,
+  Permission.EDIT_OWN_MESSAGES,
+  Permission.DELETE_OWN_MESSAGES,
   Permission.CONNECT_VOICE,
   Permission.SPEAK,
+  Permission.USE_VAD,
+  Permission.USE_PUSH_TO_TALK,
+  Permission.STREAM_CAMERA,
+  Permission.SHARE_SCREEN,
 ]);
 
 export const DEFAULT_ROLE_DEFINITIONS: readonly DefaultRoleDefinition[] = [

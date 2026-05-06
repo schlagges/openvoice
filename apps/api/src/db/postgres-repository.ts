@@ -41,6 +41,8 @@ import type {
   ReorderChannelInput,
   RedeemWorkspaceInviteInput,
   RedeemWorkspaceInviteResult,
+  JoinGlobalWorkspaceInput,
+  JoinGlobalWorkspaceResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -73,10 +75,20 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
   public async createUser(input: CreateUserInput): Promise<User> {
     try {
       const result = await this.pool.query<UserRow>(
-        `INSERT INTO users (id, email, email_normalized, display_name, password_hash, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, now(), now())
+        `INSERT INTO users (id, email, email_normalized, display_name, password_hash, kind, keycloak_subject, created_from_invite_id, linked_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
          RETURNING *`,
-        [randomUUID(), input.email, input.emailNormalized, input.displayName, input.passwordHash],
+        [
+          randomUUID(),
+          input.email,
+          input.emailNormalized,
+          input.displayName,
+          input.passwordHash,
+          input.kind ?? "registered",
+          input.keycloakSubject ?? null,
+          input.createdFromInviteId ?? null,
+          input.linkedAt ?? null,
+        ],
       );
 
       return mapUser(result.rows[0]);
@@ -102,6 +114,33 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     const result = await this.pool.query<UserRow>("SELECT * FROM users WHERE id = $1", [userId]);
 
     return result.rows[0] ? mapUser(result.rows[0]) : null;
+  }
+
+  public async findUserByKeycloakSubject(keycloakSubject: string): Promise<User | null> {
+    const result = await this.pool.query<UserRow>(
+      "SELECT * FROM users WHERE keycloak_subject = $1",
+      [keycloakSubject],
+    );
+
+    return result.rows[0] ? mapUser(result.rows[0]) : null;
+  }
+
+  public async linkUserToKeycloakSubject(
+    userId: string,
+    keycloakSubject: string,
+    linkedAt: Date,
+  ): Promise<User> {
+    const result = await this.pool.query<UserRow>(
+      `UPDATE users
+       SET keycloak_subject = $2,
+           linked_at = $3,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [userId, keycloakSubject, linkedAt],
+    );
+
+    return mapUser(result.rows[0]);
   }
 
   public async createSession(input: CreateSessionInput): Promise<Session> {
@@ -144,10 +183,10 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       await client.query("BEGIN");
 
       const workspaceResult = await client.query<WorkspaceRow>(
-        `INSERT INTO workspaces (id, name, owner_id, created_at, updated_at)
-         VALUES ($1, $2, $3, now(), now())
+        `INSERT INTO workspaces (id, name, owner_id, access_mode, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, now(), now())
          RETURNING *`,
-        [randomUUID(), input.name, input.ownerId],
+        [randomUUID(), input.name, input.ownerId, input.accessMode ?? "private"],
       );
       const workspace = mapWorkspace(workspaceResult.rows[0]);
 
@@ -299,8 +338,8 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       );
       const member = mapWorkspaceMember(memberResult.rows[0]);
       const roleResult = await client.query<RoleRow>(
-        "SELECT * FROM roles WHERE workspace_id = $1 AND key = 'member'",
-        [invite.workspaceId],
+        "SELECT * FROM roles WHERE workspace_id = $1 AND key = $2",
+        [invite.workspaceId, input.roleKey ?? "member"],
       );
       const role = roleResult.rows[0] ? mapRole(roleResult.rows[0]) : null;
       if (role) {
@@ -336,6 +375,18 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
               }),
             ]
           : []),
+        ...(input.joinKind === "guest"
+          ? [
+              await insertAuditLog(client, {
+                actorId: input.actorId,
+                event: "GUEST_JOIN",
+                metadata: { inviteId: invite.id },
+                targetId: member.id,
+                targetType: "workspace_member",
+                workspaceId: invite.workspaceId,
+              }),
+            ]
+          : []),
       ];
 
       await client.query("COMMIT");
@@ -364,6 +415,7 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
          w.id AS workspace_id,
          w.name AS workspace_name,
          w.owner_id,
+         w.access_mode AS workspace_access_mode,
          w.created_at AS workspace_created_at,
          w.updated_at AS workspace_updated_at,
          wm.id AS member_id,
@@ -400,6 +452,7 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       },
       roles: rolesResult.rows.map(mapRole),
       workspace: {
+        accessMode: parseWorkspaceAccessMode(row.workspace_access_mode),
         createdAt: row.workspace_created_at,
         id: row.workspace_id,
         name: row.workspace_name,
@@ -582,6 +635,115 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       ...mapWorkspace(row),
       memberCount: Number(row.member_count),
     }));
+  }
+
+  public async listGlobalWorkspaces(): Promise<readonly WorkspaceWithMemberCount[]> {
+    const result = await this.pool.query<WorkspaceRow & { readonly member_count: string }>(
+      `SELECT w.*, count(all_members.id) AS member_count
+       FROM workspaces w
+       LEFT JOIN workspace_members all_members ON all_members.workspace_id = w.id
+       WHERE w.access_mode = 'global_authenticated'
+       GROUP BY w.id
+       ORDER BY w.created_at ASC`,
+    );
+
+    return result.rows.map((row) => ({
+      ...mapWorkspace(row),
+      memberCount: Number(row.member_count),
+    }));
+  }
+
+  public async joinGlobalWorkspace(
+    input: JoinGlobalWorkspaceInput,
+  ): Promise<JoinGlobalWorkspaceResult | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+
+      const workspaceResult = await client.query<WorkspaceRow>(
+        "SELECT * FROM workspaces WHERE id = $1 AND access_mode = 'global_authenticated'",
+        [input.workspaceId],
+      );
+      const workspace = workspaceResult.rows[0] ? mapWorkspace(workspaceResult.rows[0]) : null;
+      if (!workspace) {
+        await client.query("COMMIT");
+        return null;
+      }
+
+      const existingMemberResult = await client.query<WorkspaceMemberRow>(
+        "SELECT * FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+        [workspace.id, input.userId],
+      );
+      if (existingMemberResult.rows[0]) {
+        await client.query("COMMIT");
+        return {
+          auditLogEntries: [],
+          alreadyMember: true,
+          member: mapWorkspaceMember(existingMemberResult.rows[0]),
+          role: null,
+          workspace,
+        };
+      }
+
+      const memberResult = await client.query<WorkspaceMemberRow>(
+        `INSERT INTO workspace_members (id, workspace_id, user_id, created_at)
+         VALUES ($1, $2, $3, now())
+         RETURNING *`,
+        [randomUUID(), workspace.id, input.userId],
+      );
+      const member = mapWorkspaceMember(memberResult.rows[0]);
+      const roleResult = await client.query<RoleRow>(
+        "SELECT * FROM roles WHERE workspace_id = $1 AND key = $2",
+        [workspace.id, input.roleKey ?? "member"],
+      );
+      const role = roleResult.rows[0] ? mapRole(roleResult.rows[0]) : null;
+      if (role) {
+        await client.query(
+          `INSERT INTO member_roles (workspace_member_id, role_id, created_at)
+           VALUES ($1, $2, now())`,
+          [member.id, role.id],
+        );
+      }
+
+      const auditLogEntries = [
+        await insertAuditLog(client, {
+          actorId: input.userId,
+          event: "MEMBER_JOIN",
+          metadata: { accessMode: workspace.accessMode },
+          targetId: member.id,
+          targetType: "workspace_member",
+          workspaceId: workspace.id,
+        }),
+        ...(role
+          ? [
+              await insertAuditLog(client, {
+                actorId: input.userId,
+                event: "MEMBER_ROLE_ASSIGN",
+                metadata: { roleKey: role.key },
+                targetId: member.id,
+                targetType: "workspace_member",
+                workspaceId: workspace.id,
+              }),
+            ]
+          : []),
+      ];
+
+      await client.query("COMMIT");
+
+      return {
+        auditLogEntries,
+        alreadyMember: false,
+        member,
+        role,
+        workspace,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   public async reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]> {
@@ -1452,10 +1614,14 @@ async function insertWorkspaceCreationAuditEntries(
 
 interface UserRow extends QueryResultRow {
   readonly created_at: Date;
+  readonly created_from_invite_id: string | null;
   readonly display_name: string;
   readonly email: string;
   readonly email_normalized: string;
   readonly id: string;
+  readonly keycloak_subject: string | null;
+  readonly kind: User["kind"];
+  readonly linked_at: Date | null;
   readonly password_hash: string;
   readonly updated_at: Date;
 }
@@ -1471,6 +1637,7 @@ interface SessionRow extends QueryResultRow {
 }
 
 interface WorkspaceRow extends QueryResultRow {
+  readonly access_mode: string;
   readonly created_at: Date;
   readonly id: string;
   readonly name: string;
@@ -1527,6 +1694,7 @@ interface WorkspaceAccessRow extends QueryResultRow {
   readonly member_user_id: string;
   readonly member_workspace_id: string;
   readonly owner_id: string;
+  readonly workspace_access_mode: string;
   readonly workspace_created_at: Date;
   readonly workspace_id: string;
   readonly workspace_name: string;
@@ -1683,13 +1851,25 @@ function mapUser(row: UserRow | undefined): User {
 
   return {
     createdAt: row.created_at,
+    createdFromInviteId: row.created_from_invite_id ?? null,
     displayName: row.display_name,
     email: row.email,
     emailNormalized: row.email_normalized,
     id: row.id,
+    keycloakSubject: row.keycloak_subject ?? null,
+    kind: row.kind ?? "registered",
+    linkedAt: row.linked_at ?? null,
     passwordHash: row.password_hash,
     updatedAt: row.updated_at,
   };
+}
+
+function parseWorkspaceAccessMode(value: string): Workspace["accessMode"] {
+  if (value === "global_authenticated" || value === "private") {
+    return value;
+  }
+
+  throw new Error(`Unsupported workspace access mode ${value}.`);
 }
 
 function mapSession(row: SessionRow | undefined): Session {
@@ -1714,6 +1894,7 @@ function mapWorkspace(row: WorkspaceRow | undefined): Workspace {
   }
 
   return {
+    accessMode: parseWorkspaceAccessMode(row.access_mode),
     createdAt: row.created_at,
     id: row.id,
     name: row.name,

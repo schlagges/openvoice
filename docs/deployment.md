@@ -203,7 +203,18 @@ TRUSTED_PROXY_IPS=172.16.0.0/12
 
 TURN_REALM=voice.schnick-schnack.info
 TURN_URL=voice.schnick-schnack.info
+TURN_EXTERNAL_IP=217.160.175.231
 LIVEKIT_URL=wss://voice.schnick-schnack.info/livekit
+LIVEKIT_USE_EXTERNAL_IP=true
+
+LOCAL_PASSWORD_AUTH_ENABLED=false
+OIDC_ENABLED=true
+OIDC_ISSUER=https://auth.schnick-schnack.info/realms/schnick-schnack
+OIDC_CLIENT_ID=openvoice
+OIDC_CLIENT_SECRET=<value from /opt/keycloak-sso/openvoice-client-secret.env>
+OIDC_CALLBACK_URL=https://voice.schnick-schnack.info/api/v1/auth/oidc/callback
+OIDC_AUDIENCE=openvoice
+OIDC_REQUIRED_CLIENT_ROLE=user
 ```
 
 `API_PORT=127.0.0.1:3002` bindet die API nur lokal und vermeidet den Konflikt mit dem Web-Port
@@ -224,10 +235,6 @@ Wenn die Temp-Domain fuer RTC-Medientests genutzt werden soll, muss `LIVEKIT_URL
 `wss://schnick-schnack.info.w00ac711.kasserver.com/livekit` zeigen oder LiveKit muss unter einer
 separaten Domain mit gueltigem TLS-Zertifikat erreichbar sein.
 
-Wenn die Weboberflaeche per Basic Auth geschuetzt ist, muss der Host-Nginx fuer `/livekit/` den
-automatisch vom Browser mitgesendeten Basic-Auth-Header entfernen. LiveKit authentifiziert den
-Signal-WebSocket ueber den kurzlebigen Join-Token in der Query und lehnt sonst den Basic-Header ab.
-
 ```nginx
 location /livekit/ {
     proxy_pass http://127.0.0.1:7880/;
@@ -240,7 +247,6 @@ location /livekit/ {
 
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_set_header Authorization "";
     proxy_buffering off;
     proxy_read_timeout 3600;
 }
@@ -250,6 +256,15 @@ TURN/TURNS laufen nicht ueber den HTTP-Reverse-Proxy. Firewall und DNS muessen d
 dokumentierten TURN-Ports direkt auf den coturn-Container weiterleiten. Fuer produktive TURNS
 muessen gueltige Zertifikate in `infra/certs` bereitgestellt oder der coturn-Zertifikatspfad
 deploymentseitig angepasst werden.
+
+Wenn coturn im Docker-Bridge-Netzwerk laeuft, muss `TURN_EXTERNAL_IP` auf die oeffentliche IPv4 des
+Hosts gesetzt werden. Sonst kann coturn private Container-Adressen als Relay-Kandidaten
+signalisieren und Browser bleiben bei `could not establish pc connection` haengen.
+
+Wenn LiveKit im Docker-Bridge-Netzwerk fuer oeffentliche Browser laeuft, muss
+`LIVEKIT_USE_EXTERNAL_IP=true` gesetzt bleiben. Sonst annonciert LiveKit private Docker-Kandidaten
+als bevorzugte ICE-Ziele, was vor allem bei Refresh, NAT-Wechseln und TCP-Fallbacks zu
+`could not establish pc connection` fuehren kann.
 
 ## 10. Image-basiertes Zielsystem ohne Source-Build
 
@@ -289,26 +304,9 @@ OPENVOICE_API_IMAGE=openvoice-api:0.1.0-rc1
 OPENVOICE_WEB_IMAGE=openvoice-web:0.1.0-rc1
 ```
 
-Der Web-Container schützt die öffentliche Oberfläche zusätzlich mit HTTP Basic Auth. Die Werte
-kommen aus der runtime-only `.env`:
-
-```dotenv
-OPENVOICE_SITE_USER=openvoice
-OPENVOICE_SITE_PASSWORD=keins
-```
-
-Der Basic-Auth-Schutz liegt vor der SPA und vor `/api/`. Der Web-Container entfernt
-`Authorization: Basic ...` vor dem internen API-Proxy, damit die vorgelagerte Site-Auth nicht mit
-OpenVoice-App-Auth kollidiert. `/livekit/` wird am Host-Nginx separat direkt zur SFU
-weitergeleitet und ist nicht Teil dieses Basic-Auth-Schutzes.
-
-Passwortwechsel auf dem Zielserver:
-
-```bash
-cd /home/schlagges/openvoice-deploy
-$EDITOR .env
-docker compose --env-file .env -f infra/docker-compose.prod.yml up -d web
-```
+Der Web-Container setzt keine vorgeschaltete HTTP Basic Auth mehr. Zugriffsschutz erfolgt ueber
+Keycloak SSO im Realm `schnick-schnack`; OpenVoice akzeptiert nur Tokens mit der Client-Rolle
+`openvoice:user`.
 
 Start auf dem Zielserver:
 
@@ -335,19 +333,15 @@ Nach jedem Image-Update sollten mindestens diese Checks laufen:
 
 ```bash
 curl -I https://voice.schnick-schnack.info
-curl -I -u openvoice:keins https://voice.schnick-schnack.info
-curl -i -u openvoice:keins https://voice.schnick-schnack.info/api/v1/me
+curl -i https://voice.schnick-schnack.info/api/v1/me
 curl -i https://voice.schnick-schnack.info/livekit/
 ```
 
 Erwartung:
 
-- Ohne Basic Auth liefert die Weboberflaeche `401`.
-- Mit Basic Auth liefert die Weboberflaeche `200`.
-- `/api/v1/me` liefert mit Basic Auth, aber ohne OpenVoice-Session, ein JSON-`401` der App.
-- `/livekit/` darf nicht vom Web-Basic-Auth-Schutz blockiert werden. Ein HTTP-`401` von LiveKit
-  ist ohne Join-Token normal, darf aber nicht durch einen weitergeleiteten Basic-Auth-Header
-  verursacht werden.
+- Die Weboberflaeche liefert `200`.
+- `/api/v1/me` liefert ohne OpenVoice-Session ein JSON-`401` der App.
+- `/livekit/` liefert ohne Join-Token typischerweise `401`; das ist normal.
 
 Das ausgelieferte Web-Bundle darf fuer die API nicht `http://localhost:3000/api/v1` enthalten. Fuer
 oeffentliche Deployments muss die API relativ ueber `/api/v1` laufen.

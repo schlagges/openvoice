@@ -29,9 +29,6 @@ EXPOSE 3000
 CMD ["sh", "-c", "node apps/api/dist/db/migrate.js && node apps/api/dist/server.js"]
 
 FROM nginx:1.27-alpine AS web
-RUN apk add --no-cache apache2-utils
 COPY infra/nginx.conf /etc/nginx/conf.d/default.conf
-COPY infra/docker-entrypoint.d/15-openvoice-basic-auth.sh /docker-entrypoint.d/15-openvoice-basic-auth.sh
-RUN chmod +x /docker-entrypoint.d/15-openvoice-basic-auth.sh
 COPY --from=build /app/apps/web/dist /usr/share/nginx/html
 EXPOSE 80

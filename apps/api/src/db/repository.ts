@@ -12,6 +12,8 @@ import type {
   CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
+  JoinGlobalWorkspaceInput,
+  JoinGlobalWorkspaceResult,
   DisconnectVoiceMemberInput,
   DisconnectVoiceMemberResult,
   KickWorkspaceMemberInput,
@@ -70,6 +72,7 @@ export interface OpenVoiceRepository {
   findRoleById(roleId: string): Promise<Role | null>;
   findUserByEmailNormalized(emailNormalized: string): Promise<User | null>;
   findUserById(userId: string): Promise<User | null>;
+  findUserByKeycloakSubject(keycloakSubject: string): Promise<User | null>;
   findWorkspaceByNameNormalized(nameNormalized: string): Promise<Workspace | null>;
   findActiveWorkspaceBan(workspaceId: string, userId: string): Promise<WorkspaceBanRecord | null>;
   findActiveWorkspaceInvite(codeHash: string, now: Date): Promise<WorkspaceInvite | null>;
@@ -83,6 +86,7 @@ export interface OpenVoiceRepository {
     userId: string,
   ): Promise<WorkspaceAccessContext | null>;
   findWorkspaceMember(workspaceId: string, userId: string): Promise<WorkspaceMember | null>;
+  joinGlobalWorkspace(input: JoinGlobalWorkspaceInput): Promise<JoinGlobalWorkspaceResult | null>;
   kickWorkspaceMember(input: KickWorkspaceMemberInput): Promise<KickWorkspaceMemberResult | null>;
   listChannels(workspaceId: string): Promise<readonly ChannelNodeRecord[]>;
   listAuditLog(input: ListAuditLogInput): Promise<readonly AuditLogEntry[]>;
@@ -91,6 +95,7 @@ export interface OpenVoiceRepository {
   listPermissionOverridesForChannels(
     channelIds: readonly string[],
   ): Promise<readonly PermissionOverrideRecord[]>;
+  listGlobalWorkspaces(): Promise<readonly WorkspaceWithMemberCount[]>;
   findVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
   findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null>;
   listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]>;
@@ -101,6 +106,7 @@ export interface OpenVoiceRepository {
   ): Promise<DisconnectVoiceMemberResult | null>;
   reorderChannels(input: ReorderChannelInput): Promise<readonly ChannelNodeRecord[]>;
   revokeSession(tokenHash: string, revokedAt: Date): Promise<void>;
+  linkUserToKeycloakSubject(userId: string, keycloakSubject: string, linkedAt: Date): Promise<User>;
   setVoiceModerationState(input: SetVoiceModerationInput): Promise<VoiceStateRecord | null>;
   softDeleteMessage(input: SoftDeleteMessageInput): Promise<MessageRecord>;
   timeoutWorkspaceMember(input: TimeoutWorkspaceMemberInput): Promise<WorkspaceTimeoutRecord>;

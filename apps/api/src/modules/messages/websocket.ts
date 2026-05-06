@@ -151,11 +151,16 @@ async function authenticateUpgrade(
     },
   );
   const token = readRequestToken(request, options.config.sessionCookieName);
-  if (!token) {
+  const urlToken = new URL(
+    incoming.url ?? "/",
+    `http://${incoming.headers.host ?? "localhost"}`,
+  ).searchParams.get("access_token");
+  const rawToken = token?.token ?? (urlToken && urlToken.length > 0 ? urlToken : null);
+  if (!rawToken) {
     return null;
   }
 
-  const authResult = await options.authService.authenticate(token.token);
+  const authResult = await options.authService.authenticate(rawToken);
   return authResult?.user.id ?? null;
 }
 

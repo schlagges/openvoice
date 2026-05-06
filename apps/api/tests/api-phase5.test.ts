@@ -69,8 +69,10 @@ describe("Phase 5 voice API", () => {
   it("issues LiveKit voice tokens and short-lived TURN REST credentials", async () => {
     const app = createTestApp();
     const owner = await register(app, "owner@example.com");
+    const member = await register(app, "member@example.com", "Voice Member");
     const workspace = await createWorkspace(app, owner);
     const channel = await createChannel(app, owner, workspace.id, ChannelType.VOICE);
+    await joinWorkspace(app, member, workspace.id);
 
     const joinResponse = await app.handler(
       jsonRequest(
@@ -112,6 +114,29 @@ describe("Phase 5 voice API", () => {
         .update(turnServer?.username ?? "")
         .digest("base64"),
     );
+
+    const memberJoinResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/channels/${channel.id}/voice/join`,
+        { audioMode: AudioMode.VOICE, selfDeafened: false, selfMuted: false },
+        authHeaders(member),
+      ),
+    );
+    expect(memberJoinResponse.status).toBe(200);
+
+    const participantsResponse = await app.handler(
+      new Request(`http://local.test/api/v1/channels/${channel.id}/voice/participants`, {
+        headers: { cookie: owner.cookie },
+      }),
+    );
+    const participantsBody = (await participantsResponse.json()) as {
+      participants: readonly { user: { displayName: string; id: string } }[];
+    };
+
+    expect(participantsResponse.status).toBe(200);
+    expect(
+      participantsBody.participants.map((participant) => participant.user.displayName),
+    ).toEqual(["Owner", "Voice Member"]);
   });
 
   it("rejects standalone TURN credentials before an active voice session exists", async () => {
@@ -271,9 +296,10 @@ function createTestApp(): TestApp {
   return { handler, mediaProvider, repository };
 }
 
-async function register(app: TestApp, email: string): Promise<TestSession> {
+async function register(app: TestApp, email: string, displayName = "Owner"): Promise<TestSession> {
   const response = await app.handler(
     jsonRequest("/api/v1/auth/register", {
+      displayName,
       email,
       password: "very-secure-password",
     }),
@@ -317,6 +343,14 @@ async function createChannel(
 
   expect(response.status).toBe(201);
   return body.channel;
+}
+
+async function joinWorkspace(
+  app: TestApp,
+  session: TestSession,
+  workspaceId: string,
+): Promise<void> {
+  addWorkspaceMember(app.repository, workspaceId, session.user.id, "member");
 }
 
 function addWorkspaceMember(

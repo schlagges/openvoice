@@ -1,4 +1,5 @@
 import { MessageContentFormat, MessageEventType, type Message } from "@openvoice/shared";
+import { bindNotificationButton } from "../notifications.js";
 
 interface CreateMessageResponse {
   readonly duplicate: boolean;
@@ -9,10 +10,25 @@ interface ListMessagesResponse {
   readonly messages: readonly Message[];
 }
 
+interface MeResponse {
+  readonly user: {
+    readonly displayName: string;
+    readonly id: string;
+  };
+}
+
 interface ChannelSelectionDetail {
   readonly channelId: string;
   readonly channelName: string;
   readonly channelType: string;
+}
+
+interface ParticipantUpdateDetail {
+  readonly participants: readonly {
+    readonly identity: string;
+    readonly isLocal: boolean;
+    readonly name: string;
+  }[];
 }
 
 interface MessageDispatchEnvelope {
@@ -25,9 +41,12 @@ let selectedChannelId = "";
 let activeMessageSocket: WebSocket | null = null;
 let activeMessageSocketChannelId = "";
 let activeReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+let currentUserId = "";
 let reconnectAttempt = 0;
 
 const MAX_RECONNECT_DELAY_MS = 10_000;
+const CHAT_EMOJIS = ["🙂", "👍", "🎉", "❤️", "😂", "👀"];
+const authorNameCache = new Map<string, string>();
 
 export function renderChatPanel(messages: readonly Message[], channelName = "Nachrichten"): string {
   return `
@@ -37,7 +56,10 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
           <p class="eyebrow">Chat</p>
           <h2>${escapeHtml(channelName)}</h2>
         </div>
-        <span class="status-pill">${messages.length} Nachrichten</span>
+        <div class="chat-panel__tools">
+          <button class="chat-notification-button" type="button" data-notification-request>Benachrichtigungen</button>
+          <span class="status-pill">${messages.length} Nachrichten</span>
+        </div>
       </header>
       ${
         messages.length === 0
@@ -49,9 +71,17 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
       }
       <form class="chat-composer">
         <label class="chat-composer__label" for="chat-message-input">Nachricht</label>
-        <textarea id="chat-message-input" class="chat-composer__input" name="message" rows="1" placeholder="Nachricht schreiben"></textarea>
+        <div class="chat-composer__field">
+          <textarea id="chat-message-input" class="chat-composer__input" name="message" rows="1" placeholder="Nachricht schreiben"></textarea>
+          <button class="chat-composer__send" type="submit" aria-label="Nachricht senden" title="Nachricht senden">↵</button>
+        </div>
+        <div class="chat-emoji-set" aria-label="Smileys">
+          ${CHAT_EMOJIS.map(
+            (emoji) =>
+              `<button class="chat-emoji-button" type="button" data-chat-emoji="${escapeHtml(emoji)}" aria-label="Smiley ${escapeHtml(emoji)} einfuegen" title="${escapeHtml(emoji)} einfuegen">${escapeHtml(emoji)}</button>`,
+          ).join("")}
+        </div>
         <p id="chat-composer-status" class="chat-composer__status" role="status"></p>
-        <button class="chat-composer__send" type="submit" aria-label="Nachricht senden" title="Nachricht senden">➤</button>
       </form>
     </section>
   `;
@@ -59,6 +89,7 @@ export function renderChatPanel(messages: readonly Message[], channelName = "Nac
 
 export function mountChatPanel(root: HTMLElement, messages: readonly Message[]): void {
   root.insertAdjacentHTML("beforeend", renderChatPanel(messages));
+  bindNotificationButton(root);
   bindChatComposer(root);
 }
 
@@ -67,6 +98,38 @@ function bindChatComposer(root: HTMLElement): void {
   const input = root.querySelector<HTMLTextAreaElement>("#chat-message-input");
   const status = root.querySelector<HTMLElement>("#chat-composer-status");
   const submit = root.querySelector<HTMLButtonElement>(".chat-composer__send");
+
+  rememberLocalDisplayName();
+  void hydrateCurrentUser(root);
+
+  input?.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" || event.shiftKey) {
+      return;
+    }
+
+    event.preventDefault();
+    form?.requestSubmit();
+  });
+
+  root.querySelectorAll<HTMLButtonElement>("[data-chat-emoji]").forEach((button) => {
+    button.addEventListener("click", () => {
+      if (!input) {
+        return;
+      }
+
+      const emoji = button.dataset.chatEmoji ?? "";
+      const selectionStart = input.selectionStart;
+      const selectionEnd = input.selectionEnd;
+      const prefix = input.value.slice(0, selectionStart);
+      const suffix = input.value.slice(selectionEnd);
+      const spacer = prefix && !prefix.endsWith(" ") ? " " : "";
+      const nextValue = `${prefix}${spacer}${emoji}${suffix}`;
+      input.value = nextValue;
+      const cursor = prefix.length + spacer.length + emoji.length;
+      input.setSelectionRange(cursor, cursor);
+      input.focus();
+    });
+  });
 
   form?.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -84,6 +147,7 @@ function bindChatComposer(root: HTMLElement): void {
 
     void createMessage(channelId, content)
       .then(({ message }) => {
+        rememberLocalAuthor(message.authorId);
         upsertMessage(root, message);
         if (input) {
           input.value = "";
@@ -138,6 +202,20 @@ function bindChatComposer(root: HTMLElement): void {
       })
       .catch(() => setStatus(status, "Nachrichten konnten nicht geladen werden.", "error"));
   });
+
+  window.addEventListener("openvoice:participants-updated", (event) => {
+    const detail = (event as CustomEvent<ParticipantUpdateDetail>).detail;
+    let changed = false;
+    for (const participant of detail?.participants ?? []) {
+      changed = rememberChatAuthor(participant.identity, participant.name) || changed;
+      if (participant.isLocal) {
+        currentUserId = participant.identity;
+      }
+    }
+    if (changed) {
+      refreshRenderedAuthors(root);
+    }
+  });
 }
 
 async function createMessage(channelId: string, content: string): Promise<CreateMessageResponse> {
@@ -150,6 +228,7 @@ async function createMessage(channelId: string, content: string): Promise<Create
     credentials: "include",
     headers: {
       "content-type": "application/json",
+      ...authHeader(),
       ...csrfHeader(),
     },
     method: "POST",
@@ -165,6 +244,7 @@ async function createMessage(channelId: string, content: string): Promise<Create
 async function loadMessages(root: HTMLElement, channelId: string): Promise<void> {
   const response = await fetch(`/api/v1/channels/${encodeURIComponent(channelId)}/messages`, {
     credentials: "include",
+    headers: authHeader(),
   });
 
   if (!response.ok) {
@@ -173,6 +253,22 @@ async function loadMessages(root: HTMLElement, channelId: string): Promise<void>
 
   const body = (await response.json()) as ListMessagesResponse;
   replaceMessages(root, body.messages);
+}
+
+async function hydrateCurrentUser(root: HTMLElement): Promise<void> {
+  const response = await fetch("/api/v1/me", {
+    credentials: "include",
+    headers: authHeader(),
+  });
+  if (!response.ok) {
+    return;
+  }
+
+  const body = (await response.json()) as MeResponse;
+  currentUserId = body.user.id;
+  if (rememberChatAuthor(body.user.id, body.user.displayName)) {
+    refreshRenderedAuthors(root);
+  }
 }
 
 function upsertMessage(root: HTMLElement, message: Message): void {
@@ -222,6 +318,10 @@ function updateChatTitle(root: HTMLElement, title: string): void {
   }
 }
 
+function readChatTitle(root: HTMLElement): string {
+  return root.querySelector<HTMLElement>(".chat-panel__header h2")?.textContent?.trim() ?? "";
+}
+
 function openMessageSocket(root: HTMLElement, channelId: string, status: HTMLElement | null): void {
   if (activeMessageSocket && activeMessageSocketChannelId === channelId) {
     return;
@@ -251,6 +351,17 @@ function openMessageSocket(root: HTMLElement, channelId: string, status: HTMLEle
       envelope.t === MessageEventType.DELETE
     ) {
       upsertMessage(root, envelope.d);
+      if (envelope.t === MessageEventType.CREATE) {
+        window.dispatchEvent(
+          new CustomEvent("openvoice:chat-message-created", {
+            detail: {
+              channelName: readChatTitle(root),
+              isOwn: Boolean(currentUserId && envelope.d.authorId === currentUserId),
+              message: envelope.d,
+            },
+          }),
+        );
+      }
     }
   });
 
@@ -346,9 +457,11 @@ function isMessage(value: unknown): value is Message {
 
 function messageSocketUrl(channelId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const accessToken = localStorage.getItem("openvoice.accessToken");
+  const query = accessToken ? `?access_token=${encodeURIComponent(accessToken)}` : "";
   return `${protocol}//${window.location.host}/api/v1/channels/${encodeURIComponent(
     channelId,
-  )}/messages/ws`;
+  )}/messages/ws${query}`;
 }
 
 function sortMessageList(list: HTMLOListElement): void {
@@ -388,6 +501,11 @@ function csrfHeader(): Record<string, string> {
   return token ? { "x-openvoice-csrf-token": token } : {};
 }
 
+function authHeader(): Record<string, string> {
+  const token = localStorage.getItem("openvoice.accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 function setStatus(
   element: HTMLElement | null,
   text: string,
@@ -413,17 +531,79 @@ async function readMessageError(response: Response): Promise<string> {
 export function renderMessage(message: Message): string {
   const body = message.deletedAt ? "<em>Gelöscht</em>" : escapeHtml(message.content);
   const edited = message.editedAt ? `<span class="chat-message__edited">bearbeitet</span>` : "";
+  const authorName = authorDisplayName(message.authorId);
+  const ownClass = currentUserId && message.authorId === currentUserId ? " chat-message--own" : "";
 
   return `
-    <li class="chat-message" data-message-id="${escapeHtml(message.id)}" data-created-at="${escapeHtml(message.createdAt)}">
-      <div class="chat-message__meta">
-        <span class="chat-message__author">${escapeHtml(message.authorId)}</span>
-        <time datetime="${escapeHtml(message.createdAt)}">${formatTime(message.createdAt)}</time>
-        ${edited}
+    <li class="chat-message${ownClass}" data-message-id="${escapeHtml(message.id)}" data-author-id="${escapeHtml(message.authorId)}" data-created-at="${escapeHtml(message.createdAt)}">
+      <div class="chat-message__avatar" aria-hidden="true">${escapeHtml(initials(authorName))}</div>
+      <div class="chat-message__bubble">
+        <div class="chat-message__meta">
+          <span class="chat-message__author">${escapeHtml(authorName)}</span>
+          <time datetime="${escapeHtml(message.createdAt)}">${formatTime(message.createdAt)}</time>
+          ${edited}
+        </div>
+        <p class="chat-message__body">${body}</p>
       </div>
-      <p class="chat-message__body">${body}</p>
     </li>
   `;
+}
+
+function refreshRenderedAuthors(root: HTMLElement): void {
+  const messages = root.querySelectorAll<HTMLElement>(".chat-message");
+  for (const message of Array.from(messages)) {
+    const authorId = message.dataset.authorId ?? "";
+    const authorName = authorDisplayName(authorId);
+    const author = message.querySelector(".chat-message__author");
+    const avatar = message.querySelector(".chat-message__avatar");
+    if (author) {
+      author.textContent = authorName;
+    }
+    if (avatar) {
+      avatar.textContent = initials(authorName);
+    }
+    message.classList.toggle(
+      "chat-message--own",
+      Boolean(currentUserId && authorId === currentUserId),
+    );
+  }
+}
+
+function rememberLocalDisplayName(): void {
+  const displayName = localStorage.getItem("openvoice.displayName");
+  if (displayName && currentUserId) {
+    rememberChatAuthor(currentUserId, displayName);
+  }
+}
+
+function rememberLocalAuthor(authorId: string): void {
+  currentUserId = currentUserId || authorId;
+  const displayName = localStorage.getItem("openvoice.displayName");
+  if (displayName) {
+    rememberChatAuthor(authorId, displayName);
+  }
+}
+
+export function rememberChatAuthor(authorId: string, displayName: string): boolean {
+  if (!authorId || !displayName || authorNameCache.get(authorId) === displayName) {
+    return false;
+  }
+
+  authorNameCache.set(authorId, displayName);
+  return true;
+}
+
+function authorDisplayName(authorId: string): string {
+  return authorNameCache.get(authorId) ?? "Teilnehmer";
+}
+
+function initials(name: string): string {
+  const words = name.trim().split(/\s+/).filter(Boolean);
+  const letters =
+    words.length >= 2
+      ? `${words[0]?.[0] ?? ""}${words[1]?.[0] ?? ""}`
+      : (words[0] ?? "T").slice(0, 2);
+  return letters.toUpperCase();
 }
 
 function formatTime(value: string): string {

@@ -13,13 +13,19 @@ export type AuditMetadata = Record<string, string | number | boolean | null>;
 
 export interface User {
   readonly createdAt: Date;
+  readonly createdFromInviteId: string | null;
   readonly displayName: string;
   readonly email: string;
   readonly emailNormalized: string;
   readonly id: string;
+  readonly keycloakSubject: string | null;
+  readonly kind: UserKind;
+  readonly linkedAt: Date | null;
   readonly passwordHash: string;
   readonly updatedAt: Date;
 }
+
+export type UserKind = "guest" | "registered";
 
 export interface Session {
   readonly createdAt: Date;
@@ -32,12 +38,15 @@ export interface Session {
 }
 
 export interface Workspace {
+  readonly accessMode: WorkspaceAccessMode;
   readonly createdAt: Date;
   readonly id: string;
   readonly name: string;
   readonly ownerId: string;
   readonly updatedAt: Date;
 }
+
+export type WorkspaceAccessMode = "global_authenticated" | "private";
 
 export interface WorkspaceWithMemberCount extends Workspace {
   readonly memberCount: number;
@@ -179,9 +188,13 @@ export interface WorkspaceAccessContext {
 }
 
 export interface CreateUserInput {
+  readonly createdFromInviteId?: string | null;
   readonly displayName: string;
   readonly email: string;
   readonly emailNormalized: string;
+  readonly keycloakSubject?: string | null;
+  readonly kind?: UserKind;
+  readonly linkedAt?: Date | null;
   readonly passwordHash: string;
 }
 
@@ -193,6 +206,7 @@ export interface CreateSessionInput {
 }
 
 export interface CreateWorkspaceInput {
+  readonly accessMode?: WorkspaceAccessMode;
   readonly name: string;
   readonly ownerId: string;
 }
@@ -219,10 +233,26 @@ export interface CreateWorkspaceInviteResult {
 export interface RedeemWorkspaceInviteInput {
   readonly actorId: string;
   readonly codeHash: string;
+  readonly joinKind?: "guest" | "member";
   readonly now: Date;
+  readonly roleKey?: DefaultRoleKey;
 }
 
 export interface RedeemWorkspaceInviteResult {
+  readonly auditLogEntries: readonly AuditLogEntry[];
+  readonly alreadyMember: boolean;
+  readonly member: WorkspaceMember;
+  readonly role: Role | null;
+  readonly workspace: Workspace;
+}
+
+export interface JoinGlobalWorkspaceInput {
+  readonly roleKey?: DefaultRoleKey;
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
+export interface JoinGlobalWorkspaceResult {
   readonly auditLogEntries: readonly AuditLogEntry[];
   readonly alreadyMember: boolean;
   readonly member: WorkspaceMember;

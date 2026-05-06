@@ -26,6 +26,14 @@ services:
       LIVEKIT_TOKEN_TTL_SECONDS: ${LIVEKIT_TOKEN_TTL_SECONDS:-600}
       LIVEKIT_URL: ${LIVEKIT_URL:-ws://localhost:7880}
       MEDIA_PROVIDER: livekit
+      LOCAL_PASSWORD_AUTH_ENABLED: ${LOCAL_PASSWORD_AUTH_ENABLED:-true}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:-openvoice}
+      OIDC_CALLBACK_URL: ${OIDC_CALLBACK_URL:-http://localhost:5173/api/v1/auth/oidc/callback}
+      OIDC_CLIENT_ID: ${OIDC_CLIENT_ID:-openvoice}
+      OIDC_CLIENT_SECRET: ${OIDC_CLIENT_SECRET:-}
+      OIDC_ENABLED: ${OIDC_ENABLED:-false}
+      OIDC_ISSUER: ${OIDC_ISSUER:-https://auth.schnick-schnack.info/realms/schnick-schnack}
+      OIDC_REQUIRED_CLIENT_ROLE: ${OIDC_REQUIRED_CLIENT_ROLE:-user}
       PASSWORD_PEPPER: ${PASSWORD_PEPPER:?PASSWORD_PEPPER is required}
       RATE_LIMITS_ENABLED: ${RATE_LIMITS_ENABLED:-true}
       REDIS_URL: redis://valkey:6379
@@ -63,9 +71,6 @@ services:
       target: web
     depends_on:
       - api
-    environment:
-      OPENVOICE_SITE_PASSWORD: ${OPENVOICE_SITE_PASSWORD:?OPENVOICE_SITE_PASSWORD is required}
-      OPENVOICE_SITE_USER: ${OPENVOICE_SITE_USER:-openvoice}
     ports:
       - "${WEB_PORT:-5173}:80"
 
