@@ -185,6 +185,7 @@ export function mountWebApp(app: HTMLDivElement | null): void {
   if (!app) {
     return;
   }
+  hydrateSessionFromCookies();
 
   app.innerHTML = `
     <main class="app-shell">
@@ -237,9 +238,11 @@ export function mountWebApp(app: HTMLDivElement | null): void {
     mountChannelTree(channelTree, []);
   }
 
+  hydrateSessionFromCookies();
   bindOnboarding(app);
   bindInviteDialog(app);
   bindWorkspaceNavigation(app);
+  bindOidcLogin(app);
   bindParticipantUpdates(app);
   bindThemeToggle(app);
   bindLogout(app);
@@ -426,6 +429,41 @@ function bindWorkspaceNavigation(root: HTMLElement): void {
   void loadWorkspaces(root).catch(() => undefined);
 }
 
+function bindOidcLogin(root: HTMLElement): void {
+  root.addEventListener("click", (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-oidc-login]",
+    );
+    if (!button) {
+      return;
+    }
+
+    void startOidcLogin();
+  });
+}
+
+async function startOidcLogin(): Promise<void> {
+  const returnTo = encodeURIComponent(window.location.pathname || "/");
+  const accessToken = localStorage.getItem("openvoice.accessToken");
+  if (!accessToken) {
+    window.location.href = `/api/v1/auth/oidc/login?returnTo=${returnTo}`;
+    return;
+  }
+
+  const response = await fetch(`/api/v1/auth/oidc/link-start?returnTo=${returnTo}`, {
+    credentials: "include",
+    headers: authHeader(),
+    method: "POST",
+  });
+  if (!response.ok) {
+    window.location.href = `/api/v1/auth/oidc/login?returnTo=${returnTo}`;
+    return;
+  }
+
+  const body = (await response.json()) as { redirectTo?: string };
+  window.location.href = body.redirectTo ?? `/api/v1/auth/oidc/login?returnTo=${returnTo}`;
+}
+
 function bindParticipantUpdates(root: HTMLElement): void {
   window.addEventListener("openvoice:participants-updated", (event) => {
     const detail = (
@@ -554,7 +592,12 @@ function readJoinWorkspaceForm(root: HTMLElement): JoinWorkspaceInput {
 }
 
 async function createWorkspaceFlow(input: CreateWorkspaceInput): Promise<WorkspaceFlowResult> {
-  const csrfToken = await registerTestUser(input);
+  const csrfToken = hasStoredSession()
+    ? (localStorage.getItem("openvoice.csrfToken") ?? "")
+    : await registerTestUser(input);
+  if (!csrfToken) {
+    throw new Error("Bitte zuerst anmelden.");
+  }
   const workspaceResponse = await fetch("/api/v1/workspaces", {
     body: JSON.stringify({ name: input.workspace }),
     credentials: "include",
@@ -597,6 +640,17 @@ async function createWorkspaceFlow(input: CreateWorkspaceInput): Promise<Workspa
 async function joinWorkspaceFlow(
   input: JoinWorkspaceInput,
 ): Promise<WorkspaceInviteJoinResponse & { readonly accessToken: string }> {
+  if (hasStoredSession()) {
+    const joined = await authenticatedJoinInvite(input.code);
+    return { ...joined, accessToken: localStorage.getItem("openvoice.accessToken") ?? "" };
+  }
+
+  const config = await loadAuthConfig();
+  if (!config.localPasswordAuthEnabled) {
+    window.location.href = `/api/v1/auth/oidc/login?returnTo=${encodeURIComponent(window.location.pathname || "/")}`;
+    throw new Error("Weiterleitung zum Login.");
+  }
+
   const joined = await guestJoinInvite(input.code, input.displayName);
   if (!joined.accessToken) {
     throw new Error("Guest session token missing.");
@@ -605,11 +659,34 @@ async function joinWorkspaceFlow(
   return { ...joined, accessToken: joined.accessToken };
 }
 
+async function authenticatedJoinInvite(code: string): Promise<WorkspaceInviteJoinResponse> {
+  const response = await fetch("/api/v1/invites/join", {
+    body: JSON.stringify({ code }),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...authHeader(),
+      ...csrfHeader(),
+    },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  return (await response.json()) as WorkspaceInviteJoinResponse;
+}
+
 async function registerTestUser(input: {
   readonly displayName: string;
   readonly email: string;
   readonly password: string;
 }): Promise<string> {
+  const config = await loadAuthConfig();
+  if (!config.localPasswordAuthEnabled) {
+    window.location.href = `/api/v1/auth/oidc/login?returnTo=${encodeURIComponent(window.location.pathname || "/")}`;
+    throw new Error("Weiterleitung zum Login.");
+  }
   localStorage.removeItem("openvoice.csrfToken");
   const register = await fetch("/api/v1/auth/register", {
     body: JSON.stringify({
@@ -773,6 +850,11 @@ function renderWorkspaceListItems(
         <strong>Noch kein Workspace</strong>
         <span>Erstelle einen Workspace oder tritt einem bestehenden per Invite-Code bei.</span>
         <button class="primary-action compact" type="button" data-open-onboarding="create">Workspace erstellen</button>
+        ${
+          hasStoredSession()
+            ? ""
+            : '<button class="ghost-button" type="button" data-oidc-login>Mit Keycloak anmelden</button>'
+        }
         <button class="ghost-button" type="button" data-open-onboarding="join">Workspace beitreten</button>
       </div>
     `;
@@ -1065,6 +1147,33 @@ function persistSession(
   localStorage.setItem("openvoice.displayName", displayName);
 }
 
+interface AuthConfig {
+  readonly localPasswordAuthEnabled: boolean;
+  readonly oidc?: {
+    readonly enabled?: boolean;
+  };
+}
+
+async function loadAuthConfig(): Promise<AuthConfig> {
+  const response = await fetch("/api/v1/auth/config", { credentials: "include" });
+  if (!response.ok) {
+    return { localPasswordAuthEnabled: true };
+  }
+  return (await response.json()) as AuthConfig;
+}
+
+function hydrateSessionFromCookies(): void {
+  const csrf = readCookie("openvoice_csrf");
+  const display = readCookie("openvoice_display");
+  if (csrf) {
+    localStorage.setItem("openvoice.csrfToken", csrf);
+    localStorage.removeItem("openvoice.accessToken");
+  }
+  if (display) {
+    localStorage.setItem("openvoice.displayName", display);
+  }
+}
+
 function updateCurrentUserLabel(root: HTMLElement): void {
   const label = root.querySelector<HTMLElement>("#current-user-label");
   const logout = root.querySelector<HTMLButtonElement>("#logout-button");
@@ -1138,9 +1247,22 @@ function authHeader(): Record<string, string> {
 }
 
 function hasStoredSession(): boolean {
+  if (typeof localStorage === "undefined") {
+    return false;
+  }
+
   return Boolean(
     localStorage.getItem("openvoice.csrfToken") || localStorage.getItem("openvoice.accessToken"),
   );
+}
+
+function readCookie(name: string): string | null {
+  const prefix = `${name}=`;
+  const cookie = document.cookie
+    .split(";")
+    .map((part) => part.trim())
+    .find((part) => part.startsWith(prefix));
+  return cookie ? decodeURIComponent(cookie.slice(prefix.length)) : null;
 }
 
 function formatWorkspaceMembers(workspace: PublicWorkspace): string {

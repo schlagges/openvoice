@@ -59,23 +59,21 @@ export interface ApiHandlerOptions {
   readonly config: Pick<
     ApiConfig,
     | "corsAllowedOrigins"
-    | "csrfSecret"
     | "enableHsts"
-    | "oidcAudience"
-    | "oidcCallbackUrl"
-    | "oidcClientId"
-    | "oidcClientSecret"
-    | "oidcEnabled"
-    | "oidcIssuerUrl"
-    | "oidcRequiredClientRole"
     | "sessionCookieName"
     | "sessionCookieSecure"
     | "sessionTtlSeconds"
   > & {
     readonly auditIpHashSecret?: string;
+    readonly csrfSecret?: string;
     readonly localPasswordAuthEnabled?: boolean;
+    readonly oidcAudience?: string;
+    readonly oidcCallbackUrl?: string;
     readonly oidcClientId?: string;
+    readonly oidcClientSecret?: string;
+    readonly oidcEnabled?: boolean;
     readonly oidcIssuerUrl?: string;
+    readonly oidcRequiredClientRole?: string;
     readonly rateLimitsEnabled?: boolean | undefined;
     readonly trustedProxyIps?: readonly string[];
   };
@@ -238,9 +236,10 @@ async function routeRequest(
       {
         localPasswordAuthEnabled: options.config.localPasswordAuthEnabled ?? true,
         oidc: {
-          callbackUrl: options.config.oidcCallbackUrl,
+          callbackUrl:
+            options.config.oidcCallbackUrl ??
+            "https://voice.schnick-schnack.info/api/v1/auth/oidc/callback",
           clientId: options.config.oidcClientId ?? "openvoice",
-          enabled: options.config.oidcEnabled ?? false,
           issuerUrl:
             options.config.oidcIssuerUrl ??
             "https://auth.schnick-schnack.info/realms/schnick-schnack",
@@ -257,6 +256,25 @@ async function routeRequest(
     return new Response(null, oidc.createLoginRedirect(url.searchParams.get("returnTo") ?? "/"));
   }
 
+  if (url.pathname === "/api/v1/auth/oidc/link-start") {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const oidc = createOidcAuthService(options);
+    const login = oidc.createLoginRedirect(
+      url.searchParams.get("returnTo") ?? "/",
+      authenticated.userId,
+    );
+    return jsonResponse(
+      { redirectTo: new Headers(login.headers).get("location") ?? "/" },
+      200,
+      requestId,
+      {
+        "set-cookie": new Headers(login.headers).get("set-cookie") ?? "",
+      },
+    );
+  }
+
   if (url.pathname === "/api/v1/auth/oidc/callback") {
     assertMethod(request, "GET");
     const oidc = createOidcAuthService(options);
@@ -265,7 +283,10 @@ async function routeRequest(
       cookieHeader: request.headers.get("cookie"),
       state: url.searchParams.get("state"),
     });
-    const session = await options.authService.loginWithExternalIdentity(result.identity);
+    const session = await options.authService.loginWithExternalIdentity(
+      result.identity,
+      result.linkUserId,
+    );
     const headers = new Headers({
       location: result.returnTo,
       "x-request-id": requestId,
@@ -279,14 +300,20 @@ async function routeRequest(
       }),
     );
     headers.append("set-cookie", oidc.createStateClearingCookie());
-    headers.append("set-cookie", createClientReadableCookie("openvoice_csrf", session.csrfToken, {
-      maxAgeSeconds: options.config.sessionTtlSeconds,
-      secure: options.config.sessionCookieSecure,
-    }));
-    headers.append("set-cookie", createClientReadableCookie("openvoice_display", session.user.displayName, {
-      maxAgeSeconds: options.config.sessionTtlSeconds,
-      secure: options.config.sessionCookieSecure,
-    }));
+    headers.append(
+      "set-cookie",
+      createClientReadableCookie("openvoice_csrf", session.csrfToken, {
+        maxAgeSeconds: options.config.sessionTtlSeconds,
+        secure: options.config.sessionCookieSecure,
+      }),
+    );
+    headers.append(
+      "set-cookie",
+      createClientReadableCookie("openvoice_display", session.user.displayName, {
+        maxAgeSeconds: options.config.sessionTtlSeconds,
+        secure: options.config.sessionCookieSecure,
+      }),
+    );
 
     return new Response(null, { headers, status: 302 });
   }
@@ -297,12 +324,33 @@ async function routeRequest(
     assertCsrf(request, authenticated, options);
     await options.authService.logout(authenticated.rawToken);
 
-    return jsonResponse({ ok: true }, 200, requestId, {
-      "set-cookie": clearSessionCookie({
+    const headers = new Headers({
+      "content-type": "application/json; charset=utf-8",
+      "x-request-id": requestId,
+    });
+    headers.append(
+      "set-cookie",
+      clearSessionCookie({
         name: options.config.sessionCookieName,
         secure: options.config.sessionCookieSecure,
       }),
-    });
+    );
+    headers.append(
+      "set-cookie",
+      createClientReadableCookie("openvoice_csrf", "", {
+        maxAgeSeconds: 0,
+        secure: options.config.sessionCookieSecure,
+      }),
+    );
+    headers.append(
+      "set-cookie",
+      createClientReadableCookie("openvoice_display", "", {
+        maxAgeSeconds: 0,
+        secure: options.config.sessionCookieSecure,
+      }),
+    );
+
+    return new Response(JSON.stringify({ ok: true }), { headers, status: 200 });
   }
 
   if (url.pathname === "/api/v1/me") {
@@ -839,14 +887,17 @@ function assertLocalPasswordAuthEnabled(options: ApiHandlerOptions): void {
 
 function createOidcAuthService(options: ApiHandlerOptions): OidcAuthService {
   return new OidcAuthService({
-    audience: options.config.oidcAudience,
-    callbackUrl: options.config.oidcCallbackUrl,
-    clientId: options.config.oidcClientId,
-    clientSecret: options.config.oidcClientSecret,
-    csrfSecret: options.config.csrfSecret,
-    enabled: options.config.oidcEnabled,
-    issuerUrl: options.config.oidcIssuerUrl,
-    requiredClientRole: options.config.oidcRequiredClientRole,
+    audience: options.config.oidcAudience ?? options.config.oidcClientId ?? "openvoice",
+    callbackUrl:
+      options.config.oidcCallbackUrl ??
+      "https://voice.schnick-schnack.info/api/v1/auth/oidc/callback",
+    clientId: options.config.oidcClientId ?? "openvoice",
+    clientSecret: options.config.oidcClientSecret ?? "",
+    csrfSecret: options.config.csrfSecret ?? "",
+    enabled: options.config.oidcEnabled ?? false,
+    issuerUrl:
+      options.config.oidcIssuerUrl ?? "https://auth.schnick-schnack.info/realms/schnick-schnack",
+    requiredClientRole: options.config.oidcRequiredClientRole ?? "user",
     sessionCookieSecure: options.config.sessionCookieSecure,
   });
 }

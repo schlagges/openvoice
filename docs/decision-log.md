@@ -32,6 +32,18 @@ See `docs/auth-keycloak-guest-plan.md` for the migration plan.
 - The web Nginx now forwards `Authorization` unchanged to the API so Bearer sessions can be used
   consistently by REST requests.
 
+## 2026-05-06: Backend OIDC Callback
+
+- Keycloak login uses a backend Authorization Code + PKCE callback at
+  `/api/v1/auth/oidc/callback`. The API stores the PKCE verifier and state in a short-lived
+  HttpOnly state cookie, exchanges the code server-side, verifies the JWT with JWKS and then sets
+  the normal OpenVoice session cookie.
+- The Keycloak client is `openvoice` in the shared `schnick-schnack` realm. Production uses a
+  confidential client secret from runtime environment only.
+- A new Keycloak subject is not allowed to create an OpenVoice account by itself. It must match an
+  existing linked subject, an existing legacy email, or an authenticated invite guest that started
+  the link flow.
+
 ## 2026-05-04: Phase 0 Tooling
 
 - Package manager: `pnpm`, because the project requires a TypeScript-oriented monorepo with workspace support and deterministic installs.

@@ -148,25 +148,29 @@ Realm:
 
 Client:
 
-- Client ID: `openvoice-web`.
+- Client ID: `openvoice`.
 - Use Authorization Code with PKCE.
-- Public client is acceptable for a browser SPA if the API validates access
-  tokens. A confidential backend client can be added later if a backend callback
-  flow is preferred.
+- Use a confidential backend client. The client secret is read from runtime
+  environment only and is never committed.
 - Valid redirect URIs:
-  - `https://voice.schnick-schnack.info/*`
-  - local development origins used by Vite/Compose
+  - `https://voice.schnick-schnack.info/api/v1/auth/oidc/callback`
+  - `http://localhost:5173/api/v1/auth/oidc/callback`
+  - `http://localhost:55180/api/v1/auth/oidc/callback`
+  - matching `127.0.0.1` variants if local browser testing uses them
 - Web origins:
   - `https://voice.schnick-schnack.info`
-  - local development origins used by Vite/Compose
+  - `http://localhost:5173`
+  - `http://localhost:55180`
+  - matching `127.0.0.1` variants if local browser testing uses them
 
 Environment variables:
 
 ```text
-OIDC_ISSUER_URL=https://auth.schnick-schnack.info/realms/schnick-schnack
-OIDC_CLIENT_ID=openvoice-web
-OIDC_AUDIENCE=openvoice-web
-GUEST_TOKEN_SECRET=<secret>
+OIDC_ISSUER=https://auth.schnick-schnack.info/realms/schnick-schnack
+OIDC_CLIENT_ID=openvoice
+OIDC_AUDIENCE=openvoice
+OIDC_CALLBACK_URL=https://voice.schnick-schnack.info/api/v1/auth/oidc/callback
+OIDC_CLIENT_SECRET=<runtime secret>
 INVITE_TTL_SECONDS=300
 LOCAL_PASSWORD_AUTH_ENABLED=false
 ```

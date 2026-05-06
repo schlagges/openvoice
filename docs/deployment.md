@@ -204,6 +204,15 @@ TRUSTED_PROXY_IPS=172.16.0.0/12
 TURN_REALM=voice.schnick-schnack.info
 TURN_URL=voice.schnick-schnack.info
 LIVEKIT_URL=wss://voice.schnick-schnack.info/livekit
+
+LOCAL_PASSWORD_AUTH_ENABLED=false
+OIDC_ENABLED=true
+OIDC_ISSUER=https://auth.schnick-schnack.info/realms/schnick-schnack
+OIDC_CLIENT_ID=openvoice
+OIDC_CLIENT_SECRET=<value from /opt/keycloak-sso/openvoice-client-secret.env>
+OIDC_CALLBACK_URL=https://voice.schnick-schnack.info/api/v1/auth/oidc/callback
+OIDC_AUDIENCE=openvoice
+OIDC_REQUIRED_CLIENT_ROLE=user
 ```
 
 `API_PORT=127.0.0.1:3002` bindet die API nur lokal und vermeidet den Konflikt mit dem Web-Port
@@ -285,7 +294,8 @@ OPENVOICE_WEB_IMAGE=openvoice-web:0.1.0-rc1
 ```
 
 Der Web-Container setzt keine vorgeschaltete HTTP Basic Auth mehr. Zugriffsschutz erfolgt ueber
-OpenVoice-Auth, kurzlebige Invite-Links und den geplanten Keycloak-Login.
+Keycloak SSO im Realm `schnick-schnack`; OpenVoice akzeptiert nur Tokens mit der Client-Rolle
+`openvoice:user`.
 
 Start auf dem Zielserver:
 

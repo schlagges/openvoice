@@ -44,6 +44,9 @@ aktuellen RC noch nicht implementiert sind, explizit mit `(nicht in v0.1.0-rc1)`
 
 ```http
 GET  /api/v1/auth/config
+GET  /api/v1/auth/oidc/login
+GET  /api/v1/auth/oidc/callback
+POST /api/v1/auth/oidc/link-start
 POST /api/v1/auth/register
 POST /api/v1/auth/login
 POST /api/v1/auth/logout
@@ -57,6 +60,11 @@ Keycloak/OIDC-Issuer und Client-ID. Fuer den geplanten Keycloak-Betrieb zeigt
 `localPasswordAuthEnabled=false`, dass lokale E-Mail/Passwort-Registrierung und Login abgeschaltet
 sind. Bis zur vollstaendigen OIDC- und Gast-Token-Migration bleiben lokale Passwort-Endpunkte fuer
 Entwicklung und bestehende Tests aktivierbar.
+`GET /auth/oidc/login` startet den Backend-OIDC-Flow mit PKCE und State-Cookie.
+`GET /auth/oidc/callback` tauscht den Code gegen ein Keycloak-Token, verifiziert Signatur,
+Issuer, Audience und Client-Rolle und setzt danach die OpenVoice-Session. `POST
+/auth/oidc/link-start` startet denselben Flow aus einer bestehenden OpenVoice-Session heraus,
+damit ein per Invite beigetretener Gast sein Keycloak-Konto verknuepfen kann.
 
 ## Observability
 

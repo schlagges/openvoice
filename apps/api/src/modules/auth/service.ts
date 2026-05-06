@@ -98,10 +98,26 @@ export class AuthService {
     return this.createSessionForUser(user);
   }
 
-  public async loginWithExternalIdentity(input: ExternalIdentityInput): Promise<AuthSessionResult> {
+  public async loginWithExternalIdentity(
+    input: ExternalIdentityInput,
+    linkUserId?: string,
+  ): Promise<AuthSessionResult> {
     const existingBySubject = await this.repository.findUserByKeycloakSubject(input.subject);
     if (existingBySubject) {
       return this.createSessionForUser(existingBySubject);
+    }
+
+    if (linkUserId) {
+      const linkTarget = await this.repository.findUserById(linkUserId);
+      if (!linkTarget) {
+        throw unauthorized("Invite session required before Keycloak login.");
+      }
+      const linked = await this.repository.linkUserToKeycloakSubject(
+        linkTarget.id,
+        input.subject,
+        this.now(),
+      );
+      return this.createSessionForUser(linked);
     }
 
     const emailNormalized = normalizeEmail(input.email);
@@ -115,29 +131,7 @@ export class AuthService {
       return this.createSessionForUser(linked);
     }
 
-    try {
-      const user = await this.repository.createUser({
-        displayName: input.displayName || emailNormalized,
-        email: emailNormalized,
-        emailNormalized,
-        keycloakSubject: input.subject,
-        linkedAt: this.now(),
-        passwordHash: "external:keycloak",
-      });
-
-      return this.createSessionForUser(user);
-    } catch (error) {
-      if (error instanceof DuplicateEmailError) {
-        const user = await this.repository.findUserByEmailNormalized(emailNormalized);
-        if (user) {
-          return this.createSessionForUser(
-            await this.repository.linkUserToKeycloakSubject(user.id, input.subject, this.now()),
-          );
-        }
-      }
-
-      throw error;
-    }
+    throw unauthorized("Invite required before Keycloak login.");
   }
 
   public async authenticate(

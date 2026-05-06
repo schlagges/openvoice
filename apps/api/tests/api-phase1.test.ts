@@ -1,6 +1,6 @@
-import { randomUUID } from "node:crypto";
+import { createSign, generateKeyPairSync, randomUUID, type KeyObject } from "node:crypto";
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { InMemoryOpenVoiceRepository } from "../src/db/in-memory-repository.js";
 import { createApiHandler } from "../src/http/app.js";
@@ -32,6 +32,10 @@ interface TestApp {
 }
 
 describe("Phase 1 API", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("registers a user, stores a hashed password, returns /me, and logs out with CSRF", async () => {
     const app = createTestApp();
     const registerResponse = await app.handler(
@@ -350,13 +354,14 @@ describe("Phase 1 API", () => {
     const configResponse = await app.handler(new Request("http://local.test/api/v1/auth/config"));
     const configBody = (await configResponse.json()) as {
       localPasswordAuthEnabled: boolean;
-      oidc: { clientId: string; issuerUrl: string };
+      oidc: { callbackUrl: string; clientId: string; issuerUrl: string };
     };
 
     expect(configResponse.status).toBe(200);
     expect(configBody).toEqual({
       localPasswordAuthEnabled: false,
       oidc: {
+        callbackUrl: "https://voice.schnick-schnack.info/api/v1/auth/oidc/callback",
         clientId: "openvoice-web",
         issuerUrl: "https://auth.schnick-schnack.info/realms/schnick-schnack",
       },
@@ -370,6 +375,94 @@ describe("Phase 1 API", () => {
     );
 
     expect(registerResponse.status).toBe(403);
+  });
+
+  it("starts OIDC login and completes the backend callback into an OpenVoice session", async () => {
+    const issuer = "https://auth.schnick-schnack.info/realms/schnick-schnack";
+    const callbackUrl = "http://local.test/api/v1/auth/oidc/callback";
+    const app = createTestApp({
+      localPasswordAuthEnabled: false,
+      oidcAudience: "openvoice",
+      oidcCallbackUrl: callbackUrl,
+      oidcClientId: "openvoice",
+      oidcClientSecret: "test-client-secret",
+      oidcEnabled: true,
+      oidcIssuerUrl: issuer,
+      oidcRequiredClientRole: "user",
+    });
+    const keyPair = generateKeyPairSync("rsa", { modulusLength: 2048 });
+    const publicJwk = keyPair.publicKey.export({ format: "jwk" }) as JsonWebKey;
+    const kid = "test-key";
+    const token = signJwt(
+      {
+        aud: "openvoice",
+        email: "keycloak@example.com",
+        exp: Math.floor(Date.now() / 1000) + 600,
+        iss: issuer,
+        name: "Keycloak User",
+        resource_access: { openvoice: { roles: ["user"] } },
+        sub: "keycloak-subject-1",
+      },
+      keyPair.privateKey,
+      kid,
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: string | URL | Request) => {
+        const url = input instanceof Request ? input.url : input.toString();
+        if (url === `${issuer}/.well-known/openid-configuration`) {
+          return Response.json({
+            authorization_endpoint: `${issuer}/protocol/openid-connect/auth`,
+            issuer,
+            jwks_uri: `${issuer}/protocol/openid-connect/certs`,
+            token_endpoint: `${issuer}/protocol/openid-connect/token`,
+          });
+        }
+        if (url === `${issuer}/protocol/openid-connect/token`) {
+          return Response.json({ access_token: token });
+        }
+        if (url === `${issuer}/protocol/openid-connect/certs`) {
+          return Response.json({ keys: [{ ...publicJwk, kid }] });
+        }
+        return new Response(null, { status: 404 });
+      }),
+    );
+    await app.repository.createUser({
+      displayName: "Invited User",
+      email: "keycloak@example.com",
+      emailNormalized: "keycloak@example.com",
+      passwordHash: "legacy-disabled",
+    });
+
+    const login = await app.handler(
+      new Request("http://local.test/api/v1/auth/oidc/login?returnTo=/"),
+    );
+    const location = login.headers.get("location");
+    const stateCookie = login.headers.get("set-cookie") ?? "";
+
+    expect(login.status).toBe(302);
+    expect(location).toContain(`${issuer}/protocol/openid-connect/auth`);
+    expect(location).toContain(`redirect_uri=${encodeURIComponent(callbackUrl)}`);
+    expect(stateCookie).toContain("openvoice_oidc_state=");
+
+    const state = new URL(location ?? "").searchParams.get("state");
+    const callback = await app.handler(
+      new Request(`http://local.test/api/v1/auth/oidc/callback?code=abc&state=${state}`, {
+        headers: { cookie: stateCookie },
+      }),
+    );
+
+    expect(callback.status).toBe(302);
+    expect(callback.headers.get("location")).toBe("/");
+    expect(callback.headers.get("set-cookie")).toContain("openvoice_session=");
+    const user = app.repository.users.find(
+      (candidate) => candidate.email === "keycloak@example.com",
+    );
+    expect(user).toMatchObject({
+      displayName: "Invited User",
+      keycloakSubject: "keycloak-subject-1",
+      kind: "registered",
+    });
   });
 
   it("rejects invite creation without MANAGE_INVITES membership and blocks banned invite joins", async () => {
@@ -447,8 +540,13 @@ interface TestSession {
 function createTestApp(
   configOverrides: Partial<{
     readonly localPasswordAuthEnabled: boolean;
+    readonly oidcAudience: string;
+    readonly oidcCallbackUrl: string;
     readonly oidcClientId: string;
+    readonly oidcClientSecret: string;
+    readonly oidcEnabled: boolean;
     readonly oidcIssuerUrl: string;
+    readonly oidcRequiredClientRole: string;
   }> = {},
 ): TestApp {
   const repository = new InMemoryOpenVoiceRepository();
@@ -472,6 +570,7 @@ function createTestApp(
     channelService,
     config: {
       corsAllowedOrigins: ["http://local.test"],
+      csrfSecret: "test-csrf-secret",
       enableHsts: false,
       ...configOverrides,
       sessionCookieName: "openvoice_session",
@@ -487,6 +586,21 @@ function createTestApp(
     passwordHasher,
     repository,
   };
+}
+
+function signJwt(claims: Record<string, unknown>, privateKey: KeyObject, kid: string): string {
+  const header = base64UrlJson({ alg: "RS256", kid, typ: "JWT" });
+  const payload = base64UrlJson(claims);
+  const signature = createSign("RSA-SHA256")
+    .update(`${header}.${payload}`)
+    .end()
+    .sign(privateKey, "base64url");
+
+  return `${header}.${payload}.${signature}`;
+}
+
+function base64UrlJson(value: Record<string, unknown>): string {
+  return Buffer.from(JSON.stringify(value)).toString("base64url");
 }
 
 function jsonRequest(path: string, body: unknown, headers?: HeadersInit): Request {
