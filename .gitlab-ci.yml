@@ -95,6 +95,6 @@ deploy_prod:
     - cd /home/schlagges/projects/openvoice/infra
     - export OPENVOICE_API_IMAGE="$CI_REGISTRY_IMAGE:api-$CI_COMMIT_SHA"
     - export OPENVOICE_WEB_IMAGE="$CI_REGISTRY_IMAGE:web-$CI_COMMIT_SHA"
-    - docker compose pull api web
-    - docker compose up -d api web
+    - docker compose -f docker-compose.prod.yml pull api web
+    - docker compose -f docker-compose.prod.yml up -d api web
     - docker image prune -f
