@@ -318,7 +318,7 @@ export class OpenVoiceVoiceClient {
         jitterMs: secondsToMilliseconds(remoteAudio?.jitter ?? localAudio?.jitter),
         packetsLost: nonNegativeNumber(remoteAudio?.packetsLost ?? localAudio?.packetsLost),
         packetsReceived: nonNegativeNumber(remoteAudio?.packetsReceived ?? localAudio?.packetsSent),
-        rttMs: secondsToMilliseconds(localAudio?.roundTripTime),
+        rttMs: secondsToMilliseconds(localAudio?.roundTripTime) ?? connection.rttMs,
       },
       channelId: this.state.channelId,
       connection,
@@ -1665,6 +1665,7 @@ async function collectRtcConnectionSummary(
   if (!manager) {
     return {
       iceState,
+      rttMs: null,
       selectedCandidateType: IceCandidateType.UNKNOWN,
       transport: RtcTransportProtocol.UNKNOWN,
     };
@@ -1692,6 +1693,7 @@ async function collectRtcConnectionSummary(
 
   return {
     iceState,
+    rttMs: null,
     selectedCandidateType: IceCandidateType.UNKNOWN,
     transport: RtcTransportProtocol.UNKNOWN,
   };
@@ -1699,7 +1701,10 @@ async function collectRtcConnectionSummary(
 
 function extractSelectedCandidate(
   report: RTCStatsReport,
-): Pick<ClientRtcQualitySample["connection"], "selectedCandidateType" | "transport"> | null {
+): Pick<
+  ClientRtcQualitySample["connection"],
+  "rttMs" | "selectedCandidateType" | "transport"
+> | null {
   let selectedCandidatePairId: string | null = null;
   const candidatePairs = new Map<string, RtcCandidatePairStats>();
   const localCandidates = new Map<string, RtcCandidateStats>();
@@ -1716,12 +1721,15 @@ function extractSelectedCandidate(
 
     if (stats.type === "candidate-pair") {
       const pair = stats as RTCStats & {
+        readonly currentRoundTripTime?: unknown;
         readonly localCandidateId?: unknown;
         readonly selected?: unknown;
       };
       const localCandidateId = optionalString(pair.localCandidateId);
+      const rttMs = secondsToMilliseconds(optionalNumber(pair.currentRoundTripTime));
       const candidatePair = {
         id: pair.id,
+        rttMs,
         selected: pair.selected === true,
         ...(localCandidateId ? { localCandidateId } : {}),
       };
@@ -1761,6 +1769,7 @@ function extractSelectedCandidate(
   }
 
   return {
+    rttMs: selectedPair?.rttMs ?? null,
     selectedCandidateType: normalizeCandidateType(localCandidate.candidateType),
     transport: normalizeTransportProtocol(localCandidate),
   };
@@ -1769,6 +1778,7 @@ function extractSelectedCandidate(
 interface RtcCandidatePairStats {
   readonly id: string;
   readonly localCandidateId?: string;
+  readonly rttMs: number | null;
   readonly selected: boolean;
 }
 
@@ -1810,6 +1820,10 @@ function normalizeTransportProtocol(candidate: RtcCandidateStats): RtcTransportP
 
 function optionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  return typeof value === "number" ? value : undefined;
 }
 
 function nullableNonNegativeNumber(value: number | undefined): number | null {

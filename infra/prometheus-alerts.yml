@@ -45,3 +45,19 @@ groups:
           severity: critical
         annotations:
           summary: OpenVoice API metrics endpoint is down.
+
+      - alert: OpenVoiceLiveKitMetricsDown
+        expr: up{job="livekit"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenVoice LiveKit metrics endpoint is down.
+
+      - alert: OpenVoiceNoRtcSamples
+        expr: rtc_samples_total == 0 and increase(voice_joins_total[15m]) > 0
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: OpenVoice has voice joins but no RTC quality samples.

@@ -28,6 +28,7 @@ export interface ClientRtcQualitySample {
   readonly channelId: string;
   readonly connection: {
     readonly iceState: string;
+    readonly rttMs: number | null;
     readonly selectedCandidateType: IceCandidateType;
     readonly transport: RtcTransportProtocol;
   };

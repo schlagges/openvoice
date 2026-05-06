@@ -425,6 +425,10 @@ export function parseRtcStatsRequest(body: Record<string, unknown>): RtcStatsReq
     channelId: parseUuidLikeString(body.channelId, "channelId"),
     connection: {
       iceState: parseBoundedText(connection.iceState, "connection.iceState", 64),
+      rttMs:
+        connection.rttMs === undefined
+          ? null
+          : parseNullableNonNegativeNumber(connection.rttMs, "connection.rttMs"),
       selectedCandidateType,
       transport,
     },

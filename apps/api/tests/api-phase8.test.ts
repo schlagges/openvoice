@@ -116,6 +116,8 @@ describe("Phase 8 observability API", () => {
 
     const metrics = await metricsText(app);
     expect(metrics).toContain("rtc_relay_ratio 1");
+    expect(metrics).toContain("rtc_samples_total 1");
+    expect(metrics).toContain("rtc_audio_jitter_avg 5");
     expect(metrics).toContain("rtc_audio_rtt_p95 42");
     expect(metrics).toContain("rtc_video_bitrate_avg 1000000");
     expect(metrics).toContain("permission_denied_total 1");
@@ -245,11 +247,12 @@ function createRtcStatsBody(workspaceId: string, channelId: string) {
       jitterMs: 5,
       packetsLost: 1,
       packetsReceived: 98,
-      rttMs: 42,
+      rttMs: null,
     },
     channelId,
     connection: {
       iceState: "connected",
+      rttMs: 42,
       selectedCandidateType: "relay",
       transport: "udp",
     },

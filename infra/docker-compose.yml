@@ -113,9 +113,11 @@ services:
           - "0.0.0.0"
         rtc:
           tcp_port: 7881
-          port_range_start: 50000
-          port_range_end: 50100
+          port_range_start: ${LIVEKIT_RTC_PORT_RANGE_START:-50000}
+          port_range_end: ${LIVEKIT_RTC_PORT_RANGE_END:-50100}
           use_external_ip: false
+        prometheus:
+          port: 6789
         keys:
           $${LIVEKIT_API_KEY}: $${LIVEKIT_API_SECRET}
         logging:
@@ -132,7 +134,8 @@ services:
     ports:
       - "${LIVEKIT_PORT:-7880}:7880"
       - "${LIVEKIT_RTC_TCP_PORT:-7881}:7881"
-      - "${LIVEKIT_RTC_UDP_PORTS:-50000-50100}:50000-50100/udp"
+      - "${LIVEKIT_RTC_UDP_PORTS:-50000-50100}:${LIVEKIT_RTC_UDP_PORTS:-50000-50100}/udp"
+      - "${LIVEKIT_METRICS_PORT:-127.0.0.1:6789}:6789"
 
   coturn:
     image: coturn/coturn:latest
@@ -145,10 +148,10 @@ services:
       - --lt-cred-mech
       - --use-auth-secret
       - --static-auth-secret=${TURN_SHARED_SECRET:?TURN_SHARED_SECRET is required}
-      - --cert=/etc/coturn/certs/localhost.pem
-      - --pkey=/etc/coturn/certs/localhost-key.pem
-      - --min-port=49152
-      - --max-port=49200
+      - --cert=${TURN_CERT_FILE:-/etc/coturn/certs/localhost.pem}
+      - --pkey=${TURN_PRIVATE_KEY_FILE:-/etc/coturn/certs/localhost-key.pem}
+      - --min-port=${TURN_MIN_PORT:-49152}
+      - --max-port=${TURN_MAX_PORT:-49200}
       - --no-cli
       - --no-multicast-peers
       - --denied-peer-ip=0.0.0.0-0.255.255.255
@@ -169,10 +172,10 @@ services:
       - "${TURN_PORT:-3478}:3478/udp"
       - "${TURNS_PORT:-5349}:5349"
       - "${TURNS_PORT:-5349}:5349/udp"
-      - "${TURN_RELAY_PORTS:-49152-49200}:49152-49200/udp"
+      - "${TURN_RELAY_PORTS:-49152-49200}:${TURN_RELAY_PORTS:-49152-49200}/udp"
       - "${TURN_METRICS_PORT:-9641}:9641"
     volumes:
-      - ./certs:/etc/coturn/certs:ro
+      - ${TURN_CERT_MOUNT:-./certs:/etc/coturn/certs:ro}
 
   prometheus:
     image: prom/prometheus:latest

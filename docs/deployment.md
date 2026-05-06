@@ -204,8 +204,20 @@ TRUSTED_PROXY_IPS=172.16.0.0/12
 TURN_REALM=voice.schnick-schnack.info
 TURN_URL=voice.schnick-schnack.info
 TURN_EXTERNAL_IP=217.160.175.231
+TURN_PORT=3478
+TURNS_PORT=5349
+TURN_RELAY_PORTS=49152-49999
+TURN_MIN_PORT=49152
+TURN_MAX_PORT=49999
+TURN_CERT_MOUNT=/etc/letsencrypt:/etc/letsencrypt:ro
+TURN_CERT_FILE=/etc/letsencrypt/live/voice.schnick-schnack.info/fullchain.pem
+TURN_PRIVATE_KEY_FILE=/etc/letsencrypt/live/voice.schnick-schnack.info/privkey.pem
 LIVEKIT_URL=wss://voice.schnick-schnack.info/livekit
 LIVEKIT_USE_EXTERNAL_IP=true
+LIVEKIT_RTC_UDP_PORTS=50000-51000
+LIVEKIT_RTC_PORT_RANGE_START=50000
+LIVEKIT_RTC_PORT_RANGE_END=51000
+LIVEKIT_METRICS_PORT=127.0.0.1:6789
 
 LOCAL_PASSWORD_AUTH_ENABLED=false
 OIDC_ENABLED=true
@@ -254,8 +266,11 @@ location /livekit/ {
 
 TURN/TURNS laufen nicht ueber den HTTP-Reverse-Proxy. Firewall und DNS muessen die in Abschnitt 2
 dokumentierten TURN-Ports direkt auf den coturn-Container weiterleiten. Fuer produktive TURNS
-muessen gueltige Zertifikate in `infra/certs` bereitgestellt oder der coturn-Zertifikatspfad
-deploymentseitig angepasst werden.
+soll coturn die Let's-Encrypt-Zertifikate des Hosts read-only mounten. Dafuer wird
+`TURN_CERT_MOUNT=/etc/letsencrypt:/etc/letsencrypt:ro` gesetzt und `TURN_CERT_FILE` sowie
+`TURN_PRIVATE_KEY_FILE` zeigen auf `fullchain.pem` und `privkey.pem` der Voice-Domain. Dadurch
+bleiben Zertifikate ausserhalb des Repositories und der aktive Release-Ordner muss keine privaten
+Keys enthalten.
 
 Wenn coturn im Docker-Bridge-Netzwerk laeuft, muss `TURN_EXTERNAL_IP` auf die oeffentliche IPv4 des
 Hosts gesetzt werden. Sonst kann coturn private Container-Adressen als Relay-Kandidaten
@@ -265,6 +280,16 @@ Wenn LiveKit im Docker-Bridge-Netzwerk fuer oeffentliche Browser laeuft, muss
 `LIVEKIT_USE_EXTERNAL_IP=true` gesetzt bleiben. Sonst annonciert LiveKit private Docker-Kandidaten
 als bevorzugte ICE-Ziele, was vor allem bei Refresh, NAT-Wechseln und TCP-Fallbacks zu
 `could not establish pc connection` fuehren kann.
+
+Fuer Closed-Beta-Tests mit mehreren Teilnehmern sind die produktiven Default-Ranges groesser als
+die lokalen Phase-5-Defaults:
+
+- LiveKit RTC UDP: `50000-51000`.
+- coturn Relay UDP: `49152-49999`.
+
+Diese Ranges muessen in UFW, Provider-Firewall und Docker Compose identisch freigeschaltet sein.
+`LIVEKIT_RTC_PORT_RANGE_START`/`END` muessen zur Host-Port-Range `LIVEKIT_RTC_UDP_PORTS` passen.
+`TURN_MIN_PORT`/`MAX_PORT` muessen zur Host-Port-Range `TURN_RELAY_PORTS` passen.
 
 ## 10. Image-basiertes Zielsystem ohne Source-Build
 
@@ -294,7 +319,6 @@ Minimal benoetigte Dateien auf dem Zielserver:
 /home/schlagges/openvoice-deploy/infra/prometheus.yml
 /home/schlagges/openvoice-deploy/infra/prometheus-alerts.yml
 /home/schlagges/openvoice-deploy/infra/grafana/
-/home/schlagges/openvoice-deploy/infra/certs/
 ```
 
 Wichtige `.env`-Image-Werte:
@@ -325,7 +349,11 @@ docker compose --env-file .env -f infra/docker-compose.prod.yml up -d api web
 
 `infra/docker-compose.yml` bleibt fuer lokale Entwicklung und Build-on-host-Tests verfuegbar.
 `infra/docker-compose.prod.yml` ist der bevorzugte Zielsystem-Pfad, weil er keine `build:`-Bloeke
-enthaelt.
+enthaelt. Der Zielserver soll einen einzigen aktiven Release-Pfad verwenden, zum Beispiel
+`/home/schlagges/openvoice-deploy`. Alle Mounts fuer Grafana, Prometheus und coturn muessen aus
+diesem aktiven Pfad oder aus explizit dokumentierten Host-Pfaden wie `/etc/letsencrypt` kommen.
+Alte `openvoice-release-*` Verzeichnisse duerfen nicht unbemerkt von laufenden Containern gemountet
+bleiben.
 
 ## 11. Deployment-Smoke-Checks
 
@@ -335,13 +363,17 @@ Nach jedem Image-Update sollten mindestens diese Checks laufen:
 curl -I https://voice.schnick-schnack.info
 curl -i https://voice.schnick-schnack.info/api/v1/me
 curl -i https://voice.schnick-schnack.info/livekit/
+openssl s_client -connect voice.schnick-schnack.info:5349 -servername voice.schnick-schnack.info -brief </dev/null
 ```
 
 Erwartung:
 
 - Die Weboberflaeche liefert `200`.
 - `/api/v1/me` liefert ohne OpenVoice-Session ein JSON-`401` der App.
-- `/livekit/` liefert ohne Join-Token typischerweise `401`; das ist normal.
+- `/livekit/` darf fuer den Root-Pfad `200 OK` liefern. Wichtig ist, dass der Host-Nginx den Pfad
+  zum LiveKit-Service weiterleitet und WebSocket-Upgrades fuer echte Join-URLs erlaubt.
+- Der TURNS-Handshake auf `5349/tcp` liefert ein gueltiges Zertifikat fuer
+  `voice.schnick-schnack.info`.
 
 Das ausgelieferte Web-Bundle darf fuer die API nicht `http://localhost:3000/api/v1` enthalten. Fuer
 oeffentliche Deployments muss die API relativ ueber `/api/v1` laufen.

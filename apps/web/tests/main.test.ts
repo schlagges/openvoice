@@ -628,6 +628,7 @@ describe("web foundation", () => {
       channelId: "channel",
       connection: {
         iceState: "connected",
+        rttMs: 30,
         selectedCandidateType: "relay",
         transport: "udp",
       },

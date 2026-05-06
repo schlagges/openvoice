@@ -108,6 +108,18 @@ export class OpenVoiceMetrics {
       metricHelp("rtc_packet_loss_avg", "Average recent RTC packet loss ratio."),
       metricType("rtc_packet_loss_avg", "gauge"),
       sample("rtc_packet_loss_avg", rtc.packetLossAvg),
+      metricHelp("rtc_samples_total", "Recent RTC samples retained in the in-process window."),
+      metricType("rtc_samples_total", "gauge"),
+      sample("rtc_samples_total", rtc.sampleCount),
+      metricHelp("rtc_audio_jitter_avg", "Average recent RTC audio jitter in milliseconds."),
+      metricType("rtc_audio_jitter_avg", "gauge"),
+      sample("rtc_audio_jitter_avg", rtc.audioJitterAvg),
+      metricHelp(
+        "rtc_audio_concealed_samples_avg",
+        "Average recent RTC concealed audio samples.",
+      ),
+      metricType("rtc_audio_concealed_samples_avg", "gauge"),
+      sample("rtc_audio_concealed_samples_avg", rtc.audioConcealedSamplesAvg),
       metricHelp("rtc_audio_rtt_p95", "P95 recent RTC audio RTT in milliseconds."),
       metricType("rtc_audio_rtt_p95", "gauge"),
       sample("rtc_audio_rtt_p95", rtc.audioRttP95),
@@ -151,23 +163,35 @@ class SlidingRtcWindow {
 
   public snapshot(): {
     readonly audioRttP95: number;
+    readonly audioConcealedSamplesAvg: number;
+    readonly audioJitterAvg: number;
     readonly packetLossAvg: number;
     readonly relayRatio: number;
+    readonly sampleCount: number;
     readonly videoBitrateAvg: number;
   } {
     if (this.samples.length === 0) {
       return {
+        audioConcealedSamplesAvg: 0,
+        audioJitterAvg: 0,
         audioRttP95: 0,
         packetLossAvg: 0,
         relayRatio: 0,
+        sampleCount: 0,
         videoBitrateAvg: 0,
       };
     }
 
     const rtts = this.samples
-      .map((item) => item.audio.rttMs)
+      .map((item) => item.audio.rttMs ?? item.connection.rttMs)
       .filter((value): value is number => value !== null)
       .sort((left, right) => left - right);
+    const jitters = this.samples
+      .map((item) => item.audio.jitterMs)
+      .filter((value): value is number => value !== null);
+    const concealedSamples = this.samples
+      .map((item) => item.audio.concealedSamples)
+      .filter((value): value is number => value !== null);
     const packetLossRatios = this.samples.map((item) => {
       const total = item.audio.packetsLost + item.audio.packetsReceived + item.video.packetsLost;
       if (total <= 0) {
@@ -181,11 +205,14 @@ class SlidingRtcWindow {
       .filter((value): value is number => value !== null);
 
     return {
+      audioConcealedSamplesAvg: average(concealedSamples),
+      audioJitterAvg: average(jitters),
       audioRttP95: percentile(rtts, 0.95),
       packetLossAvg: average(packetLossRatios),
       relayRatio:
         this.samples.filter((item) => item.connection.selectedCandidateType === "relay").length /
         this.samples.length,
+      sampleCount: this.samples.length,
       videoBitrateAvg: average(videoBitrates),
     };
   }

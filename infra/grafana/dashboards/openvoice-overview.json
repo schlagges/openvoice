@@ -62,6 +62,11 @@
           "expr": "up{job=\"coturn\"}",
           "legendFormat": "coturn",
           "refId": "B"
+        },
+        {
+          "expr": "up{job=\"livekit\"}",
+          "legendFormat": "LiveKit",
+          "refId": "C"
         }
       ],
       "title": "Service Health",
@@ -660,6 +665,16 @@
           "expr": "rtc_relay_ratio",
           "legendFormat": "relay ratio",
           "refId": "C"
+        },
+        {
+          "expr": "rtc_audio_jitter_avg",
+          "legendFormat": "audio jitter avg",
+          "refId": "D"
+        },
+        {
+          "expr": "rtc_audio_concealed_samples_avg",
+          "legendFormat": "concealed samples avg",
+          "refId": "E"
         }
       ],
       "title": "RTC Live Quality",
@@ -722,6 +737,123 @@
         }
       ],
       "title": "Video And Screenshare Throughput",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 12,
+        "y": 28
+      },
+      "id": 12,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": ["lastNotNull"],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "expr": "rtc_samples_total",
+          "legendFormat": "RTC samples",
+          "refId": "A"
+        }
+      ],
+      "title": "RTC Samples",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "Prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "showPoints": "never",
+            "spanNulls": false
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 6,
+        "x": 18,
+        "y": 28
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": ["lastNotNull"],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.0.0",
+      "targets": [
+        {
+          "expr": "rate(turn_traffic_sentb[5m])",
+          "legendFormat": "TURN sent B/s",
+          "refId": "A"
+        },
+        {
+          "expr": "rate(turn_traffic_rcvb[5m])",
+          "legendFormat": "TURN received B/s",
+          "refId": "B"
+        }
+      ],
+      "title": "TURN Throughput",
       "type": "timeseries"
     }
   ],
