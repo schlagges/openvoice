@@ -86,6 +86,7 @@ GET    /api/v1/workspaces/:workspaceId/tree
 GET    /api/v1/workspaces/:workspaceId/audit-log
 POST   /api/v1/workspaces/:workspaceId/invites
 POST   /api/v1/invites/join
+POST   /api/v1/invites/:code/guest-join
 ```
 
 `GET /workspaces` benötigt Auth und liefert nur Workspaces, in denen der aktuelle User Mitglied
@@ -99,7 +100,9 @@ User leaken.
 einmal im Response zurück. Gespeichert wird ausschließlich ein SHA-256-Hash des Codes. Invite-Codes
 laufen standardmäßig nach 5 Minuten ab (`INVITE_TTL_SECONDS=300`).
 `POST /invites/join` benötigt Auth und CSRF, lehnt aktive Bans ab und weist die Default-Rolle
-`member` zu.
+`member` zu. `POST /invites/:code/guest-join` ist der direkte Gastzugang ohne bestehende
+OpenVoice-Session. Der Request enthält nur `displayName`, erzeugt einen Gast-User, weist die
+Default-Rolle `guest` zu und gibt einen kurzlebigen Bearer-Session-Token zurück.
 
 ---
 

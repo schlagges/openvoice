@@ -294,7 +294,7 @@ function bindOnboarding(root: HTMLElement): void {
     setButtonLoading(submit, true);
     void createWorkspaceFlow(input)
       .then((result) => {
-        persistSession(input.displayName, result.csrfToken);
+        persistSession(input.displayName, { csrfToken: result.csrfToken });
         selectChannel(root, toTreeNode(result.channel, result.workspace.id));
         void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
         setFormStatus(status, "Workspace erstellt.", "success");
@@ -321,7 +321,7 @@ function bindOnboarding(root: HTMLElement): void {
     setButtonLoading(submit, true);
     void joinWorkspaceFlow(input)
       .then((result) => {
-        persistSession(input.displayName, result.csrfToken);
+        persistSession(input.displayName, { accessToken: result.accessToken });
         setFormStatus(status, `Workspace ${result.workspace.name} beigetreten.`, "success");
         void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
         updateCurrentUserLabel(root);
@@ -452,7 +452,7 @@ function bindLogout(root: HTMLElement): void {
   const status = root.querySelector<HTMLElement>("#logout-status");
 
   button?.addEventListener("click", () => {
-    if (!localStorage.getItem("openvoice.csrfToken")) {
+    if (!hasStoredSession()) {
       updateCurrentUserLabel(root);
       return;
     }
@@ -461,12 +461,16 @@ function bindLogout(root: HTMLElement): void {
     setButtonLoading(button, true);
     void fetch("/api/v1/auth/logout", {
       credentials: "include",
-      headers: csrfHeader(),
+      headers: {
+        ...authHeader(),
+        ...csrfHeader(),
+      },
       method: "POST",
     })
       .catch(() => undefined)
       .then(() => {
         localStorage.removeItem("openvoice.csrfToken");
+        localStorage.removeItem("openvoice.accessToken");
         localStorage.removeItem("openvoice.displayName");
         updateCurrentUserLabel(root);
         renderWorkspaceList(root, [], "");
@@ -525,6 +529,7 @@ interface WorkspaceInviteResponse {
 }
 
 interface WorkspaceInviteJoinResponse {
+  readonly accessToken?: string;
   readonly workspace: PublicWorkspace;
 }
 
@@ -591,10 +596,13 @@ async function createWorkspaceFlow(input: CreateWorkspaceInput): Promise<Workspa
 
 async function joinWorkspaceFlow(
   input: JoinWorkspaceInput,
-): Promise<WorkspaceInviteJoinResponse & { readonly csrfToken: string }> {
-  const csrfToken = await registerTestUser(input);
-  const joined = await joinInvite(input.code, csrfToken);
-  return { ...joined, csrfToken };
+): Promise<WorkspaceInviteJoinResponse & { readonly accessToken: string }> {
+  const joined = await guestJoinInvite(input.code, input.displayName);
+  if (!joined.accessToken) {
+    throw new Error("Guest session token missing.");
+  }
+
+  return { ...joined, accessToken: joined.accessToken };
 }
 
 async function registerTestUser(input: {
@@ -646,7 +654,10 @@ async function loginTestUser(input: {
 }
 
 async function loadWorkspaces(root: HTMLElement, activeWorkspaceId = ""): Promise<void> {
-  const response = await fetch("/api/v1/workspaces", { credentials: "include" });
+  const response = await fetch("/api/v1/workspaces", {
+    credentials: "include",
+    headers: authHeader(),
+  });
   if (response.status === 401) {
     renderWorkspaceList(root, [], activeWorkspaceId);
     renderWorkspaceEmptyState(root);
@@ -681,6 +692,7 @@ async function createInvite(workspaceId: string): Promise<WorkspaceInviteRespons
     credentials: "include",
     headers: {
       "content-type": "application/json",
+      ...authHeader(),
       ...csrfHeader(),
     },
     method: "POST",
@@ -692,16 +704,15 @@ async function createInvite(workspaceId: string): Promise<WorkspaceInviteRespons
   return (await response.json()) as WorkspaceInviteResponse;
 }
 
-async function joinInvite(
+async function guestJoinInvite(
   code: string,
-  csrfToken = localStorage.getItem("openvoice.csrfToken") ?? "",
+  displayName: string,
 ): Promise<WorkspaceInviteJoinResponse> {
-  const response = await fetch("/api/v1/invites/join", {
-    body: JSON.stringify({ code }),
+  const response = await fetch(`/api/v1/invites/${encodeURIComponent(code)}/guest-join`, {
+    body: JSON.stringify({ displayName }),
     credentials: "include",
     headers: {
       "content-type": "application/json",
-      ...(csrfToken ? { "x-openvoice-csrf-token": csrfToken } : {}),
     },
     method: "POST",
   });
@@ -716,6 +727,7 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
   setWorkspaceStatus(root, "Channel werden geladen.", "loading");
   const response = await fetch(`/api/v1/workspaces/${workspaceId}/tree`, {
     credentials: "include",
+    headers: authHeader(),
   });
   if (!response.ok) {
     throw new Error(await readApiError(response));
@@ -1038,8 +1050,18 @@ function closeDialog(dialog: HTMLDialogElement | null): void {
   dialog.removeAttribute("open");
 }
 
-function persistSession(displayName: string, csrfToken: string): void {
-  localStorage.setItem("openvoice.csrfToken", csrfToken);
+function persistSession(
+  displayName: string,
+  tokens: { readonly accessToken?: string; readonly csrfToken?: string },
+): void {
+  if (tokens.csrfToken) {
+    localStorage.setItem("openvoice.csrfToken", tokens.csrfToken);
+    localStorage.removeItem("openvoice.accessToken");
+  }
+  if (tokens.accessToken) {
+    localStorage.setItem("openvoice.accessToken", tokens.accessToken);
+    localStorage.removeItem("openvoice.csrfToken");
+  }
   localStorage.setItem("openvoice.displayName", displayName);
 }
 
@@ -1047,18 +1069,22 @@ function updateCurrentUserLabel(root: HTMLElement): void {
   const label = root.querySelector<HTMLElement>("#current-user-label");
   const logout = root.querySelector<HTMLButtonElement>("#logout-button");
   const csrfToken = localStorage.getItem("openvoice.csrfToken");
+  const accessToken = localStorage.getItem("openvoice.accessToken");
   const displayName = localStorage.getItem("openvoice.displayName");
+  const authenticated = Boolean((csrfToken || accessToken) && displayName);
 
   if (label) {
-    label.textContent = csrfToken && displayName ? displayName : "Nicht angemeldet";
+    label.textContent = authenticated ? displayName : "Nicht angemeldet";
   }
 
   if (logout) {
-    logout.disabled = !csrfToken;
-    logout.title = csrfToken ? "Session beenden" : "Noch nicht angemeldet";
+    logout.disabled = !authenticated;
+    logout.title = authenticated ? "Session beenden" : "Noch nicht angemeldet";
     logout.setAttribute(
       "aria-label",
-      csrfToken ? "Abmelden und Session beenden" : "Abmelden nicht moeglich, keine Session aktiv",
+      authenticated
+        ? "Abmelden und Session beenden"
+        : "Abmelden nicht moeglich, keine Session aktiv",
     );
   }
 }
@@ -1106,6 +1132,17 @@ function csrfHeader(): Record<string, string> {
   return token ? { "x-openvoice-csrf-token": token } : {};
 }
 
+function authHeader(): Record<string, string> {
+  const token = localStorage.getItem("openvoice.accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+function hasStoredSession(): boolean {
+  return Boolean(
+    localStorage.getItem("openvoice.csrfToken") || localStorage.getItem("openvoice.accessToken"),
+  );
+}
+
 function formatWorkspaceMembers(workspace: PublicWorkspace): string {
   if (typeof workspace.memberCount === "number") {
     return `${workspace.memberCount} Mitglied${workspace.memberCount === 1 ? "" : "er"}`;
@@ -1140,14 +1177,23 @@ function currentPageUrl(): string {
 }
 
 function createDefaultDisplayName(): string {
-  const syllables = ["Bo", "To", "Lu"];
-  const length = 2 + Math.floor(Math.random() * 3);
-  const name = Array.from({ length }, () => syllables[Math.floor(Math.random() * syllables.length)])
-    .join("")
-    .replace(/^$/, "BoToLu");
+  const syllables = shuffle(["Bo", "To", "Lu"]);
+  const name = syllables.join("");
   const suffix = String(Math.floor(1000 + Math.random() * 9000));
 
   return `${name}#${suffix}`;
+}
+
+function shuffle(items: readonly string[]): string[] {
+  const result = [...items];
+  for (let index = result.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    const current = result[index] ?? "";
+    result[index] = result[swapIndex] ?? "";
+    result[swapIndex] = current;
+  }
+
+  return result;
 }
 
 function initials(name: string): string {

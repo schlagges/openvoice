@@ -13,8 +13,12 @@ export interface ApiConfig {
   readonly localPasswordAuthEnabled: boolean;
   readonly mediaProvider: "livekit";
   readonly oidcAudience: string;
+  readonly oidcCallbackUrl: string;
   readonly oidcClientId: string;
+  readonly oidcClientSecret: string;
+  readonly oidcEnabled: boolean;
   readonly oidcIssuerUrl: string;
+  readonly oidcRequiredClientRole: string;
   readonly inviteTtlSeconds: number;
   readonly passwordPepper: string;
   readonly rateLimitsEnabled: boolean;
@@ -50,10 +54,17 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       env.NODE_ENV !== "production",
     ),
     mediaProvider: readMediaProvider(env.MEDIA_PROVIDER),
-    oidcAudience: env.OIDC_AUDIENCE ?? env.OIDC_CLIENT_ID ?? "openvoice-web",
-    oidcClientId: env.OIDC_CLIENT_ID ?? "openvoice-web",
+    oidcAudience: env.OIDC_AUDIENCE ?? env.OIDC_CLIENT_ID ?? "openvoice",
+    oidcCallbackUrl:
+      env.OIDC_CALLBACK_URL ?? "https://voice.schnick-schnack.info/api/v1/auth/oidc/callback",
+    oidcClientId: env.OIDC_CLIENT_ID ?? "openvoice",
+    oidcClientSecret: env.OIDC_CLIENT_SECRET ?? "",
+    oidcEnabled: readBoolean(env.OIDC_ENABLED, env.NODE_ENV === "production"),
     oidcIssuerUrl:
-      env.OIDC_ISSUER_URL ?? "https://auth.schnick-schnack.info/realms/schnick-schnack",
+      env.OIDC_ISSUER ??
+      env.OIDC_ISSUER_URL ??
+      "https://auth.schnick-schnack.info/realms/schnick-schnack",
+    oidcRequiredClientRole: env.OIDC_REQUIRED_CLIENT_ROLE ?? "user",
     inviteTtlSeconds: readInteger(env.INVITE_TTL_SECONDS, 60 * 5),
     passwordPepper: readRequired(env.PASSWORD_PEPPER, "PASSWORD_PEPPER"),
     rateLimitsEnabled: readBoolean(env.RATE_LIMITS_ENABLED, true),

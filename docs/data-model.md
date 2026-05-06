@@ -19,6 +19,8 @@ Die verbindliche Datenmodellbeschreibung steht in `docs/lastenheft.md`.
 - `bans`
 - `member_timeouts`
 - `invites`
+- `users.kind`, `users.keycloak_subject`, `users.created_from_invite_id`, `users.linked_at` fuer
+  Keycloak- und Gast-Identitaeten
 - `audit_log`
 
 ---

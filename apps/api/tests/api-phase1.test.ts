@@ -284,6 +284,62 @@ describe("Phase 1 API", () => {
     expect(expiresAt - before).toBeLessThan(305_000);
   });
 
+  it("lets guests join an invite with display name only and returns a bearer session", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "guest-invite-owner@example.com");
+    const workspace = await createWorkspace(app, owner, "Guest Invite Workspace");
+    const inviteResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.workspace.id}/invites`,
+        {},
+        {
+          cookie: owner.cookie,
+          "x-openvoice-csrf-token": owner.csrfToken,
+        },
+      ),
+    );
+    const inviteBody = (await inviteResponse.json()) as { code: string };
+
+    const guestJoin = await app.handler(
+      jsonRequest(`/api/v1/invites/${inviteBody.code}/guest-join`, {
+        displayName: "Guest Tester",
+      }),
+    );
+    const guestBody = (await guestJoin.json()) as {
+      accessToken: string;
+      role: { key: string } | null;
+      user: { displayName: string };
+      workspace: { id: string };
+    };
+
+    expect(guestJoin.status).toBe(200);
+    expect(guestBody.accessToken).toBeTruthy();
+    expect(guestBody.role?.key).toBe("guest");
+    expect(guestBody.user.displayName).toBe("Guest Tester");
+    expect(guestBody.workspace.id).toBe(workspace.workspace.id);
+
+    const guestUser = app.repository.users.find((user) => user.displayName === "Guest Tester");
+    expect(guestUser).toMatchObject({
+      kind: "guest",
+      keycloakSubject: null,
+    });
+    expect(app.repository.auditLogEntries.map((entry) => entry.event)).toContain("GUEST_JOIN");
+
+    const listed = await app.handler(
+      new Request("http://local.test/api/v1/workspaces", {
+        headers: { Authorization: `Bearer ${guestBody.accessToken}` },
+      }),
+    );
+    const listedBody = (await listed.json()) as {
+      workspaces: Array<{ id: string; memberCount: number }>;
+    };
+
+    expect(listed.status).toBe(200);
+    expect(listedBody.workspaces).toContainEqual(
+      expect.objectContaining({ id: workspace.workspace.id, memberCount: 2 }),
+    );
+  });
+
   it("exposes OIDC login configuration and can disable local password auth", async () => {
     const app = createTestApp({
       localPasswordAuthEnabled: false,

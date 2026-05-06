@@ -224,10 +224,6 @@ Wenn die Temp-Domain fuer RTC-Medientests genutzt werden soll, muss `LIVEKIT_URL
 `wss://schnick-schnack.info.w00ac711.kasserver.com/livekit` zeigen oder LiveKit muss unter einer
 separaten Domain mit gueltigem TLS-Zertifikat erreichbar sein.
 
-Wenn die Weboberflaeche per Basic Auth geschuetzt ist, muss der Host-Nginx fuer `/livekit/` den
-automatisch vom Browser mitgesendeten Basic-Auth-Header entfernen. LiveKit authentifiziert den
-Signal-WebSocket ueber den kurzlebigen Join-Token in der Query und lehnt sonst den Basic-Header ab.
-
 ```nginx
 location /livekit/ {
     proxy_pass http://127.0.0.1:7880/;
@@ -240,7 +236,6 @@ location /livekit/ {
 
     proxy_set_header Upgrade $http_upgrade;
     proxy_set_header Connection "upgrade";
-    proxy_set_header Authorization "";
     proxy_buffering off;
     proxy_read_timeout 3600;
 }
@@ -289,26 +284,8 @@ OPENVOICE_API_IMAGE=openvoice-api:0.1.0-rc1
 OPENVOICE_WEB_IMAGE=openvoice-web:0.1.0-rc1
 ```
 
-Der Web-Container schützt die öffentliche Oberfläche zusätzlich mit HTTP Basic Auth. Die Werte
-kommen aus der runtime-only `.env`:
-
-```dotenv
-OPENVOICE_SITE_USER=openvoice
-OPENVOICE_SITE_PASSWORD=keins
-```
-
-Der Basic-Auth-Schutz liegt vor der SPA und vor `/api/`. Der Web-Container entfernt
-`Authorization: Basic ...` vor dem internen API-Proxy, damit die vorgelagerte Site-Auth nicht mit
-OpenVoice-App-Auth kollidiert. `/livekit/` wird am Host-Nginx separat direkt zur SFU
-weitergeleitet und ist nicht Teil dieses Basic-Auth-Schutzes.
-
-Passwortwechsel auf dem Zielserver:
-
-```bash
-cd /home/schlagges/openvoice-deploy
-$EDITOR .env
-docker compose --env-file .env -f infra/docker-compose.prod.yml up -d web
-```
+Der Web-Container setzt keine vorgeschaltete HTTP Basic Auth mehr. Zugriffsschutz erfolgt ueber
+OpenVoice-Auth, kurzlebige Invite-Links und den geplanten Keycloak-Login.
 
 Start auf dem Zielserver:
 
@@ -335,19 +312,15 @@ Nach jedem Image-Update sollten mindestens diese Checks laufen:
 
 ```bash
 curl -I https://voice.schnick-schnack.info
-curl -I -u openvoice:keins https://voice.schnick-schnack.info
-curl -i -u openvoice:keins https://voice.schnick-schnack.info/api/v1/me
+curl -i https://voice.schnick-schnack.info/api/v1/me
 curl -i https://voice.schnick-schnack.info/livekit/
 ```
 
 Erwartung:
 
-- Ohne Basic Auth liefert die Weboberflaeche `401`.
-- Mit Basic Auth liefert die Weboberflaeche `200`.
-- `/api/v1/me` liefert mit Basic Auth, aber ohne OpenVoice-Session, ein JSON-`401` der App.
-- `/livekit/` darf nicht vom Web-Basic-Auth-Schutz blockiert werden. Ein HTTP-`401` von LiveKit
-  ist ohne Join-Token normal, darf aber nicht durch einen weitergeleiteten Basic-Auth-Header
-  verursacht werden.
+- Die Weboberflaeche liefert `200`.
+- `/api/v1/me` liefert ohne OpenVoice-Session ein JSON-`401` der App.
+- `/livekit/` liefert ohne Join-Token typischerweise `401`; das ist normal.
 
 Das ausgelieferte Web-Bundle darf fuer die API nicht `http://localhost:3000/api/v1` enthalten. Fuer
 oeffentliche Deployments muss die API relativ ueber `/api/v1` laufen.

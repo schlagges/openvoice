@@ -87,10 +87,14 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     const now = new Date();
     const user: User = {
       createdAt: now,
+      createdFromInviteId: input.createdFromInviteId ?? null,
       displayName: input.displayName,
       email: input.email,
       emailNormalized: input.emailNormalized,
       id: randomUUID(),
+      keycloakSubject: input.keycloakSubject ?? null,
+      kind: input.kind ?? "registered",
+      linkedAt: input.linkedAt ?? null,
       passwordHash: input.passwordHash,
       updatedAt: now,
     };
@@ -105,6 +109,30 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
 
   public async findUserById(userId: string): Promise<User | null> {
     return this.users.find((user) => user.id === userId) ?? null;
+  }
+
+  public async findUserByKeycloakSubject(keycloakSubject: string): Promise<User | null> {
+    return this.users.find((user) => user.keycloakSubject === keycloakSubject) ?? null;
+  }
+
+  public async linkUserToKeycloakSubject(
+    userId: string,
+    keycloakSubject: string,
+    linkedAt: Date,
+  ): Promise<User> {
+    const user = this.users.find((candidate) => candidate.id === userId);
+    if (!user) {
+      throw new Error(`User ${userId} not found.`);
+    }
+
+    const updated: User = {
+      ...user,
+      keycloakSubject,
+      linkedAt,
+      updatedAt: linkedAt,
+    };
+    this.users[this.users.indexOf(user)] = updated;
+    return updated;
   }
 
   public async createSession(input: CreateSessionInput): Promise<Session> {
@@ -338,8 +366,9 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
       userId: input.actorId,
       workspaceId: invite.workspaceId,
     };
+    const roleKey = input.roleKey ?? "member";
     const role = this.roles.find(
-      (candidate) => candidate.workspaceId === invite.workspaceId && candidate.key === "member",
+      (candidate) => candidate.workspaceId === invite.workspaceId && candidate.key === roleKey,
     );
 
     this.workspaceMembers.push(member);
@@ -373,6 +402,22 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
               id: randomUUID(),
               ipHash: getAuditIpHash(),
               metadata: { roleKey: role.key },
+              reason: null,
+              targetId: member.id,
+              targetType: "workspace_member",
+              workspaceId: invite.workspaceId,
+            } satisfies AuditLogEntry,
+          ]
+        : []),
+      ...(input.joinKind === "guest"
+        ? [
+            {
+              actorId: input.actorId,
+              createdAt: now,
+              event: "GUEST_JOIN",
+              id: randomUUID(),
+              ipHash: getAuditIpHash(),
+              metadata: { inviteId: invite.id },
               reason: null,
               targetId: member.id,
               targetType: "workspace_member",

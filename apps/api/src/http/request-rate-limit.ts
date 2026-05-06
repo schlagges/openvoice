@@ -13,6 +13,11 @@ const API_RATE_LIMITS = {
     refillAmount: 5,
     refillIntervalMs: 15 * 60_000,
   },
+  inviteJoin: {
+    capacity: 20,
+    refillAmount: 20,
+    refillIntervalMs: 15 * 60_000,
+  },
   generalRead: {
     capacity: 600,
     refillAmount: 600,
@@ -83,6 +88,14 @@ function classifyRoute(
 
   if (url.pathname === "/api/v1/auth/login" && request.method === "POST") {
     return { name: "auth:login", rule: API_RATE_LIMITS.authLogin };
+  }
+
+  if (
+    (url.pathname === "/api/v1/invites/join" ||
+      /^\/api\/v1\/invites\/[^/]+\/guest-join$/.test(url.pathname)) &&
+    request.method === "POST"
+  ) {
+    return { name: "invite:join", rule: API_RATE_LIMITS.inviteJoin };
   }
 
   if (url.pathname === "/api/v1/turn/credentials") {

@@ -13,13 +13,19 @@ export type AuditMetadata = Record<string, string | number | boolean | null>;
 
 export interface User {
   readonly createdAt: Date;
+  readonly createdFromInviteId: string | null;
   readonly displayName: string;
   readonly email: string;
   readonly emailNormalized: string;
   readonly id: string;
+  readonly keycloakSubject: string | null;
+  readonly kind: UserKind;
+  readonly linkedAt: Date | null;
   readonly passwordHash: string;
   readonly updatedAt: Date;
 }
+
+export type UserKind = "guest" | "registered";
 
 export interface Session {
   readonly createdAt: Date;
@@ -179,9 +185,13 @@ export interface WorkspaceAccessContext {
 }
 
 export interface CreateUserInput {
+  readonly createdFromInviteId?: string | null;
   readonly displayName: string;
   readonly email: string;
   readonly emailNormalized: string;
+  readonly keycloakSubject?: string | null;
+  readonly kind?: UserKind;
+  readonly linkedAt?: Date | null;
   readonly passwordHash: string;
 }
 
@@ -219,7 +229,9 @@ export interface CreateWorkspaceInviteResult {
 export interface RedeemWorkspaceInviteInput {
   readonly actorId: string;
   readonly codeHash: string;
+  readonly joinKind?: "guest" | "member";
   readonly now: Date;
+  readonly roleKey?: DefaultRoleKey;
 }
 
 export interface RedeemWorkspaceInviteResult {

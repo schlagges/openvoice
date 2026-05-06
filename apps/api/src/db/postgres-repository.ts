@@ -73,10 +73,20 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
   public async createUser(input: CreateUserInput): Promise<User> {
     try {
       const result = await this.pool.query<UserRow>(
-        `INSERT INTO users (id, email, email_normalized, display_name, password_hash, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, now(), now())
+        `INSERT INTO users (id, email, email_normalized, display_name, password_hash, kind, keycloak_subject, created_from_invite_id, linked_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, now(), now())
          RETURNING *`,
-        [randomUUID(), input.email, input.emailNormalized, input.displayName, input.passwordHash],
+        [
+          randomUUID(),
+          input.email,
+          input.emailNormalized,
+          input.displayName,
+          input.passwordHash,
+          input.kind ?? "registered",
+          input.keycloakSubject ?? null,
+          input.createdFromInviteId ?? null,
+          input.linkedAt ?? null,
+        ],
       );
 
       return mapUser(result.rows[0]);
@@ -102,6 +112,33 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     const result = await this.pool.query<UserRow>("SELECT * FROM users WHERE id = $1", [userId]);
 
     return result.rows[0] ? mapUser(result.rows[0]) : null;
+  }
+
+  public async findUserByKeycloakSubject(keycloakSubject: string): Promise<User | null> {
+    const result = await this.pool.query<UserRow>(
+      "SELECT * FROM users WHERE keycloak_subject = $1",
+      [keycloakSubject],
+    );
+
+    return result.rows[0] ? mapUser(result.rows[0]) : null;
+  }
+
+  public async linkUserToKeycloakSubject(
+    userId: string,
+    keycloakSubject: string,
+    linkedAt: Date,
+  ): Promise<User> {
+    const result = await this.pool.query<UserRow>(
+      `UPDATE users
+       SET keycloak_subject = $2,
+           linked_at = $3,
+           updated_at = now()
+       WHERE id = $1
+       RETURNING *`,
+      [userId, keycloakSubject, linkedAt],
+    );
+
+    return mapUser(result.rows[0]);
   }
 
   public async createSession(input: CreateSessionInput): Promise<Session> {
@@ -299,8 +336,8 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
       );
       const member = mapWorkspaceMember(memberResult.rows[0]);
       const roleResult = await client.query<RoleRow>(
-        "SELECT * FROM roles WHERE workspace_id = $1 AND key = 'member'",
-        [invite.workspaceId],
+        "SELECT * FROM roles WHERE workspace_id = $1 AND key = $2",
+        [invite.workspaceId, input.roleKey ?? "member"],
       );
       const role = roleResult.rows[0] ? mapRole(roleResult.rows[0]) : null;
       if (role) {
@@ -330,6 +367,18 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
                 actorId: input.actorId,
                 event: "MEMBER_ROLE_ASSIGN",
                 metadata: { roleKey: role.key },
+                targetId: member.id,
+                targetType: "workspace_member",
+                workspaceId: invite.workspaceId,
+              }),
+            ]
+          : []),
+        ...(input.joinKind === "guest"
+          ? [
+              await insertAuditLog(client, {
+                actorId: input.actorId,
+                event: "GUEST_JOIN",
+                metadata: { inviteId: invite.id },
                 targetId: member.id,
                 targetType: "workspace_member",
                 workspaceId: invite.workspaceId,
@@ -1452,10 +1501,14 @@ async function insertWorkspaceCreationAuditEntries(
 
 interface UserRow extends QueryResultRow {
   readonly created_at: Date;
+  readonly created_from_invite_id: string | null;
   readonly display_name: string;
   readonly email: string;
   readonly email_normalized: string;
   readonly id: string;
+  readonly keycloak_subject: string | null;
+  readonly kind: User["kind"];
+  readonly linked_at: Date | null;
   readonly password_hash: string;
   readonly updated_at: Date;
 }
@@ -1683,10 +1736,14 @@ function mapUser(row: UserRow | undefined): User {
 
   return {
     createdAt: row.created_at,
+    createdFromInviteId: row.created_from_invite_id ?? null,
     displayName: row.display_name,
     email: row.email,
     emailNormalized: row.email_normalized,
     id: row.id,
+    keycloakSubject: row.keycloak_subject ?? null,
+    kind: row.kind ?? "registered",
+    linkedAt: row.linked_at ?? null,
     passwordHash: row.password_hash,
     updatedAt: row.updated_at,
   };

@@ -150,6 +150,7 @@ async function createMessage(channelId: string, content: string): Promise<Create
     credentials: "include",
     headers: {
       "content-type": "application/json",
+      ...authHeader(),
       ...csrfHeader(),
     },
     method: "POST",
@@ -165,6 +166,7 @@ async function createMessage(channelId: string, content: string): Promise<Create
 async function loadMessages(root: HTMLElement, channelId: string): Promise<void> {
   const response = await fetch(`/api/v1/channels/${encodeURIComponent(channelId)}/messages`, {
     credentials: "include",
+    headers: authHeader(),
   });
 
   if (!response.ok) {
@@ -346,9 +348,11 @@ function isMessage(value: unknown): value is Message {
 
 function messageSocketUrl(channelId: string): string {
   const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const accessToken = localStorage.getItem("openvoice.accessToken");
+  const query = accessToken ? `?access_token=${encodeURIComponent(accessToken)}` : "";
   return `${protocol}//${window.location.host}/api/v1/channels/${encodeURIComponent(
     channelId,
-  )}/messages/ws`;
+  )}/messages/ws${query}`;
 }
 
 function sortMessageList(list: HTMLOListElement): void {
@@ -386,6 +390,11 @@ function readCurrentChannelId(): string {
 function csrfHeader(): Record<string, string> {
   const token = localStorage.getItem("openvoice.csrfToken");
   return token ? { "x-openvoice-csrf-token": token } : {};
+}
+
+function authHeader(): Record<string, string> {
+  const token = localStorage.getItem("openvoice.accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function setStatus(

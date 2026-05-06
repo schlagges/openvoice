@@ -342,6 +342,7 @@ export class OpenVoiceVoiceClient {
       credentials: "include",
       headers: {
         ...(init.body ? { "content-type": "application/json" } : {}),
+        ...authHeader(),
         ...(csrfToken ? { "x-openvoice-csrf-token": csrfToken } : {}),
         ...init.headers,
       },
@@ -933,6 +934,15 @@ function readStoredCsrfToken(): string | null {
   }
 
   return localStorage.getItem("openvoice.csrfToken");
+}
+
+function authHeader(): Record<string, string> {
+  if (typeof localStorage === "undefined") {
+    return {};
+  }
+
+  const token = localStorage.getItem("openvoice.accessToken");
+  return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
 function firstLocalAudioTrack(room: Room): LocalAudioTrack | null {

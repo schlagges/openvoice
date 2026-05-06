@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import {
   DEFAULT_ROLE_DEFINITIONS,
@@ -14,6 +14,7 @@ import type {
   Workspace,
   WorkspaceMember,
   WorkspaceWithMemberCount,
+  User,
 } from "../../db/models.js";
 import type { OpenVoiceRepository } from "../../db/repository.js";
 import { conflict, forbidden, notFound } from "../../http/errors.js";
@@ -53,6 +54,10 @@ export interface WorkspaceInviteJoinResponse {
   readonly member: PublicWorkspaceMember;
   readonly role: PublicRole | null;
   readonly workspace: PublicWorkspace;
+}
+
+export interface WorkspaceGuestInviteJoinResponse extends WorkspaceInviteJoinResponse {
+  readonly user: User;
 }
 
 export interface PublicWorkspace {
@@ -187,6 +192,46 @@ export class WorkspaceService {
       alreadyMember: result.alreadyMember,
       member: toPublicWorkspaceMember(result.member),
       role: result.role ? toPublicRole(result.role) : null,
+      workspace: toPublicWorkspace(result.workspace),
+    };
+  }
+
+  public async guestJoinByInvite(input: {
+    readonly code: string;
+    readonly displayName: string;
+  }): Promise<WorkspaceGuestInviteJoinResponse> {
+    const codeHash = hashInviteCode(input.code);
+    const now = new Date();
+    const invite = await this.repository.findActiveWorkspaceInvite(codeHash, now);
+    if (!invite) {
+      throw notFound("Invite not found or expired.");
+    }
+
+    const guestId = randomUUID();
+    const user = await this.repository.createUser({
+      createdFromInviteId: invite.id,
+      displayName: input.displayName,
+      email: `guest+${guestId}@openvoice.local`,
+      emailNormalized: `guest+${guestId}@openvoice.local`,
+      kind: "guest",
+      passwordHash: "guest-disabled",
+    });
+    const result = await this.repository.redeemWorkspaceInvite({
+      actorId: user.id,
+      codeHash,
+      joinKind: "guest",
+      now,
+      roleKey: "guest",
+    });
+    if (!result) {
+      throw notFound("Invite not found or expired.");
+    }
+
+    return {
+      alreadyMember: result.alreadyMember,
+      member: toPublicWorkspaceMember(result.member),
+      role: result.role ? toPublicRole(result.role) : null,
+      user,
       workspace: toPublicWorkspace(result.workspace),
     };
   }

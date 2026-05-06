@@ -1,6 +1,7 @@
 import { type ApiConfig } from "../config/env.js";
 import type { Session } from "../db/models.js";
 import { AuthService, toPublicUser } from "../modules/auth/service.js";
+import { OidcAuthService } from "../modules/auth/oidc.js";
 import { ChannelService } from "../modules/channels/service.js";
 import { MessageService } from "../modules/messages/service.js";
 import { ModerationService } from "../modules/moderation/service.js";
@@ -30,6 +31,7 @@ import {
   parseCreateChannelRequest,
   parseCreateMessageRequest,
   parseCreateWorkspaceRequest,
+  parseGuestJoinWorkspaceInviteRequest,
   parseJoinWorkspaceInviteRequest,
   parseListAuditLogQuery,
   parseListMessagesQuery,
@@ -57,7 +59,15 @@ export interface ApiHandlerOptions {
   readonly config: Pick<
     ApiConfig,
     | "corsAllowedOrigins"
+    | "csrfSecret"
     | "enableHsts"
+    | "oidcAudience"
+    | "oidcCallbackUrl"
+    | "oidcClientId"
+    | "oidcClientSecret"
+    | "oidcEnabled"
+    | "oidcIssuerUrl"
+    | "oidcRequiredClientRole"
     | "sessionCookieName"
     | "sessionCookieSecure"
     | "sessionTtlSeconds"
@@ -228,7 +238,9 @@ async function routeRequest(
       {
         localPasswordAuthEnabled: options.config.localPasswordAuthEnabled ?? true,
         oidc: {
-          clientId: options.config.oidcClientId ?? "openvoice-web",
+          callbackUrl: options.config.oidcCallbackUrl,
+          clientId: options.config.oidcClientId ?? "openvoice",
+          enabled: options.config.oidcEnabled ?? false,
           issuerUrl:
             options.config.oidcIssuerUrl ??
             "https://auth.schnick-schnack.info/realms/schnick-schnack",
@@ -237,6 +249,46 @@ async function routeRequest(
       200,
       requestId,
     );
+  }
+
+  if (url.pathname === "/api/v1/auth/oidc/login") {
+    assertMethod(request, "GET");
+    const oidc = createOidcAuthService(options);
+    return new Response(null, oidc.createLoginRedirect(url.searchParams.get("returnTo") ?? "/"));
+  }
+
+  if (url.pathname === "/api/v1/auth/oidc/callback") {
+    assertMethod(request, "GET");
+    const oidc = createOidcAuthService(options);
+    const result = await oidc.completeCallback({
+      code: url.searchParams.get("code"),
+      cookieHeader: request.headers.get("cookie"),
+      state: url.searchParams.get("state"),
+    });
+    const session = await options.authService.loginWithExternalIdentity(result.identity);
+    const headers = new Headers({
+      location: result.returnTo,
+      "x-request-id": requestId,
+    });
+    headers.append(
+      "set-cookie",
+      createSessionCookie(session.rawSessionToken, {
+        maxAgeSeconds: options.config.sessionTtlSeconds,
+        name: options.config.sessionCookieName,
+        secure: options.config.sessionCookieSecure,
+      }),
+    );
+    headers.append("set-cookie", oidc.createStateClearingCookie());
+    headers.append("set-cookie", createClientReadableCookie("openvoice_csrf", session.csrfToken, {
+      maxAgeSeconds: options.config.sessionTtlSeconds,
+      secure: options.config.sessionCookieSecure,
+    }));
+    headers.append("set-cookie", createClientReadableCookie("openvoice_display", session.user.displayName, {
+      maxAgeSeconds: options.config.sessionTtlSeconds,
+      secure: options.config.sessionCookieSecure,
+    }));
+
+    return new Response(null, { headers, status: 302 });
   }
 
   if (url.pathname === "/api/v1/auth/logout") {
@@ -318,6 +370,32 @@ async function routeRequest(
     });
 
     return jsonResponse(result, 200, requestId);
+  }
+
+  const guestInviteJoinMatch = matchPath(url.pathname, /^\/api\/v1\/invites\/([^/]+)\/guest-join$/);
+  if (guestInviteJoinMatch) {
+    assertMethod(request, "POST");
+    const code = requirePathPart(guestInviteJoinMatch, 0);
+    const body = parseGuestJoinWorkspaceInviteRequest(await readJsonObject(request));
+    const result = await options.workspaceService.guestJoinByInvite({
+      code,
+      displayName: body.displayName,
+    });
+    const session = await options.authService.createSessionForUser(result.user);
+
+    return jsonResponse(
+      {
+        accessToken: session.rawSessionToken,
+        alreadyMember: result.alreadyMember,
+        expiresAt: session.expiresAt.toISOString(),
+        member: result.member,
+        role: result.role,
+        user: session.user,
+        workspace: result.workspace,
+      },
+      200,
+      requestId,
+    );
   }
 
   const workspaceInvitesMatch = matchPath(
@@ -757,6 +835,37 @@ function assertLocalPasswordAuthEnabled(options: ApiHandlerOptions): void {
   if (options.config.localPasswordAuthEnabled === false) {
     throw forbidden("Local password authentication is disabled.");
   }
+}
+
+function createOidcAuthService(options: ApiHandlerOptions): OidcAuthService {
+  return new OidcAuthService({
+    audience: options.config.oidcAudience,
+    callbackUrl: options.config.oidcCallbackUrl,
+    clientId: options.config.oidcClientId,
+    clientSecret: options.config.oidcClientSecret,
+    csrfSecret: options.config.csrfSecret,
+    enabled: options.config.oidcEnabled,
+    issuerUrl: options.config.oidcIssuerUrl,
+    requiredClientRole: options.config.oidcRequiredClientRole,
+    sessionCookieSecure: options.config.sessionCookieSecure,
+  });
+}
+
+function createClientReadableCookie(
+  name: string,
+  value: string,
+  options: { readonly maxAgeSeconds: number; readonly secure: boolean },
+): string {
+  const parts = [
+    `${name}=${encodeURIComponent(value)}`,
+    `Max-Age=${options.maxAgeSeconds}`,
+    "Path=/",
+    "SameSite=Lax",
+  ];
+  if (options.secure) {
+    parts.push("Secure");
+  }
+  return parts.join("; ");
 }
 
 async function authenticateRequest(
