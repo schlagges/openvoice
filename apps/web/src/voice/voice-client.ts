@@ -154,7 +154,12 @@ export class OpenVoiceVoiceClient {
     const normalizedDeviceId = deviceId.trim();
     this.audioInputDeviceId = normalizedDeviceId || null;
     storeDeviceId(AUDIO_INPUT_DEVICE_STORAGE_KEY, this.audioInputDeviceId);
-    if (!this.state || this.state.selfMuted || this.state.serverMuted || this.state.serverDeafened) {
+    if (
+      !this.state ||
+      this.state.selfMuted ||
+      this.state.serverMuted ||
+      this.state.serverDeafened
+    ) {
       return;
     }
 
@@ -875,7 +880,9 @@ export function mountVoiceControls(root: HTMLElement, client = new OpenVoiceVoic
       .setAudioInputDevice(audioInput.value)
       .then(() => setStatus(audioInput.value ? "Mikrofon gewechselt" : "Standard-Mikrofon aktiv"))
       .catch((error: unknown) =>
-        setStatus(error instanceof Error ? error.message : "Mikrofon konnte nicht gewechselt werden"),
+        setStatus(
+          error instanceof Error ? error.message : "Mikrofon konnte nicht gewechselt werden",
+        ),
       );
   });
   audioOutput?.addEventListener("change", () => {
@@ -977,9 +984,7 @@ export function shouldRetryVoiceJoinError(message: string): boolean {
   return normalized.includes("pc connection") || normalized.includes("peerconnection");
 }
 
-export function toRtcIceServers(
-  iceServers: VoiceJoinResponse["iceServers"],
-): RTCIceServer[] {
+export function toRtcIceServers(iceServers: VoiceJoinResponse["iceServers"]): RTCIceServer[] {
   return iceServers.map((server) => ({
     ...(server.credential ? { credential: server.credential } : {}),
     urls: Array.from(server.urls),
@@ -1093,12 +1098,13 @@ function controlIcon(name: "audio" | "camera" | "leave" | "mic" | "screen" | "se
   const paths: Record<typeof name, string> = {
     audio:
       '<path d="M4 10v4h3l4 4V6l-4 4H4z"></path><path d="M15 9a4 4 0 0 1 0 6"></path><path d="M17 6a8 8 0 0 1 0 12"></path>',
-    camera: '<path d="M4 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4z"></path><path d="M16 10l4-2v8l-4-2z"></path>',
+    camera:
+      '<path d="M4 7h10a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H4z"></path><path d="M16 10l4-2v8l-4-2z"></path>',
     leave:
       '<path d="M6 14c3-3 9-3 12 0"></path><path d="M8 16l-2 3"></path><path d="M16 16l2 3"></path><path d="M10 13v4h4v-4"></path>',
-    mic:
-      '<path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z"></path><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path>',
-    screen: '<rect x="4" y="5" width="16" height="11" rx="2"></rect><path d="M12 16v4"></path><path d="M8 20h8"></path>',
+    mic: '<path d="M12 4a3 3 0 0 0-3 3v5a3 3 0 0 0 6 0V7a3 3 0 0 0-3-3z"></path><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3"></path>',
+    screen:
+      '<rect x="4" y="5" width="16" height="11" rx="2"></rect><path d="M12 16v4"></path><path d="M8 20h8"></path>',
     settings:
       '<path d="M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8z"></path><path d="M4 12h2"></path><path d="M18 12h2"></path><path d="M12 4v2"></path><path d="M12 18v2"></path>',
   };
@@ -1332,7 +1338,11 @@ export function renderVoiceParticipantStage(participants: readonly VoiceParticip
   `;
 }
 
-function shouldFocusFirstTile(root: HTMLElement, tileKey: string, tiles: readonly VideoTile[]): boolean {
+function shouldFocusFirstTile(
+  root: HTMLElement,
+  tileKey: string,
+  tiles: readonly VideoTile[],
+): boolean {
   const stageMode = root.closest<HTMLElement>(".app-shell")?.dataset.stageMode;
   return stageMode === "focus" && !root.dataset.focusedTrack && tiles[0]?.key === tileKey;
 }

@@ -252,7 +252,9 @@ function playNotificationSound(sound: NotificationSound): void {
 
 function unlockAudioOnce(): void {
   audioUnlocked = true;
-  void currentAudioContext()?.resume().catch(() => undefined);
+  void currentAudioContext()
+    ?.resume()
+    .catch(() => undefined);
 }
 
 function currentAudioContext(): AudioContext | null {
@@ -263,7 +265,7 @@ function currentAudioContext(): AudioContext | null {
   const AudioContextApi =
     typeof window === "undefined"
       ? undefined
-      : window.AudioContext ?? (window as WindowWithAudioFallback).webkitAudioContext;
+      : (window.AudioContext ?? (window as WindowWithAudioFallback).webkitAudioContext);
   if (!AudioContextApi) {
     return null;
   }

@@ -427,7 +427,11 @@ function bindOnboarding(root: HTMLElement): void {
     void loadAuthConfig()
       .then((config) => {
         if (!hasStoredSession() && !config.localPasswordAuthEnabled) {
-          setFormStatus(status, "Weiter zu Keycloak. Die Einladung bleibt im Link erhalten.", "loading");
+          setFormStatus(
+            status,
+            "Weiter zu Keycloak. Die Einladung bleibt im Link erhalten.",
+            "loading",
+          );
           return startOidcLogin();
         }
         return joinWorkspaceFlow(input).then((result) => {
@@ -450,9 +454,9 @@ function bindOnboarding(root: HTMLElement): void {
 }
 
 function prepareOnboarding(root: HTMLElement, tab = "create"): void {
-  root.querySelector<HTMLDialogElement>("#onboarding-dialog")?.classList.remove(
-    "is-invite-keycloak",
-  );
+  root
+    .querySelector<HTMLDialogElement>("#onboarding-dialog")
+    ?.classList.remove("is-invite-keycloak");
   const displayName = currentStoredDisplayName() || createDefaultDisplayName();
   const workspaceInput = root.querySelector<HTMLInputElement>("#create-workspace");
   const createDisplayName = root.querySelector<HTMLInputElement>("#create-display-name");
@@ -1229,8 +1233,7 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
   markActiveWorkspace(root, workspaceId);
   const workspaceName =
     root.querySelector<HTMLElement>(".workspace-switcher__item.is-active .workspace-switcher__name")
-      ?.textContent ??
-    "Workspace";
+      ?.textContent ?? "Workspace";
   updateWorkspaceHeader(root, workspaceName, "Channel auswählen", null);
   updateInviteContext(root, workspaceName);
   setWorkspaceStatus(root, "Workspace geladen.", "success");
@@ -1311,8 +1314,7 @@ function markActiveWorkspace(root: HTMLElement, workspaceId: string): void {
 function readActiveWorkspaceName(root: HTMLElement): string {
   return (
     root.querySelector<HTMLElement>(".workspace-switcher__item.is-active .workspace-switcher__name")
-      ?.textContent ??
-    "kein Workspace"
+      ?.textContent ?? "kein Workspace"
   );
 }
 
@@ -1356,8 +1358,7 @@ function selectChannel(root: HTMLElement, channel: ChannelTreeNode): void {
 
   const workspaceName =
     root.querySelector<HTMLElement>(".workspace-switcher__item.is-active .workspace-switcher__name")
-      ?.textContent ??
-    "Workspace";
+      ?.textContent ?? "Workspace";
   updateWorkspaceHeader(root, workspaceName, channel.name, channel.type);
   updateInviteContext(root, workspaceName);
   renderSidebarParticipants(root, []);

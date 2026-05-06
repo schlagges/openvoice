@@ -114,10 +114,7 @@ export class OpenVoiceMetrics {
       metricHelp("rtc_audio_jitter_avg", "Average recent RTC audio jitter in milliseconds."),
       metricType("rtc_audio_jitter_avg", "gauge"),
       sample("rtc_audio_jitter_avg", rtc.audioJitterAvg),
-      metricHelp(
-        "rtc_audio_concealed_samples_avg",
-        "Average recent RTC concealed audio samples.",
-      ),
+      metricHelp("rtc_audio_concealed_samples_avg", "Average recent RTC concealed audio samples."),
       metricType("rtc_audio_concealed_samples_avg", "gauge"),
       sample("rtc_audio_concealed_samples_avg", rtc.audioConcealedSamplesAvg),
       metricHelp("rtc_audio_rtt_p95", "P95 recent RTC audio RTT in milliseconds."),

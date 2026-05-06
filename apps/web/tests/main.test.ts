@@ -241,7 +241,9 @@ describe("web foundation", () => {
       },
     } as unknown as Room;
     const originalFetch = globalThis.fetch;
-    globalThis.fetch = vi.fn(async () => Response.json({ state: deafenedState })) as unknown as typeof fetch;
+    globalThis.fetch = vi.fn(async () =>
+      Response.json({ state: deafenedState }),
+    ) as unknown as typeof fetch;
 
     const client = new OpenVoiceVoiceClient({ apiBaseUrl: "/api/v1", room });
     Object.defineProperty(client, "state", { configurable: true, value: state, writable: true });
