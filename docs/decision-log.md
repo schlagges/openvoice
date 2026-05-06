@@ -202,3 +202,14 @@ Additional direct Phase 1 dependencies are documented in `THIRD_PARTY_NOTICES.md
   of the same workspace. A dedicated invite or member-management flow remains the correct future
   product surface; the current UI only makes existing memberships and visible channels easier to
   select.
+
+## 2026-05-06: Minimal Invite Flow for Multi-User RTC Tests
+
+- Multi-user RTC testing now uses explicit workspace invite codes instead of public workspace
+  discovery. This keeps `Public Discovery` outside the MVP while allowing separate authenticated
+  users to become members of the same workspace.
+- Invite codes are generated with cryptographic randomness and persisted only as SHA-256 hashes.
+  The raw code is returned once to the creator. Invite creation requires `MANAGE_INVITES`; invite
+  join requires an authenticated session, CSRF, and no active workspace ban.
+- Joined users receive the default `member` role. Full invite management, revocation UI and member
+  administration remain future surfaces beyond this small RTC-test enabler.

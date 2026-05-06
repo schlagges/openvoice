@@ -29,6 +29,7 @@ import {
   parseCreateChannelRequest,
   parseCreateMessageRequest,
   parseCreateWorkspaceRequest,
+  parseJoinWorkspaceInviteRequest,
   parseListAuditLogQuery,
   parseListMessagesQuery,
   parseLoginRequest,
@@ -275,6 +276,38 @@ async function routeRequest(
     const result = await options.workspaceService.createWorkspace({
       ...parseCreateWorkspaceRequest(await readJsonObject(request)),
       ownerId: authenticated.userId,
+    });
+
+    return jsonResponse(result, 201, requestId);
+  }
+
+  if (url.pathname === "/api/v1/invites/join") {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const result = await options.workspaceService.joinByInvite({
+      ...parseJoinWorkspaceInviteRequest(await readJsonObject(request)),
+      userId: authenticated.userId,
+    });
+
+    return jsonResponse(result, 200, requestId);
+  }
+
+  const workspaceInvitesMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/invites$/,
+  );
+  if (workspaceInvitesMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(workspaceInvitesMatch, 0),
+      "workspaceId",
+    );
+    const result = await options.workspaceService.createInvite({
+      actorId: authenticated.userId,
+      workspaceId,
     });
 
     return jsonResponse(result, 201, requestId);

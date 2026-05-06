@@ -77,6 +77,8 @@ DELETE /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 GET    /api/v1/workspaces/:workspaceId/members (nicht in v0.1.0-rc1)
 GET    /api/v1/workspaces/:workspaceId/tree
 GET    /api/v1/workspaces/:workspaceId/audit-log
+POST   /api/v1/workspaces/:workspaceId/invites
+POST   /api/v1/invites/join
 ```
 
 `GET /workspaces` benötigt Auth und liefert nur Workspaces, in denen der aktuelle User Mitglied
@@ -84,6 +86,10 @@ ist. Es gibt absichtlich keine serverweite Workspace-Auflistung, damit private W
 nicht an andere eingeloggte User leaken.
 
 `GET /audit-log` benötigt `VIEW_AUDIT_LOG` und liefert die neuesten Einträge mit `limit` 1-100.
+`POST /workspaces/:workspaceId/invites` benötigt `MANAGE_INVITES` und gibt den Invite-Code nur
+einmal im Response zurück. Gespeichert wird ausschließlich ein SHA-256-Hash des Codes.
+`POST /invites/join` benötigt Auth und CSRF, lehnt aktive Bans ab und weist die Default-Rolle
+`member` zu.
 
 ---
 

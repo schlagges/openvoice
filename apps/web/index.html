@@ -262,6 +262,59 @@
         color: var(--color-success);
       }
 
+      .workspace-invite {
+        border-top: 1px solid var(--color-border);
+        display: grid;
+        gap: 8px;
+        padding-top: var(--space-3);
+      }
+
+      .workspace-invite label {
+        display: grid;
+        gap: 6px;
+      }
+
+      .workspace-invite label span {
+        color: var(--color-muted);
+        font-size: 0.78rem;
+        font-weight: 700;
+      }
+
+      .workspace-invite input {
+        background: var(--color-panel);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius);
+        color: var(--color-text);
+        font: inherit;
+        min-height: 38px;
+        padding: 0 10px;
+      }
+
+      .workspace-invite__actions {
+        display: grid;
+        gap: 8px;
+        grid-template-columns: 1fr 1fr;
+      }
+
+      .workspace-invite button {
+        background: var(--color-panel);
+        border: 1px solid var(--color-border-strong);
+        border-radius: var(--radius);
+        color: var(--color-primary);
+        cursor: pointer;
+        font: inherit;
+        font-size: 0.82rem;
+        font-weight: 700;
+        min-height: 38px;
+        padding: 0 10px;
+      }
+
+      .workspace-invite button[type="submit"] {
+        background: var(--color-primary);
+        border-color: var(--color-primary);
+        color: #ffffff;
+      }
+
       .desktop-qr {
         grid-template-columns: minmax(0, 1fr) 92px;
         align-items: center;

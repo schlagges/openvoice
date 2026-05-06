@@ -105,6 +105,17 @@ export function renderWorkspaceSwitcher(
       </header>
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
       <p id="workspace-status" class="workspace-switcher__status" role="status"></p>
+      <form id="invite-form" class="workspace-invite">
+        <label>
+          <span>Invite-Code</span>
+          <input id="invite-code" name="code" autocomplete="off" />
+        </label>
+        <div class="workspace-invite__actions">
+          <button id="invite-create" type="button">Invite erstellen</button>
+          <button type="submit">Invite beitreten</button>
+        </div>
+        <p id="invite-status" class="workspace-switcher__status" role="status"></p>
+      </form>
     </section>
   `;
 }
@@ -232,6 +243,55 @@ function bindWorkspaceNavigation(root: HTMLElement): void {
     );
   });
 
+  root.querySelector<HTMLButtonElement>("#invite-create")?.addEventListener("click", () => {
+    const workspaceId = readActiveWorkspaceId(root);
+    if (!workspaceId) {
+      setInviteStatus(root, "Bitte zuerst einen Workspace auswaehlen.", "error");
+      return;
+    }
+
+    setInviteStatus(root, "Invite wird erstellt.", "loading");
+    void createInvite(workspaceId)
+      .then((invite) => {
+        const input = root.querySelector<HTMLInputElement>("#invite-code");
+        if (input) {
+          input.value = invite.code;
+          input.select();
+        }
+        setInviteStatus(root, `Invite-Code erstellt. Gueltig bis ${invite.expiresAt}.`, "success");
+      })
+      .catch((error: unknown) =>
+        setInviteStatus(
+          root,
+          error instanceof Error ? error.message : "Invite konnte nicht erstellt werden.",
+          "error",
+        ),
+      );
+  });
+
+  root.querySelector<HTMLFormElement>("#invite-form")?.addEventListener("submit", (event) => {
+    event.preventDefault();
+    const code = root.querySelector<HTMLInputElement>("#invite-code")?.value.trim() ?? "";
+    if (!code) {
+      setInviteStatus(root, "Bitte Invite-Code eingeben.", "error");
+      return;
+    }
+
+    setInviteStatus(root, "Invite wird eingelöst.", "loading");
+    void joinInvite(code)
+      .then((result) => {
+        setInviteStatus(root, `Workspace ${result.workspace.name} beigetreten.`, "success");
+        void loadWorkspaces(root, result.workspace.id).catch(() => undefined);
+      })
+      .catch((error: unknown) =>
+        setInviteStatus(
+          root,
+          error instanceof Error ? error.message : "Invite konnte nicht eingelöst werden.",
+          "error",
+        ),
+      );
+  });
+
   channelTree?.addEventListener("click", (event) => {
     const item =
       (event.target as Element | null)?.closest<HTMLElement>(".channel-tree__item") ?? null;
@@ -285,6 +345,15 @@ interface WorkspaceListResponse {
 
 interface WorkspaceTreeResponse {
   readonly channels: readonly ChannelTreeNode[];
+}
+
+interface WorkspaceInviteResponse {
+  readonly code: string;
+  readonly expiresAt: string;
+}
+
+interface WorkspaceInviteJoinResponse {
+  readonly workspace: PublicWorkspace;
 }
 
 function readQuickStartForm(root: HTMLElement): QuickStartInput {
@@ -382,6 +451,40 @@ async function loadWorkspaces(root: HTMLElement, activeWorkspaceId = ""): Promis
   }
 }
 
+async function createInvite(workspaceId: string): Promise<WorkspaceInviteResponse> {
+  const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/invites`, {
+    body: JSON.stringify({}),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...csrfHeader(),
+    },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  return (await response.json()) as WorkspaceInviteResponse;
+}
+
+async function joinInvite(code: string): Promise<WorkspaceInviteJoinResponse> {
+  const response = await fetch("/api/v1/invites/join", {
+    body: JSON.stringify({ code }),
+    credentials: "include",
+    headers: {
+      "content-type": "application/json",
+      ...csrfHeader(),
+    },
+    method: "POST",
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  return (await response.json()) as WorkspaceInviteJoinResponse;
+}
+
 async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<void> {
   setWorkspaceStatus(root, "Channel werden geladen.", "loading");
   const response = await fetch(`/api/v1/workspaces/${workspaceId}/tree`, {
@@ -443,6 +546,13 @@ function markActiveWorkspace(root: HTMLElement, workspaceId: string): void {
   root.querySelectorAll<HTMLElement>(".workspace-switcher__item").forEach((item) => {
     item.classList.toggle("is-active", item.dataset.workspaceId === workspaceId);
   });
+}
+
+function readActiveWorkspaceId(root: HTMLElement): string {
+  return (
+    root.querySelector<HTMLElement>(".workspace-switcher__item.is-active")?.dataset.workspaceId ??
+    ""
+  );
 }
 
 function readChannelDataset(item: HTMLElement | null): ChannelTreeNode | null {
@@ -554,6 +664,25 @@ function setWorkspaceStatus(
 
   element.dataset.state = state;
   element.textContent = text;
+}
+
+function setInviteStatus(
+  root: HTMLElement,
+  text: string,
+  state: "error" | "loading" | "success",
+): void {
+  const element = root.querySelector<HTMLElement>("#invite-status");
+  if (!element) {
+    return;
+  }
+
+  element.dataset.state = state;
+  element.textContent = text;
+}
+
+function csrfHeader(): Record<string, string> {
+  const token = localStorage.getItem("openvoice.csrfToken");
+  return token ? { "x-openvoice-csrf-token": token } : {};
 }
 
 async function readApiError(response: Response): Promise<string> {

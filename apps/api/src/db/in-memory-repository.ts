@@ -19,6 +19,8 @@ import type {
   CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
+  CreateWorkspaceInviteInput,
+  CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
   DisconnectVoiceMemberInput,
@@ -33,6 +35,8 @@ import type {
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
+  RedeemWorkspaceInviteInput,
+  RedeemWorkspaceInviteResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -48,6 +52,7 @@ import type {
   Workspace,
   WorkspaceAccessContext,
   WorkspaceBanRecord,
+  WorkspaceInvite,
   WorkspaceMember,
   WorkspaceTimeoutRecord,
 } from "./models.js";
@@ -68,6 +73,7 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
   public readonly sessions: Session[] = [];
   public readonly users: User[] = [];
   public readonly workspaceBans: WorkspaceBanRecord[] = [];
+  public readonly workspaceInvites: WorkspaceInvite[] = [];
   public readonly voiceStates: VoiceStateRecord[] = [];
   public readonly workspaceMembers: WorkspaceMember[] = [];
   public readonly workspaces: Workspace[] = [];
@@ -252,6 +258,131 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     return { member, roles, workspace };
   }
 
+  public async createWorkspaceInvite(
+    input: CreateWorkspaceInviteInput,
+  ): Promise<CreateWorkspaceInviteResult> {
+    const now = new Date();
+    const invite: WorkspaceInvite = {
+      codeHash: input.codeHash,
+      createdAt: now,
+      createdBy: input.actorId,
+      expiresAt: input.expiresAt,
+      id: randomUUID(),
+      revokedAt: null,
+      usedCount: 0,
+      workspaceId: input.workspaceId,
+    };
+    const auditLogEntry: AuditLogEntry = {
+      actorId: input.actorId,
+      createdAt: now,
+      event: "INVITE_CREATE",
+      id: randomUUID(),
+      ipHash: getAuditIpHash(),
+      metadata: { expiresAt: input.expiresAt.toISOString() },
+      reason: null,
+      targetId: invite.id,
+      targetType: "invite",
+      workspaceId: input.workspaceId,
+    };
+
+    this.workspaceInvites.push(invite);
+    this.auditLogEntries.push(auditLogEntry);
+
+    return { auditLogEntry, invite };
+  }
+
+  public async redeemWorkspaceInvite(
+    input: RedeemWorkspaceInviteInput,
+  ): Promise<RedeemWorkspaceInviteResult | null> {
+    const invite = this.workspaceInvites.find(
+      (candidate) =>
+        candidate.codeHash === input.codeHash &&
+        candidate.revokedAt === null &&
+        candidate.expiresAt.getTime() > input.now.getTime(),
+    );
+    if (!invite) {
+      return null;
+    }
+
+    const workspace = this.workspaces.find((candidate) => candidate.id === invite.workspaceId);
+    if (!workspace) {
+      return null;
+    }
+
+    const existingMember = this.workspaceMembers.find(
+      (member) => member.workspaceId === invite.workspaceId && member.userId === input.actorId,
+    );
+    if (existingMember) {
+      return {
+        auditLogEntries: [],
+        alreadyMember: true,
+        member: existingMember,
+        role: null,
+        workspace,
+      };
+    }
+
+    const now = new Date();
+    const member: WorkspaceMember = {
+      createdAt: now,
+      id: randomUUID(),
+      userId: input.actorId,
+      workspaceId: invite.workspaceId,
+    };
+    const role = this.roles.find(
+      (candidate) => candidate.workspaceId === invite.workspaceId && candidate.key === "member",
+    );
+
+    this.workspaceMembers.push(member);
+    if (role) {
+      this.memberRoles.push({ roleId: role.id, workspaceMemberId: member.id });
+    }
+    this.workspaceInvites[this.workspaceInvites.indexOf(invite)] = {
+      ...invite,
+      usedCount: invite.usedCount + 1,
+    };
+
+    const auditLogEntries: AuditLogEntry[] = [
+      {
+        actorId: input.actorId,
+        createdAt: now,
+        event: "MEMBER_JOIN",
+        id: randomUUID(),
+        ipHash: getAuditIpHash(),
+        metadata: { inviteId: invite.id },
+        reason: null,
+        targetId: member.id,
+        targetType: "workspace_member",
+        workspaceId: invite.workspaceId,
+      },
+      ...(role
+        ? [
+            {
+              actorId: input.actorId,
+              createdAt: now,
+              event: "MEMBER_ROLE_ASSIGN",
+              id: randomUUID(),
+              ipHash: getAuditIpHash(),
+              metadata: { roleKey: role.key },
+              reason: null,
+              targetId: member.id,
+              targetType: "workspace_member",
+              workspaceId: invite.workspaceId,
+            } satisfies AuditLogEntry,
+          ]
+        : []),
+    ];
+    this.auditLogEntries.push(...auditLogEntries);
+
+    return {
+      auditLogEntries,
+      alreadyMember: false,
+      member,
+      role: role ?? null,
+      workspace,
+    };
+  }
+
   public async findWorkspaceMember(
     workspaceId: string,
     userId: string,
@@ -270,6 +401,20 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
     return (
       this.workspaceBans.find(
         (ban) => ban.workspaceId === workspaceId && ban.userId === userId && ban.revokedAt === null,
+      ) ?? null
+    );
+  }
+
+  public async findActiveWorkspaceInvite(
+    codeHash: string,
+    now: Date,
+  ): Promise<WorkspaceInvite | null> {
+    return (
+      this.workspaceInvites.find(
+        (invite) =>
+          invite.codeHash === codeHash &&
+          invite.revokedAt === null &&
+          invite.expiresAt.getTime() > now.getTime(),
       ) ?? null
     );
   }

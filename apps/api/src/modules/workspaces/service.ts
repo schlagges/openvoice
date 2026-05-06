@@ -1,11 +1,16 @@
+import { createHash, randomBytes } from "node:crypto";
+
 import {
   DEFAULT_ROLE_DEFINITIONS,
+  hasPermission,
+  Permission,
   ServerGatewayEventType,
   serializePermissionMask,
 } from "@openvoice/shared";
 
-import type { CreateWorkspaceResult, Role, Workspace } from "../../db/models.js";
+import type { CreateWorkspaceResult, Role, Workspace, WorkspaceMember } from "../../db/models.js";
 import type { OpenVoiceRepository } from "../../db/repository.js";
+import { forbidden, notFound } from "../../http/errors.js";
 import type { GatewayEventPublisher } from "../gateway/events.js";
 
 export interface WorkspaceServiceOptions {
@@ -29,10 +34,30 @@ export interface WorkspaceCreationResponse {
   readonly workspace: PublicWorkspace;
 }
 
+export interface WorkspaceInviteResponse {
+  readonly code: string;
+  readonly expiresAt: string;
+  readonly inviteId: string;
+  readonly workspaceId: string;
+}
+
+export interface WorkspaceInviteJoinResponse {
+  readonly alreadyMember: boolean;
+  readonly member: PublicWorkspaceMember;
+  readonly role: PublicRole | null;
+  readonly workspace: PublicWorkspace;
+}
+
 export interface PublicWorkspace {
   readonly id: string;
   readonly name: string;
   readonly ownerId: string;
+}
+
+export interface PublicWorkspaceMember {
+  readonly id: string;
+  readonly userId: string;
+  readonly workspaceId: string;
 }
 
 export class WorkspaceService {
@@ -63,6 +88,91 @@ export class WorkspaceService {
     const workspaces = await this.repository.listWorkspacesForUser(userId);
     return workspaces.map(toPublicWorkspace);
   }
+
+  public async createInvite(input: {
+    readonly actorId: string;
+    readonly workspaceId: string;
+  }): Promise<WorkspaceInviteResponse> {
+    const access = await this.repository.findWorkspaceAccessContext(
+      input.workspaceId,
+      input.actorId,
+    );
+    if (!access) {
+      throw forbidden("Workspace access required.");
+    }
+    const activeBan = await this.repository.findActiveWorkspaceBan(
+      input.workspaceId,
+      input.actorId,
+    );
+    if (activeBan) {
+      throw forbidden("Workspace access is blocked by an active ban.");
+    }
+    if (
+      !hasPermission(
+        {
+          rolePermissions: access.roles.map((role) => role.permissions),
+          userId: input.actorId,
+          workspaceOwnerId: access.workspace.ownerId,
+        },
+        Permission.MANAGE_INVITES,
+      )
+    ) {
+      throw forbidden("Missing required workspace permission.", {
+        permission: Permission.MANAGE_INVITES.toString(10),
+      });
+    }
+
+    const code = createInviteCode();
+    const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
+    const { invite } = await this.repository.createWorkspaceInvite({
+      actorId: input.actorId,
+      codeHash: hashInviteCode(code),
+      expiresAt,
+      workspaceId: input.workspaceId,
+    });
+
+    return {
+      code,
+      expiresAt: invite.expiresAt.toISOString(),
+      inviteId: invite.id,
+      workspaceId: invite.workspaceId,
+    };
+  }
+
+  public async joinByInvite(input: {
+    readonly code: string;
+    readonly userId: string;
+  }): Promise<WorkspaceInviteJoinResponse> {
+    const codeHash = hashInviteCode(input.code);
+    const now = new Date();
+    const invite = await this.repository.findActiveWorkspaceInvite(codeHash, now);
+    if (!invite) {
+      throw notFound("Invite not found or expired.");
+    }
+    const activeBan = await this.repository.findActiveWorkspaceBan(
+      invite.workspaceId,
+      input.userId,
+    );
+    if (activeBan) {
+      throw forbidden("Workspace access is blocked by an active ban.");
+    }
+
+    const result = await this.repository.redeemWorkspaceInvite({
+      actorId: input.userId,
+      codeHash,
+      now,
+    });
+    if (!result) {
+      throw notFound("Invite not found or expired.");
+    }
+
+    return {
+      alreadyMember: result.alreadyMember,
+      member: toPublicWorkspaceMember(result.member),
+      role: result.role ? toPublicRole(result.role) : null,
+      workspace: toPublicWorkspace(result.workspace),
+    };
+  }
 }
 
 export function toWorkspaceCreationResponse(
@@ -84,6 +194,14 @@ export function toPublicWorkspace(workspace: Workspace): PublicWorkspace {
   };
 }
 
+export function toPublicWorkspaceMember(member: WorkspaceMember): PublicWorkspaceMember {
+  return {
+    id: member.id,
+    userId: member.userId,
+    workspaceId: member.workspaceId,
+  };
+}
+
 export function toPublicRole(role: Role): PublicRole {
   return {
     id: role.id,
@@ -93,6 +211,14 @@ export function toPublicRole(role: Role): PublicRole {
     permissions: serializePermissionMask(role.permissions),
     position: role.position,
   };
+}
+
+function createInviteCode(): string {
+  return randomBytes(18).toString("base64url");
+}
+
+function hashInviteCode(code: string): string {
+  return createHash("sha256").update(code, "utf8").digest("hex");
 }
 
 export function assertDefaultRolesCreated(roles: readonly Role[]): void {

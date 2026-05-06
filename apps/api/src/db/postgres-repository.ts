@@ -23,6 +23,8 @@ import type {
   CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
+  CreateWorkspaceInviteInput,
+  CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
   DisconnectVoiceMemberInput,
@@ -37,6 +39,8 @@ import type {
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
+  RedeemWorkspaceInviteInput,
+  RedeemWorkspaceInviteResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -52,6 +56,7 @@ import type {
   Workspace,
   WorkspaceAccessContext,
   WorkspaceBanRecord,
+  WorkspaceInvite,
   WorkspaceMember,
   WorkspaceTimeoutRecord,
 } from "./models.js";
@@ -205,6 +210,150 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     }
   }
 
+  public async createWorkspaceInvite(
+    input: CreateWorkspaceInviteInput,
+  ): Promise<CreateWorkspaceInviteResult> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      const inviteResult = await client.query<WorkspaceInviteRow>(
+        `INSERT INTO invites (id, workspace_id, code_hash, created_by, expires_at, revoked_at, used_count, created_at)
+         VALUES ($1, $2, $3, $4, $5, null, 0, now())
+         RETURNING *`,
+        [randomUUID(), input.workspaceId, input.codeHash, input.actorId, input.expiresAt],
+      );
+      const invite = mapWorkspaceInvite(inviteResult.rows[0]);
+      const auditLogEntry = await insertAuditLog(client, {
+        actorId: input.actorId,
+        event: "INVITE_CREATE",
+        metadata: { expiresAt: invite.expiresAt.toISOString() },
+        targetId: invite.id,
+        targetType: "invite",
+        workspaceId: input.workspaceId,
+      });
+      await client.query("COMMIT");
+
+      return { auditLogEntry, invite };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  public async redeemWorkspaceInvite(
+    input: RedeemWorkspaceInviteInput,
+  ): Promise<RedeemWorkspaceInviteResult | null> {
+    const client = await this.pool.connect();
+
+    try {
+      await client.query("BEGIN");
+      const inviteResult = await client.query<WorkspaceInviteRow>(
+        `SELECT *
+         FROM invites
+         WHERE code_hash = $1
+           AND revoked_at IS NULL
+           AND expires_at > $2
+         FOR UPDATE`,
+        [input.codeHash, input.now],
+      );
+      const invite = inviteResult.rows[0] ? mapWorkspaceInvite(inviteResult.rows[0]) : null;
+      if (!invite) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+
+      const workspaceResult = await client.query<WorkspaceRow>(
+        "SELECT * FROM workspaces WHERE id = $1",
+        [invite.workspaceId],
+      );
+      const workspace = workspaceResult.rows[0] ? mapWorkspace(workspaceResult.rows[0]) : null;
+      if (!workspace) {
+        await client.query("ROLLBACK");
+        return null;
+      }
+
+      const existingMemberResult = await client.query<WorkspaceMemberRow>(
+        "SELECT * FROM workspace_members WHERE workspace_id = $1 AND user_id = $2",
+        [invite.workspaceId, input.actorId],
+      );
+      if (existingMemberResult.rows[0]) {
+        await client.query("COMMIT");
+        return {
+          auditLogEntries: [],
+          alreadyMember: true,
+          member: mapWorkspaceMember(existingMemberResult.rows[0]),
+          role: null,
+          workspace,
+        };
+      }
+
+      const memberResult = await client.query<WorkspaceMemberRow>(
+        `INSERT INTO workspace_members (id, workspace_id, user_id, created_at)
+         VALUES ($1, $2, $3, now())
+         RETURNING *`,
+        [randomUUID(), invite.workspaceId, input.actorId],
+      );
+      const member = mapWorkspaceMember(memberResult.rows[0]);
+      const roleResult = await client.query<RoleRow>(
+        "SELECT * FROM roles WHERE workspace_id = $1 AND key = 'member'",
+        [invite.workspaceId],
+      );
+      const role = roleResult.rows[0] ? mapRole(roleResult.rows[0]) : null;
+      if (role) {
+        await client.query(
+          `INSERT INTO member_roles (workspace_member_id, role_id, created_at)
+           VALUES ($1, $2, now())`,
+          [member.id, role.id],
+        );
+      }
+
+      await client.query("UPDATE invites SET used_count = used_count + 1 WHERE id = $1", [
+        invite.id,
+      ]);
+
+      const auditLogEntries = [
+        await insertAuditLog(client, {
+          actorId: input.actorId,
+          event: "MEMBER_JOIN",
+          metadata: { inviteId: invite.id },
+          targetId: member.id,
+          targetType: "workspace_member",
+          workspaceId: invite.workspaceId,
+        }),
+        ...(role
+          ? [
+              await insertAuditLog(client, {
+                actorId: input.actorId,
+                event: "MEMBER_ROLE_ASSIGN",
+                metadata: { roleKey: role.key },
+                targetId: member.id,
+                targetType: "workspace_member",
+                workspaceId: invite.workspaceId,
+              }),
+            ]
+          : []),
+      ];
+
+      await client.query("COMMIT");
+
+      return {
+        auditLogEntries,
+        alreadyMember: false,
+        member,
+        role,
+        workspace,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   public async findWorkspaceAccessContext(
     workspaceId: string,
     userId: string,
@@ -285,6 +434,22 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     );
 
     return result.rows[0] ? mapWorkspaceBan(result.rows[0]) : null;
+  }
+
+  public async findActiveWorkspaceInvite(
+    codeHash: string,
+    now: Date,
+  ): Promise<WorkspaceInvite | null> {
+    const result = await this.pool.query<WorkspaceInviteRow>(
+      `SELECT *
+       FROM invites
+       WHERE code_hash = $1
+         AND revoked_at IS NULL
+         AND expires_at > $2`,
+      [codeHash, now],
+    );
+
+    return result.rows[0] ? mapWorkspaceInvite(result.rows[0]) : null;
   }
 
   public async findActiveWorkspaceTimeout(
@@ -1305,6 +1470,17 @@ interface WorkspaceMemberRow extends QueryResultRow {
   readonly workspace_id: string;
 }
 
+interface WorkspaceInviteRow extends QueryResultRow {
+  readonly code_hash: string;
+  readonly created_at: Date;
+  readonly created_by: string;
+  readonly expires_at: Date;
+  readonly id: string;
+  readonly revoked_at: Date | null;
+  readonly used_count: number;
+  readonly workspace_id: string;
+}
+
 interface RoleRow extends QueryResultRow {
   readonly created_at: Date;
   readonly id: string;
@@ -1540,6 +1716,23 @@ function mapWorkspaceMember(row: WorkspaceMemberRow | undefined): WorkspaceMembe
     createdAt: row.created_at,
     id: row.id,
     userId: row.user_id,
+    workspaceId: row.workspace_id,
+  };
+}
+
+function mapWorkspaceInvite(row: WorkspaceInviteRow | undefined): WorkspaceInvite {
+  if (!row) {
+    throw new Error("Expected workspace invite row.");
+  }
+
+  return {
+    codeHash: row.code_hash,
+    createdAt: row.created_at,
+    createdBy: row.created_by,
+    expiresAt: row.expires_at,
+    id: row.id,
+    revokedAt: row.revoked_at,
+    usedCount: row.used_count,
     workspaceId: row.workspace_id,
   };
 }

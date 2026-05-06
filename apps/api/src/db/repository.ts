@@ -8,6 +8,8 @@ import type {
   CreateMessageResult,
   CreateSessionInput,
   CreateUserInput,
+  CreateWorkspaceInviteInput,
+  CreateWorkspaceInviteResult,
   CreateWorkspaceInput,
   CreateWorkspaceResult,
   DisconnectVoiceMemberInput,
@@ -22,6 +24,8 @@ import type {
   PermissionOverrideRecord,
   PermissionOverrideTargetType,
   ReorderChannelInput,
+  RedeemWorkspaceInviteInput,
+  RedeemWorkspaceInviteResult,
   Role,
   SetVoiceModerationInput,
   Session,
@@ -36,6 +40,7 @@ import type {
   VoiceStateRecord,
   Workspace,
   WorkspaceBanRecord,
+  WorkspaceInvite,
   WorkspaceMember,
   WorkspaceTimeoutRecord,
   WorkspaceAccessContext,
@@ -47,6 +52,10 @@ export interface OpenVoiceRepository {
   createSession(input: CreateSessionInput): Promise<Session>;
   createUser(input: CreateUserInput): Promise<User>;
   createWorkspaceWithDefaults(input: CreateWorkspaceInput): Promise<CreateWorkspaceResult>;
+  createWorkspaceInvite(input: CreateWorkspaceInviteInput): Promise<CreateWorkspaceInviteResult>;
+  redeemWorkspaceInvite(
+    input: RedeemWorkspaceInviteInput,
+  ): Promise<RedeemWorkspaceInviteResult | null>;
   banWorkspaceMember(input: BanWorkspaceMemberInput): Promise<BanWorkspaceMemberResult>;
   deletePermissionOverride(
     channelId: string,
@@ -61,6 +70,7 @@ export interface OpenVoiceRepository {
   findUserByEmailNormalized(emailNormalized: string): Promise<User | null>;
   findUserById(userId: string): Promise<User | null>;
   findActiveWorkspaceBan(workspaceId: string, userId: string): Promise<WorkspaceBanRecord | null>;
+  findActiveWorkspaceInvite(codeHash: string, now: Date): Promise<WorkspaceInvite | null>;
   findActiveWorkspaceTimeout(
     workspaceId: string,
     userId: string,

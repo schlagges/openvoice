@@ -63,6 +63,8 @@ describe("web foundation", () => {
     expect(html).toContain("Team Voice");
     expect(html).toContain("is-active");
     expect(html).toContain("Zeigt nur Workspaces");
+    expect(html).toContain("Invite erstellen");
+    expect(html).toContain("Invite beitreten");
   });
 
   it("renders a UI quick start flow without console use", () => {
