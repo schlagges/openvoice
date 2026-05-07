@@ -328,6 +328,18 @@ OPENVOICE_API_IMAGE=openvoice-api:0.1.0-rc1
 OPENVOICE_WEB_IMAGE=openvoice-web:0.1.0-rc1
 ```
 
+Wichtige `.env`-Datenbankwerte:
+
+```dotenv
+POSTGRES_DB=openvoice
+POSTGRES_USER=openvoice
+POSTGRES_PASSWORD=<secret>
+DATABASE_URL=postgres://openvoice:<url-encoded-secret>@postgres:5432/openvoice
+```
+
+`DATABASE_URL` wird im Produktions-Compose direkt verwendet. Wenn das Passwort Sonderzeichen wie
+`@`, `:`, `/`, `?`, `#`, `&` oder `%` enthaelt, muss der Passwortteil URL-encodiert werden.
+
 Der Web-Container setzt keine vorgeschaltete HTTP Basic Auth mehr. Zugriffsschutz erfolgt ueber
 Keycloak SSO im Realm `schnick-schnack`; OpenVoice akzeptiert nur Tokens mit der Client-Rolle
 `openvoice:user`.
