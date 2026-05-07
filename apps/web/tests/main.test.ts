@@ -111,11 +111,11 @@ describe("web foundation", () => {
     expect(html).toContain("18 Löcher");
     expect(html).not.toContain("Team Voice");
     expect(html).toContain("is-active");
-    expect(html).toContain("Server, Mitglieder und Einladungen");
     expect(html).toContain("3 Mitglieder");
     expect(html).toContain("Global");
     expect(html).toContain("Keycloak");
     expect(html).toContain("workspace-switcher__item--global");
+    expect(html).not.toContain("<h2>Workspaces</h2>");
     expect(html).not.toContain("data-open-onboarding");
     expect(html).not.toContain("workspace-refresh");
     expect(html).not.toContain("Invite erstellen");
@@ -144,7 +144,24 @@ describe("web foundation", () => {
 
     expect(html.indexOf("18 Löcher")).toBeLessThan(html.indexOf("18 Löcher2"));
     expect(html).toContain("workspace-switcher__item--private");
-    expect(html).toContain("Neuer Workspace");
+    expect(html).not.toContain("Eigenen Raum erstellen");
+  });
+
+  it("renders a create button when only the global workspace is visible", () => {
+    const html = renderWorkspaceSwitcher(
+      [
+        {
+          accessMode: "global_authenticated",
+          id: "global-workspace",
+          memberCount: 2,
+          name: "Public Voice",
+          ownerId: "owner-user-id",
+        },
+      ],
+      "global-workspace",
+    );
+
+    expect(html).toContain("Eigenen Raum erstellen");
   });
 
   it("renders the empty workspace start card as the primary entry point", () => {
@@ -182,8 +199,10 @@ describe("web foundation", () => {
 
     expect(html).toContain("Personen einladen");
     expect(html).toContain("Invite-Link kopieren");
+    expect(html).toContain("Keycloak-User suchen");
     expect(html).toContain('id="invite-dialog"');
     expect(html).toContain('id="invite-link"');
+    expect(html).toContain('id="invite-user-results"');
   });
 
   it("renders voice controls without a separate join button", () => {

@@ -59,6 +59,13 @@ export interface WorkspaceMember {
   readonly workspaceId: string;
 }
 
+export interface WorkspaceMemberWithUser extends WorkspaceMember {
+  readonly userDisplayName: string;
+  readonly userEmail: string;
+  readonly userKind: UserKind;
+  readonly userKeycloakSubject: string | null;
+}
+
 export interface WorkspaceInvite {
   readonly codeHash: string;
   readonly createdAt: Date;

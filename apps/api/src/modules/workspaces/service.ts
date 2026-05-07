@@ -14,17 +14,23 @@ import type {
   Workspace,
   WorkspaceAccessMode,
   WorkspaceMember,
+  WorkspaceMemberWithUser,
   WorkspaceWithMemberCount,
   User,
 } from "../../db/models.js";
 import type { OpenVoiceRepository } from "../../db/repository.js";
 import { conflict, forbidden, notFound } from "../../http/errors.js";
 import type { GatewayEventPublisher } from "../gateway/events.js";
+import type { KeycloakDirectory, KeycloakDirectoryUser } from "./keycloak-directory.js";
+import type { SlackInviteNotifier } from "./slack.js";
 
 export interface WorkspaceServiceOptions {
+  readonly appPublicUrl?: string;
   readonly eventPublisher?: GatewayEventPublisher;
   readonly inviteTtlSeconds?: number;
+  readonly keycloakDirectory?: KeycloakDirectory;
   readonly repository: OpenVoiceRepository;
+  readonly slackInviteNotifier?: SlackInviteNotifier;
 }
 
 export interface PublicRole {
@@ -48,6 +54,11 @@ export interface WorkspaceInviteResponse {
   readonly expiresAt: string;
   readonly inviteId: string;
   readonly workspaceId: string;
+}
+
+export interface WorkspaceKeycloakInviteResponse extends WorkspaceInviteResponse {
+  readonly recipient: PublicKeycloakDirectoryUser;
+  readonly slackDelivered: boolean;
 }
 
 export interface WorkspaceInviteJoinResponse {
@@ -74,20 +85,36 @@ export interface PublicWorkspace {
 }
 
 export interface PublicWorkspaceMember {
+  readonly displayName?: string;
   readonly id: string;
+  readonly kind?: "guest" | "registered";
+  readonly keycloakLinked?: boolean;
   readonly userId: string;
   readonly workspaceId: string;
 }
 
+export interface PublicKeycloakDirectoryUser {
+  readonly displayName: string;
+  readonly email: string;
+  readonly id: string;
+  readonly username: string;
+}
+
 export class WorkspaceService {
+  private readonly appPublicUrl: string;
   private readonly eventPublisher: GatewayEventPublisher | null;
   private readonly inviteTtlSeconds: number;
+  private readonly keycloakDirectory: KeycloakDirectory | null;
   private readonly repository: OpenVoiceRepository;
+  private readonly slackInviteNotifier: SlackInviteNotifier | null;
 
   public constructor(options: WorkspaceServiceOptions) {
+    this.appPublicUrl = options.appPublicUrl ?? "http://localhost:5173";
     this.eventPublisher = options.eventPublisher ?? null;
     this.inviteTtlSeconds = options.inviteTtlSeconds ?? 60 * 5;
+    this.keycloakDirectory = options.keycloakDirectory ?? null;
     this.repository = options.repository;
+    this.slackInviteNotifier = options.slackInviteNotifier ?? null;
   }
 
   public async createWorkspace(input: {
@@ -114,7 +141,40 @@ export class WorkspaceService {
 
   public async listWorkspacesForUser(userId: string): Promise<readonly PublicWorkspace[]> {
     const workspaces = await this.repository.listWorkspacesForUser(userId);
-    return workspaces.map(toPublicWorkspaceWithMemberCount);
+    return sortPublicWorkspaces(workspaces.map(toPublicWorkspaceWithMemberCount));
+  }
+
+  public async listMembers(input: {
+    readonly actorId: string;
+    readonly workspaceId: string;
+  }): Promise<readonly PublicWorkspaceMember[]> {
+    const access = await this.repository.findWorkspaceAccessContext(
+      input.workspaceId,
+      input.actorId,
+    );
+    if (!access) {
+      throw forbidden("Workspace access required.");
+    }
+
+    const members = await this.repository.listWorkspaceMembers(input.workspaceId);
+    return members.map(toPublicWorkspaceMemberWithUser);
+  }
+
+  public async searchKeycloakUsers(input: {
+    readonly actorId: string;
+    readonly query: string;
+  }): Promise<readonly PublicKeycloakDirectoryUser[]> {
+    const actor = await this.repository.findUserById(input.actorId);
+    if (!actor || actor.kind !== "registered" || !actor.keycloakSubject) {
+      throw forbidden("Keycloak login required for user search.");
+    }
+    if (!this.keycloakDirectory) {
+      throw forbidden("Keycloak directory search is not configured.");
+    }
+
+    return (await this.keycloakDirectory.searchUsers(input.query)).map(
+      toPublicKeycloakDirectoryUser,
+    );
   }
 
   public async joinGlobalWorkspacesForUser(userId: string): Promise<readonly PublicWorkspace[]> {
@@ -225,6 +285,40 @@ export class WorkspaceService {
       expiresAt: invite.expiresAt.toISOString(),
       inviteId: invite.id,
       workspaceId: invite.workspaceId,
+    };
+  }
+
+  public async createKeycloakInvite(input: {
+    readonly actorId: string;
+    readonly recipient: KeycloakDirectoryUser;
+    readonly workspaceId: string;
+  }): Promise<WorkspaceKeycloakInviteResponse> {
+    const invite = await this.createInvite({
+      actorId: input.actorId,
+      workspaceId: input.workspaceId,
+    });
+    const workspace = await this.repository.findWorkspaceAccessContext(
+      input.workspaceId,
+      input.actorId,
+    );
+    if (!workspace) {
+      throw forbidden("Workspace access required.");
+    }
+    if (!this.slackInviteNotifier) {
+      throw forbidden("Slack invite delivery is not configured.");
+    }
+
+    await this.slackInviteNotifier.sendInvite({
+      inviteUrl: createInviteUrl(this.appPublicUrl, invite.code),
+      recipientEmail: input.recipient.email,
+      recipientName: input.recipient.displayName,
+      workspaceName: workspace.workspace.name,
+    });
+
+    return {
+      ...invite,
+      recipient: toPublicKeycloakDirectoryUser(input.recipient),
+      slackDelivered: true,
     };
   }
 
@@ -351,6 +445,24 @@ export function toPublicWorkspaceMember(member: WorkspaceMember): PublicWorkspac
   };
 }
 
+function toPublicWorkspaceMemberWithUser(member: WorkspaceMemberWithUser): PublicWorkspaceMember {
+  return {
+    ...toPublicWorkspaceMember(member),
+    displayName: member.userDisplayName,
+    keycloakLinked: Boolean(member.userKeycloakSubject),
+    kind: member.userKind,
+  };
+}
+
+function toPublicKeycloakDirectoryUser(user: KeycloakDirectoryUser): PublicKeycloakDirectoryUser {
+  return {
+    displayName: user.displayName,
+    email: user.email,
+    id: user.id,
+    username: user.username,
+  };
+}
+
 export function toPublicRole(role: Role): PublicRole {
   return {
     id: role.id,
@@ -372,6 +484,22 @@ function hashInviteCode(code: string): string {
 
 function normalizeWorkspaceName(name: string): string {
   return name.trim().toLowerCase();
+}
+
+function sortPublicWorkspaces(workspaces: readonly PublicWorkspace[]): readonly PublicWorkspace[] {
+  return [...workspaces].sort((left, right) => {
+    if (left.accessMode !== right.accessMode) {
+      return left.accessMode === "global_authenticated" ? -1 : 1;
+    }
+
+    return left.name.localeCompare(right.name, "de");
+  });
+}
+
+function createInviteUrl(appPublicUrl: string, code: string): string {
+  const url = new URL(appPublicUrl);
+  url.searchParams.set("invite", code);
+  return url.toString();
 }
 
 export function assertDefaultRolesCreated(roles: readonly Role[]): void {

@@ -45,6 +45,7 @@ import type {
   WorkspaceBanRecord,
   WorkspaceInvite,
   WorkspaceMember,
+  WorkspaceMemberWithUser,
   WorkspaceTimeoutRecord,
   WorkspaceAccessContext,
 } from "./models.js";
@@ -96,6 +97,7 @@ export interface OpenVoiceRepository {
     channelIds: readonly string[],
   ): Promise<readonly PermissionOverrideRecord[]>;
   listGlobalWorkspaces(): Promise<readonly WorkspaceWithMemberCount[]>;
+  listWorkspaceMembers(workspaceId: string): Promise<readonly WorkspaceMemberWithUser[]>;
   findVoiceState(workspaceId: string, userId: string): Promise<VoiceStateRecord | null>;
   findVoiceStateByUserId(userId: string): Promise<VoiceStateRecord | null>;
   listVoiceStatesForChannel(channelId: string): Promise<readonly VoiceStateRecord[]>;

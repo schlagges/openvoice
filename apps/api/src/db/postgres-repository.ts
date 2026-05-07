@@ -60,6 +60,7 @@ import type {
   WorkspaceBanRecord,
   WorkspaceInvite,
   WorkspaceMember,
+  WorkspaceMemberWithUser,
   WorkspaceWithMemberCount,
   WorkspaceTimeoutRecord,
 } from "./models.js";
@@ -650,6 +651,38 @@ export class PostgresOpenVoiceRepository implements OpenVoiceRepository {
     return result.rows.map((row) => ({
       ...mapWorkspace(row),
       memberCount: Number(row.member_count),
+    }));
+  }
+
+  public async listWorkspaceMembers(
+    workspaceId: string,
+  ): Promise<readonly WorkspaceMemberWithUser[]> {
+    const result = await this.pool.query<
+      WorkspaceMemberRow & {
+        readonly user_display_name: string;
+        readonly user_email: string;
+        readonly user_keycloak_subject: string | null;
+        readonly user_kind: string;
+      }
+    >(
+      `SELECT wm.*,
+              u.display_name AS user_display_name,
+              u.email AS user_email,
+              u.kind AS user_kind,
+              u.keycloak_subject AS user_keycloak_subject
+       FROM workspace_members wm
+       JOIN users u ON u.id = wm.user_id
+       WHERE wm.workspace_id = $1
+       ORDER BY wm.created_at ASC`,
+      [workspaceId],
+    );
+
+    return result.rows.map((row) => ({
+      ...mapWorkspaceMember(row),
+      userDisplayName: row.user_display_name,
+      userEmail: row.user_email,
+      userKeycloakSubject: row.user_keycloak_subject,
+      userKind: row.user_kind === "guest" ? "guest" : "registered",
     }));
   }
 

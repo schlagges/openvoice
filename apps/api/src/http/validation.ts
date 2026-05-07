@@ -41,6 +41,13 @@ export interface JoinWorkspaceInviteRequestBody {
   readonly code: string;
 }
 
+export interface CreateKeycloakWorkspaceInviteRequestBody {
+  readonly displayName: string;
+  readonly email: string;
+  readonly id: string;
+  readonly username: string;
+}
+
 export interface CreateChannelRequestBody {
   readonly name: string;
   readonly parentId?: string | null;
@@ -181,6 +188,30 @@ export function parseJoinWorkspaceInviteRequest(
   }
 
   return { code };
+}
+
+export function parseCreateKeycloakWorkspaceInviteRequest(
+  body: Record<string, unknown>,
+): CreateKeycloakWorkspaceInviteRequestBody {
+  return {
+    displayName: parseDisplayName(body.displayName, "displayName"),
+    email: parseEmail(body.email),
+    id: parseNonEmptyString(body.id, "id").trim(),
+    username: parseNonEmptyString(body.username, "username").trim(),
+  };
+}
+
+export function parseKeycloakUserSearchQuery(searchParams: URLSearchParams): string {
+  const query = searchParams.get("q") ?? "";
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    throw badRequest("q must contain at least 2 characters.", { field: "q" });
+  }
+  if (trimmed.length > 80) {
+    throw badRequest("q must be at most 80 characters.", { field: "q" });
+  }
+
+  return trimmed;
 }
 
 export function parseGuestJoinWorkspaceInviteRequest(body: Record<string, unknown>): {

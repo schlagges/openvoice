@@ -29,10 +29,12 @@ import {
 } from "./security.js";
 import {
   parseCreateChannelRequest,
+  parseCreateKeycloakWorkspaceInviteRequest,
   parseCreateMessageRequest,
   parseCreateWorkspaceRequest,
   parseGuestJoinWorkspaceInviteRequest,
   parseJoinWorkspaceInviteRequest,
+  parseKeycloakUserSearchQuery,
   parseListAuditLogQuery,
   parseListMessagesQuery,
   parseLoginRequest,
@@ -452,6 +454,17 @@ async function routeRequest(
     return jsonResponse(result, 200, requestId);
   }
 
+  if (url.pathname === "/api/v1/keycloak/users/search") {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    const users = await options.workspaceService.searchKeycloakUsers({
+      actorId: authenticated.userId,
+      query: parseKeycloakUserSearchQuery(url.searchParams),
+    });
+
+    return jsonResponse({ users }, 200, requestId);
+  }
+
   const guestInviteJoinMatch = matchPath(url.pathname, /^\/api\/v1\/invites\/([^/]+)\/guest-join$/);
   if (guestInviteJoinMatch) {
     assertMethod(request, "POST");
@@ -496,6 +509,46 @@ async function routeRequest(
     });
 
     return jsonResponse(result, 201, requestId);
+  }
+
+  const workspaceKeycloakInvitesMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/invites\/keycloak$/,
+  );
+  if (workspaceKeycloakInvitesMatch) {
+    assertMethod(request, "POST");
+    const authenticated = await authenticateRequest(request, options);
+    assertCsrf(request, authenticated, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(workspaceKeycloakInvitesMatch, 0),
+      "workspaceId",
+    );
+    const result = await options.workspaceService.createKeycloakInvite({
+      actorId: authenticated.userId,
+      recipient: parseCreateKeycloakWorkspaceInviteRequest(await readJsonObject(request)),
+      workspaceId,
+    });
+
+    return jsonResponse(result, 201, requestId);
+  }
+
+  const workspaceMembersMatch = matchPath(
+    url.pathname,
+    /^\/api\/v1\/workspaces\/([^/]+)\/members$/,
+  );
+  if (workspaceMembersMatch) {
+    assertMethod(request, "GET");
+    const authenticated = await authenticateRequest(request, options);
+    const workspaceId = parseUuidPathParameter(
+      requirePathPart(workspaceMembersMatch, 0),
+      "workspaceId",
+    );
+    const members = await options.workspaceService.listMembers({
+      actorId: authenticated.userId,
+      workspaceId,
+    });
+
+    return jsonResponse({ members }, 200, requestId);
   }
 
   const workspaceChannelsMatch = matchPath(

@@ -1,6 +1,7 @@
 export interface ApiConfig {
   readonly auditIpHashSecret: string;
   readonly apiPort: number;
+  readonly appPublicUrl: string;
   readonly corsAllowedOrigins: readonly string[];
   readonly csrfSecret: string;
   readonly databaseUrl: string;
@@ -20,6 +21,11 @@ export interface ApiConfig {
   readonly oidcIssuerUrl: string;
   readonly oidcRequiredClientRole: string;
   readonly inviteTtlSeconds: number;
+  readonly keycloakAdminBaseUrl: string;
+  readonly keycloakAdminClientId: string;
+  readonly keycloakAdminClientSecret: string;
+  readonly keycloakAdminEnabled: boolean;
+  readonly keycloakAdminRealm: string;
   readonly passwordPepper: string;
   readonly rateLimitsEnabled: boolean;
   readonly redisUrl: string;
@@ -27,6 +33,8 @@ export interface ApiConfig {
   readonly sessionCookieSecure: boolean;
   readonly sessionSecret: string;
   readonly sessionTtlSeconds: number;
+  readonly slackBotToken: string;
+  readonly slackInvitesEnabled: boolean;
   readonly turnRealm: string;
   readonly turnPort: number;
   readonly turnSharedSecret: string;
@@ -39,6 +47,7 @@ export interface ApiConfig {
 export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
   return {
     apiPort: readInteger(env.API_PORT, 3000),
+    appPublicUrl: env.APP_PUBLIC_URL ?? "http://localhost:5173",
     auditIpHashSecret: readRequired(env.AUDIT_IP_HASH_SECRET, "AUDIT_IP_HASH_SECRET"),
     corsAllowedOrigins: readAllowedOrigins(env),
     csrfSecret: readRequired(env.CSRF_SECRET, "CSRF_SECRET"),
@@ -66,6 +75,14 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
       "https://auth.schnick-schnack.info/realms/schnick-schnack",
     oidcRequiredClientRole: env.OIDC_REQUIRED_CLIENT_ROLE ?? "user",
     inviteTtlSeconds: readInteger(env.INVITE_TTL_SECONDS, 60 * 5),
+    keycloakAdminBaseUrl:
+      env.KEYCLOAK_ADMIN_BASE_URL ??
+      new URL(env.OIDC_ISSUER ?? env.OIDC_ISSUER_URL ?? "https://auth.schnick-schnack.info").origin,
+    keycloakAdminClientId: env.KEYCLOAK_ADMIN_CLIENT_ID ?? "openvoice-admin",
+    keycloakAdminClientSecret: env.KEYCLOAK_ADMIN_CLIENT_SECRET ?? "",
+    keycloakAdminEnabled: readBoolean(env.KEYCLOAK_ADMIN_ENABLED, false),
+    keycloakAdminRealm:
+      env.KEYCLOAK_ADMIN_REALM ?? realmFromIssuer(env.OIDC_ISSUER_URL ?? env.OIDC_ISSUER),
     passwordPepper: readRequired(env.PASSWORD_PEPPER, "PASSWORD_PEPPER"),
     rateLimitsEnabled: readBoolean(env.RATE_LIMITS_ENABLED, true),
     redisUrl: env.REDIS_URL ?? "redis://localhost:6379",
@@ -73,6 +90,8 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     sessionCookieSecure: readBoolean(env.SESSION_COOKIE_SECURE, env.NODE_ENV === "production"),
     sessionSecret: readRequired(env.SESSION_SECRET, "SESSION_SECRET"),
     sessionTtlSeconds: readInteger(env.SESSION_TTL_SECONDS, 60 * 60 * 24 * 30),
+    slackBotToken: env.SLACK_BOT_TOKEN ?? "",
+    slackInvitesEnabled: readBoolean(env.SLACK_INVITES_ENABLED, false),
     turnRealm: readRequired(env.TURN_REALM, "TURN_REALM"),
     turnPort: readInteger(env.TURN_PORT, 3478),
     turnSharedSecret: readRequired(env.TURN_SHARED_SECRET, "TURN_SHARED_SECRET"),
@@ -81,6 +100,18 @@ export function readApiConfig(env: NodeJS.ProcessEnv = process.env): ApiConfig {
     turnUrl: readRequired(env.TURN_URL, "TURN_URL"),
     trustedProxyIps: readList(env.TRUSTED_PROXY_IPS),
   };
+}
+
+function realmFromIssuer(value: string | undefined): string {
+  if (!value) {
+    return "schnick-schnack";
+  }
+
+  const marker = "/realms/";
+  const index = value.indexOf(marker);
+  return index === -1
+    ? "schnick-schnack"
+    : (value.slice(index + marker.length).split("/")[0] ?? "schnick-schnack");
 }
 
 function readAllowedOrigins(env: NodeJS.ProcessEnv): readonly string[] {

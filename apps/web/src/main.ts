@@ -124,6 +124,11 @@ export function renderInviteDialog(): string {
       </header>
       <div class="invite-result">
         <label>
+          <span>Keycloak-User suchen</span>
+          <input id="invite-user-search" name="userSearch" autocomplete="off" placeholder="Username oder E-Mail" />
+        </label>
+        <div id="invite-user-results" class="invite-user-results" aria-live="polite"></div>
+        <label>
           <span>Invite-Code</span>
           <input id="invite-code" name="code" autocomplete="off" readonly />
         </label>
@@ -244,15 +249,8 @@ export function renderWorkspaceSwitcher(
   activeWorkspaceId = "",
 ): string {
   return `
-    <section class="workspace-switcher" aria-label="Workspaces">
-      <header class="section-header">
-        <div>
-          <h2>Workspaces</h2>
-          <p>Server, Mitglieder und Einladungen.</p>
-        </div>
-      </header>
+    <section class="workspace-switcher" aria-label="Workspace-Liste">
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
-      <button id="create-shell-workspace" class="primary-action workspace-create-shell" type="button">Neuer Workspace</button>
       <p id="workspace-status" class="workspace-switcher__status" role="status"></p>
     </section>
   `;
@@ -297,7 +295,8 @@ export function mountWebApp(app: HTMLDivElement | null): void {
             </header>
             <nav id="channel-tree" class="channel-tree" aria-label="Channel Tree"></nav>
           </div>
-          <section id="sidebar-participants" class="sidebar-participants" aria-label="Teilnehmer"></section>
+          <section id="workspace-members" class="sidebar-participants" aria-label="Workspace Mitglieder"></section>
+          <section id="sidebar-participants" class="sidebar-participants" aria-label="Voice Teilnehmer"></section>
         </section>
         ${renderOnboardingDialog()}
         ${renderInviteDialog()}
@@ -476,6 +475,8 @@ function bindInviteDialog(root: HTMLElement): void {
   const open = root.querySelector<HTMLButtonElement>("#invite-dialog-open");
   const close = root.querySelector<HTMLButtonElement>("#invite-dialog-close");
   const create = root.querySelector<HTMLButtonElement>("#invite-create");
+  const search = root.querySelector<HTMLInputElement>("#invite-user-search");
+  let searchTimer: number | undefined;
 
   open?.addEventListener("click", () => openDialog(dialog));
   close?.addEventListener("click", () => closeDialog(dialog));
@@ -515,6 +516,60 @@ function bindInviteDialog(root: HTMLElement): void {
         ),
       )
       .finally(() => setButtonLoading(create, false));
+  });
+
+  search?.addEventListener("input", () => {
+    window.clearTimeout(searchTimer);
+    searchTimer = window.setTimeout(() => {
+      void searchInviteUsers(root, search.value).catch((error: unknown) =>
+        setFormStatus(
+          root.querySelector<HTMLElement>("#invite-status"),
+          error instanceof Error ? error.message : "User-Suche fehlgeschlagen.",
+          "error",
+        ),
+      );
+    }, 220);
+  });
+
+  root.querySelector<HTMLElement>("#invite-user-results")?.addEventListener("click", (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-invite-keycloak-user]",
+    );
+    if (!button) {
+      return;
+    }
+
+    const workspaceId = readActiveWorkspaceId(root);
+    const status = root.querySelector<HTMLElement>("#invite-status");
+    if (!workspaceId) {
+      setFormStatus(status, "Bitte zuerst einen privaten Workspace auswählen.", "error");
+      return;
+    }
+
+    const recipient: KeycloakUserSuggestion = {
+      displayName: button.dataset.displayName ?? "",
+      email: button.dataset.email ?? "",
+      id: button.dataset.userId ?? "",
+      username: button.dataset.username ?? "",
+    };
+    setButtonLoading(button, true);
+    setFormStatus(status, "Slack-Einladung wird versendet.", "loading");
+    void createKeycloakInvite(workspaceId, recipient)
+      .then((invite) => {
+        const link = createInviteLink(invite.code);
+        root.querySelector<HTMLInputElement>("#invite-code")!.value = invite.code;
+        root.querySelector<HTMLInputElement>("#invite-link")!.value = link;
+        void navigator.clipboard?.writeText(link).catch(() => undefined);
+        setFormStatus(status, `Einladung an ${recipient.username} per Slack gesendet.`, "success");
+      })
+      .catch((error: unknown) =>
+        setFormStatus(
+          status,
+          error instanceof Error ? error.message : "Slack-Einladung konnte nicht versendet werden.",
+          "error",
+        ),
+      )
+      .finally(() => setButtonLoading(button, false));
   });
 }
 
@@ -589,9 +644,8 @@ function bindWorkspaceNavigation(root: HTMLElement): void {
 }
 
 function bindWorkspaceActions(root: HTMLElement): void {
-  root
-    .querySelector<HTMLButtonElement>("#create-shell-workspace")
-    ?.addEventListener("click", () => {
+  root.addEventListener("click", (event) => {
+    if ((event.target as Element | null)?.closest("#create-shell-workspace")) {
       void createWorkspaceShell(root).catch((error: unknown) =>
         setWorkspaceStatus(
           root,
@@ -599,7 +653,8 @@ function bindWorkspaceActions(root: HTMLElement): void {
           "error",
         ),
       );
-    });
+    }
+  });
 
   root.querySelector<HTMLButtonElement>("#create-channel-button")?.addEventListener("click", () => {
     void createChannelInActiveWorkspace(root).catch((error: unknown) =>
@@ -609,6 +664,30 @@ function bindWorkspaceActions(root: HTMLElement): void {
         "error",
       ),
     );
+  });
+
+  root.querySelector<HTMLElement>("#workspace-members")?.addEventListener("click", (event) => {
+    const button = (event.target as Element | null)?.closest<HTMLButtonElement>(
+      "[data-remove-workspace-member]",
+    );
+    const targetUserId = button?.dataset.removeWorkspaceMember;
+    const workspaceId = root.dataset.activeWorkspaceId;
+    if (!button || !targetUserId || !workspaceId) {
+      return;
+    }
+
+    setButtonLoading(button, true);
+    void removeWorkspaceMember(workspaceId, targetUserId)
+      .then(() => loadWorkspaceMembers(root, workspaceId))
+      .then(() => setWorkspaceStatus(root, "Mitglied entfernt.", "success"))
+      .catch((error: unknown) =>
+        setWorkspaceStatus(
+          root,
+          error instanceof Error ? error.message : "Mitglied konnte nicht entfernt werden.",
+          "error",
+        ),
+      )
+      .finally(() => setButtonLoading(button, false));
   });
 }
 
@@ -966,6 +1045,22 @@ interface WorkspaceInviteResponse {
   readonly expiresAt: string;
 }
 
+interface KeycloakUserSuggestion {
+  readonly displayName: string;
+  readonly email: string;
+  readonly id: string;
+  readonly username: string;
+}
+
+interface WorkspaceMember {
+  readonly displayName?: string;
+  readonly id: string;
+  readonly kind?: "guest" | "registered";
+  readonly keycloakLinked?: boolean;
+  readonly userId: string;
+  readonly workspaceId: string;
+}
+
 interface WorkspaceInviteJoinResponse {
   readonly accessToken?: string;
   readonly workspace: PublicWorkspace;
@@ -1234,6 +1329,7 @@ async function loginTestUser(input: {
 }
 
 async function loadWorkspaces(root: HTMLElement, activeWorkspaceId = ""): Promise<void> {
+  await rememberCurrentUserId().catch(() => undefined);
   const response = await fetch("/api/v1/workspaces", {
     credentials: "include",
     headers: authHeader(),
@@ -1269,6 +1365,22 @@ async function loadWorkspaces(root: HTMLElement, activeWorkspaceId = ""): Promis
   }
 }
 
+async function rememberCurrentUserId(): Promise<void> {
+  const response = await fetch("/api/v1/me", {
+    credentials: "include",
+    headers: authHeader(),
+  });
+  if (!response.ok) {
+    localStorage.removeItem("openvoice.userId");
+    return;
+  }
+
+  const body = (await response.json()) as { readonly user?: { readonly id?: string } };
+  if (body.user?.id) {
+    localStorage.setItem("openvoice.userId", body.user.id);
+  }
+}
+
 async function createInvite(workspaceId: string): Promise<WorkspaceInviteResponse> {
   const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/invites`, {
     body: JSON.stringify({}),
@@ -1285,6 +1397,76 @@ async function createInvite(workspaceId: string): Promise<WorkspaceInviteRespons
   }
 
   return (await response.json()) as WorkspaceInviteResponse;
+}
+
+async function createKeycloakInvite(
+  workspaceId: string,
+  recipient: KeycloakUserSuggestion,
+): Promise<WorkspaceInviteResponse> {
+  const response = await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/invites/keycloak`,
+    {
+      body: JSON.stringify(recipient),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+        ...authHeader(),
+        ...csrfHeader(),
+      },
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  return (await response.json()) as WorkspaceInviteResponse;
+}
+
+async function searchInviteUsers(root: HTMLElement, query: string): Promise<void> {
+  const target = root.querySelector<HTMLElement>("#invite-user-results");
+  if (!target) {
+    return;
+  }
+  const trimmed = query.trim();
+  if (trimmed.length < 2) {
+    target.innerHTML = "";
+    return;
+  }
+
+  const response = await fetch(`/api/v1/keycloak/users/search?q=${encodeURIComponent(trimmed)}`, {
+    credentials: "include",
+    headers: authHeader(),
+  });
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  const body = (await response.json()) as { readonly users: readonly KeycloakUserSuggestion[] };
+  target.innerHTML =
+    body.users.length === 0
+      ? '<p class="workspace-switcher__empty">Kein Keycloak-User gefunden.</p>'
+      : `<ol class="invite-user-results__list">${body.users.map(renderInviteUserSuggestion).join("")}</ol>`;
+}
+
+function renderInviteUserSuggestion(user: KeycloakUserSuggestion): string {
+  return `
+    <li>
+      <button class="invite-user-results__item" type="button"
+        data-invite-keycloak-user
+        data-user-id="${escapeAttribute(user.id)}"
+        data-username="${escapeAttribute(user.username)}"
+        data-display-name="${escapeAttribute(user.displayName)}"
+        data-email="${escapeAttribute(user.email)}">
+        <span class="participant-avatar" aria-hidden="true">${escapeHtml(initials(user.displayName || user.username))}</span>
+        <span>
+          <strong>${escapeHtml(user.displayName || user.username)}</strong>
+          <small>${escapeHtml(user.username)} · ${escapeHtml(user.email)}</small>
+        </span>
+        <span>Einladen</span>
+      </button>
+    </li>
+  `;
 }
 
 function createInviteLink(code: string): string {
@@ -1349,11 +1531,46 @@ async function selectWorkspace(root: HTMLElement, workspaceId: string): Promise<
   updateCreateChannelButton(root, countSelectableChannels(body.channels));
   updateWorkspaceHeader(root, workspaceName, "Channel auswählen", null);
   updateInviteContext(root, workspaceName);
+  await loadWorkspaceMembers(root, workspaceId).catch(() => undefined);
   setWorkspaceStatus(root, "Workspace geladen.", "success");
 
   const firstChannel = findFirstSelectableChannel(body.channels);
   if (firstChannel) {
     selectChannel(root, firstChannel);
+  }
+}
+
+async function loadWorkspaceMembers(root: HTMLElement, workspaceId: string): Promise<void> {
+  const response = await fetch(`/api/v1/workspaces/${encodeURIComponent(workspaceId)}/members`, {
+    credentials: "include",
+    headers: authHeader(),
+  });
+  if (!response.ok) {
+    return;
+  }
+
+  const body = (await response.json()) as { readonly members: readonly WorkspaceMember[] };
+  renderWorkspaceMembers(root, body.members);
+}
+
+async function removeWorkspaceMember(workspaceId: string, targetUserId: string): Promise<void> {
+  const response = await fetch(
+    `/api/v1/workspaces/${encodeURIComponent(workspaceId)}/members/${encodeURIComponent(
+      targetUserId,
+    )}/kick`,
+    {
+      body: JSON.stringify({ reason: "Removed from workspace UI" }),
+      credentials: "include",
+      headers: {
+        "content-type": "application/json",
+        ...authHeader(),
+        ...csrfHeader(),
+      },
+      method: "POST",
+    },
+  );
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
   }
 }
 
@@ -1426,6 +1643,9 @@ function renderWorkspaceListItems(
   }
 
   const sortedWorkspaces = [...workspaces].sort(compareWorkspacesForNavigation);
+  const hasPrivateWorkspace = sortedWorkspaces.some(
+    (workspace) => workspace.accessMode === "private",
+  );
 
   return `<ol class="workspace-switcher__list">${sortedWorkspaces
     .map((workspace) => {
@@ -1444,7 +1664,11 @@ function renderWorkspaceListItems(
         </li>
       `;
     })
-    .join("")}</ol>`;
+    .join("")}</ol>${
+    hasPrivateWorkspace
+      ? ""
+      : '<button id="create-shell-workspace" class="primary-action workspace-create-shell" type="button">Eigenen Raum erstellen</button>'
+  }`;
 }
 
 function compareWorkspacesForNavigation(left: PublicWorkspace, right: PublicWorkspace): number {
@@ -1469,6 +1693,7 @@ function renderWorkspaceEmptyState(root: HTMLElement): void {
   if (channelTree) {
     mountChannelTree(channelTree, []);
   }
+  renderWorkspaceMembers(root, []);
 }
 
 function markActiveWorkspace(root: HTMLElement, workspaceId: string): void {
@@ -1565,6 +1790,44 @@ function renderSidebarParticipants(
     <h3>Teilnehmer</h3>
     <ol class="participant-list participant-list--sidebar">
       ${participants.map(renderParticipantListItem).join("")}
+    </ol>
+  `;
+}
+
+function renderWorkspaceMembers(root: HTMLElement, members: readonly WorkspaceMember[]): void {
+  const target = root.querySelector<HTMLElement>("#workspace-members");
+  if (!target) {
+    return;
+  }
+  if (members.length === 0) {
+    target.innerHTML = `<p class="sidebar-participants__empty">Keine Workspace-Mitglieder geladen.</p>`;
+    return;
+  }
+
+  const currentUserId = localStorage.getItem("openvoice.userId") ?? "";
+  target.innerHTML = `
+    <h3>Mitglieder</h3>
+    <ol class="participant-list participant-list--sidebar">
+      ${members
+        .map((member) => {
+          const name = member.displayName ?? member.userId;
+          const removable = member.userId !== currentUserId;
+          return `
+            <li class="participant-list__item">
+              <span class="participant-avatar">${escapeHtml(initials(name))}</span>
+              <span class="participant-list__name">${escapeHtml(name)}</span>
+              <span class="participant-status-icons">
+                <span>${member.kind === "guest" ? "Gast" : "Keycloak"}</span>
+                ${
+                  removable
+                    ? `<button class="channel-tree__action" type="button" data-remove-workspace-member="${escapeAttribute(member.userId)}" aria-label="${escapeAttribute(name)} entfernen" title="${escapeAttribute(name)} entfernen">×</button>`
+                    : ""
+                }
+              </span>
+            </li>
+          `;
+        })
+        .join("")}
     </ol>
   `;
 }

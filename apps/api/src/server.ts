@@ -27,7 +27,9 @@ import { ObservabilityService } from "./modules/observability/service.js";
 import { TurnCredentialService } from "./modules/turn/credentials.js";
 import { VoiceService } from "./modules/voice/service.js";
 import { createMessageWebSocketUpgradeHandler } from "./modules/messages/websocket.js";
+import { KeycloakAdminDirectory } from "./modules/workspaces/keycloak-directory.js";
 import { WorkspaceService } from "./modules/workspaces/service.js";
+import { SlackWebApiInviteNotifier } from "./modules/workspaces/slack.js";
 import { Argon2idPasswordHasher } from "./security/password.js";
 import { InMemoryRateLimiter } from "./security/rate-limit.js";
 
@@ -65,9 +67,21 @@ export function createOpenVoiceApiServer() {
     repository,
   });
   const workspaceService = new WorkspaceService({
+    appPublicUrl: config.appPublicUrl,
     eventPublisher: gatewayEventPublisher,
     inviteTtlSeconds: config.inviteTtlSeconds,
+    keycloakDirectory: new KeycloakAdminDirectory({
+      baseUrl: config.keycloakAdminBaseUrl,
+      clientId: config.keycloakAdminClientId,
+      clientSecret: config.keycloakAdminClientSecret,
+      enabled: config.keycloakAdminEnabled,
+      realm: config.keycloakAdminRealm,
+    }),
     repository,
+    slackInviteNotifier: new SlackWebApiInviteNotifier({
+      botToken: config.slackBotToken,
+      enabled: config.slackInvitesEnabled,
+    }),
   });
   const messageService = new MessageService({
     channelService,

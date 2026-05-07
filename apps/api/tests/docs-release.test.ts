@@ -22,7 +22,6 @@ describe("release documentation gates", () => {
       "POST /api/v1/auth/password-reset/confirm",
       "PATCH  /api/v1/workspaces/:workspaceId",
       "DELETE /api/v1/workspaces/:workspaceId",
-      "GET    /api/v1/workspaces/:workspaceId/members",
       "GET    /api/v1/channels/:channelId",
       "PATCH  /api/v1/channels/:channelId",
       "DELETE /api/v1/channels/:channelId",

@@ -8,6 +8,11 @@ import { AuthService, type PublicUser } from "../src/modules/auth/service.js";
 import { ChannelService } from "../src/modules/channels/service.js";
 import { InMemoryMessageEventHub } from "../src/modules/messages/events.js";
 import { MessageService } from "../src/modules/messages/service.js";
+import type {
+  KeycloakDirectory,
+  KeycloakDirectoryUser,
+} from "../src/modules/workspaces/keycloak-directory.js";
+import type { SlackInviteMessage, SlackInviteNotifier } from "../src/modules/workspaces/slack.js";
 import { WorkspaceService } from "../src/modules/workspaces/service.js";
 import type { PasswordHasher } from "../src/security/password.js";
 
@@ -29,6 +34,29 @@ interface TestApp {
   readonly handler: (request: Request) => Promise<Response>;
   readonly passwordHasher: TestPasswordHasher;
   readonly repository: InMemoryOpenVoiceRepository;
+}
+
+class TestKeycloakDirectory implements KeycloakDirectory {
+  public readonly users: KeycloakDirectoryUser[] = [
+    {
+      displayName: "Invite Target",
+      email: "target@example.com",
+      id: "keycloak-target-id",
+      username: "target",
+    },
+  ];
+
+  public async searchUsers(query: string): Promise<readonly KeycloakDirectoryUser[]> {
+    return this.users.filter((user) => user.username.includes(query) || user.email.includes(query));
+  }
+}
+
+class TestSlackNotifier implements SlackInviteNotifier {
+  public readonly messages: SlackInviteMessage[] = [];
+
+  public async sendInvite(input: SlackInviteMessage): Promise<void> {
+    this.messages.push(input);
+  }
 }
 
 describe("Phase 1 API", () => {
@@ -262,6 +290,94 @@ describe("Phase 1 API", () => {
     expect(listedBody.workspaces).toContainEqual(
       expect.objectContaining({ id: workspace.workspace.id, memberCount: 2 }),
     );
+  });
+
+  it("lists workspace members for existing members", async () => {
+    const app = createTestApp();
+    const owner = await register(app, "member-list-owner@example.com");
+    const invited = await register(app, "member-list-user@example.com");
+    const workspace = await createWorkspace(app, owner, "Member List Workspace");
+    const invite = await createInvite(app, owner, workspace.workspace.id);
+    await joinInvite(app, invited, invite.code);
+
+    const response = await app.handler(
+      new Request(`http://local.test/api/v1/workspaces/${workspace.workspace.id}/members`, {
+        headers: { cookie: owner.cookie },
+      }),
+    );
+    const body = (await response.json()) as {
+      members: Array<{ displayName: string; kind: string; userId: string }>;
+    };
+
+    expect(response.status).toBe(200);
+    expect(body.members).toHaveLength(2);
+    expect(body.members.map((member) => member.userId)).toContain(invited.user.id);
+    expect(body.members.every((member) => member.kind === "registered")).toBe(true);
+  });
+
+  it("searches Keycloak users and sends Slack-backed workspace invites", async () => {
+    const directory = new TestKeycloakDirectory();
+    const slack = new TestSlackNotifier();
+    const app = createTestApp(
+      {},
+      {
+        workspaceServiceFactory: (repository) =>
+          new WorkspaceService({
+            appPublicUrl: "https://voice.example.test",
+            keycloakDirectory: directory,
+            repository,
+            slackInviteNotifier: slack,
+          }),
+      },
+    );
+    const owner = await register(app, "keycloak-invite-owner@example.com");
+    const workspace = await createWorkspace(app, owner, "Keycloak Invite Workspace");
+    app.repository.users[0] = {
+      ...app.repository.users[0]!,
+      keycloakSubject: "owner-subject",
+    };
+
+    const searchResponse = await app.handler(
+      new Request("http://local.test/api/v1/keycloak/users/search?q=target", {
+        headers: { cookie: owner.cookie },
+      }),
+    );
+    const searchBody = (await searchResponse.json()) as {
+      users: Array<{ email: string; username: string }>;
+    };
+
+    expect(searchResponse.status).toBe(200);
+    expect(searchBody.users).toEqual([
+      expect.objectContaining({ email: "target@example.com", username: "target" }),
+    ]);
+
+    const inviteResponse = await app.handler(
+      jsonRequest(
+        `/api/v1/workspaces/${workspace.workspace.id}/invites/keycloak`,
+        directory.users[0],
+        {
+          cookie: owner.cookie,
+          "x-openvoice-csrf-token": owner.csrfToken,
+        },
+      ),
+    );
+    const inviteBody = (await inviteResponse.json()) as {
+      code: string;
+      recipient: { username: string };
+      slackDelivered: boolean;
+    };
+
+    expect(inviteResponse.status).toBe(201);
+    expect(inviteBody.code).toBeTruthy();
+    expect(inviteBody.recipient.username).toBe("target");
+    expect(inviteBody.slackDelivered).toBe(true);
+    expect(slack.messages).toEqual([
+      expect.objectContaining({
+        inviteUrl: expect.stringContaining("https://voice.example.test/?invite="),
+        recipientEmail: "target@example.com",
+        workspaceName: "Keycloak Invite Workspace",
+      }),
+    ]);
   });
 
   it("creates short-lived invites by default", async () => {
@@ -697,6 +813,9 @@ function createTestApp(
     readonly oidcIssuerUrl: string;
     readonly oidcRequiredClientRole: string;
   }> = {},
+  serviceOverrides: Partial<{
+    readonly workspaceServiceFactory: (repository: InMemoryOpenVoiceRepository) => WorkspaceService;
+  }> = {},
 ): TestApp {
   const repository = new InMemoryOpenVoiceRepository();
   const passwordHasher = new TestPasswordHasher();
@@ -713,7 +832,8 @@ function createTestApp(
     eventPublisher: new InMemoryMessageEventHub(),
     repository,
   });
-  const workspaceService = new WorkspaceService({ repository });
+  const workspaceService =
+    serviceOverrides.workspaceServiceFactory?.(repository) ?? new WorkspaceService({ repository });
   const handler = createApiHandler({
     authService,
     channelService,
@@ -795,4 +915,37 @@ async function createWorkspace(
   );
   expect(response.status).toBe(201);
   return (await response.json()) as { workspace: { id: string } };
+}
+
+async function createInvite(
+  app: TestApp,
+  session: TestSession,
+  workspaceId: string,
+): Promise<{ readonly code: string }> {
+  const response = await app.handler(
+    jsonRequest(
+      `/api/v1/workspaces/${workspaceId}/invites`,
+      {},
+      {
+        cookie: session.cookie,
+        "x-openvoice-csrf-token": session.csrfToken,
+      },
+    ),
+  );
+  expect(response.status).toBe(201);
+  return (await response.json()) as { code: string };
+}
+
+async function joinInvite(app: TestApp, session: TestSession, code: string): Promise<void> {
+  const response = await app.handler(
+    jsonRequest(
+      "/api/v1/invites/join",
+      { code },
+      {
+        cookie: session.cookie,
+        "x-openvoice-csrf-token": session.csrfToken,
+      },
+    ),
+  );
+  expect(response.status).toBe(200);
 }

@@ -56,6 +56,7 @@ import type {
   WorkspaceBanRecord,
   WorkspaceInvite,
   WorkspaceMember,
+  WorkspaceMemberWithUser,
   WorkspaceWithMemberCount,
   WorkspaceTimeoutRecord,
 } from "./models.js";
@@ -575,6 +576,28 @@ export class InMemoryOpenVoiceRepository implements OpenVoiceRepository {
         memberCount: this.workspaceMembers.filter((member) => member.workspaceId === workspace.id)
           .length,
       }));
+  }
+
+  public async listWorkspaceMembers(
+    workspaceId: string,
+  ): Promise<readonly WorkspaceMemberWithUser[]> {
+    return this.workspaceMembers
+      .filter((member) => member.workspaceId === workspaceId)
+      .sort((left, right) => left.createdAt.getTime() - right.createdAt.getTime())
+      .map((member) => {
+        const user = this.users.find((candidate) => candidate.id === member.userId);
+        if (!user) {
+          throw new Error("Expected workspace member user.");
+        }
+
+        return {
+          ...member,
+          userDisplayName: user.displayName,
+          userEmail: user.email,
+          userKeycloakSubject: user.keycloakSubject,
+          userKind: user.kind,
+        };
+      });
   }
 
   public async joinGlobalWorkspace(

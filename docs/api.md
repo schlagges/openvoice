@@ -90,12 +90,14 @@ POST   /api/v1/workspaces/:workspaceId/join-global
 GET    /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 PATCH  /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
 DELETE /api/v1/workspaces/:workspaceId (nicht in v0.1.0-rc1)
-GET    /api/v1/workspaces/:workspaceId/members (nicht in v0.1.0-rc1)
+GET    /api/v1/workspaces/:workspaceId/members
 GET    /api/v1/workspaces/:workspaceId/tree
 GET    /api/v1/workspaces/:workspaceId/audit-log
 POST   /api/v1/workspaces/:workspaceId/invites
+POST   /api/v1/workspaces/:workspaceId/invites/keycloak
 POST   /api/v1/invites/join
 POST   /api/v1/invites/:code/guest-join
+GET    /api/v1/keycloak/users/search?q=:query
 ```
 
 `GET /workspaces` benötigt Auth und liefert nur Workspaces, in denen der aktuelle User Mitglied
@@ -112,6 +114,11 @@ per Join-Endpoint betreten.
 `POST /workspaces/:workspaceId/invites` benötigt `MANAGE_INVITES` und gibt den Invite-Code nur
 einmal im Response zurück. Gespeichert wird ausschließlich ein SHA-256-Hash des Codes. Invite-Codes
 laufen standardmäßig nach 5 Minuten ab (`INVITE_TTL_SECONDS=300`).
+`POST /workspaces/:workspaceId/invites/keycloak` erstellt denselben kurzlebigen Invite-Link,
+adressiert ihn aber an einen Keycloak-User aus der serverseitigen Suche und verschickt ihn per
+Slack-DM. Die Slack-/Keycloak-Credentials liegen ausschließlich in der Server-Umgebung.
+`GET /keycloak/users/search` benötigt einen registrierten Keycloak-User und liefert Vorschläge aus
+der Keycloak Admin API.
 `POST /invites/join` benötigt Auth und CSRF, lehnt aktive Bans ab und weist die Default-Rolle
 `member` zu. `POST /invites/:code/guest-join` ist der direkte Gastzugang ohne bestehende
 OpenVoice-Session. Der Request enthält nur `displayName`, erzeugt einen Gast-User, weist die
