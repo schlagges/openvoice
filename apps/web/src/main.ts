@@ -249,7 +249,7 @@ export function renderWorkspaceSwitcher(
   activeWorkspaceId = "",
 ): string {
   return `
-    <section class="workspace-switcher" aria-label="Workspace-Liste">
+    <section class="workspace-switcher" aria-label="Workspace-Hierarchie">
       <div id="workspace-list">${renderWorkspaceListItems(workspaces, activeWorkspaceId)}</div>
       <p id="workspace-status" class="workspace-switcher__status" role="status"></p>
     </section>
@@ -280,23 +280,19 @@ export function mountWebApp(app: HTMLDivElement | null): void {
         <section class="channel-browser workspace-channel-box" aria-label="Aktiver Workspace">
           <header class="workspace-channel-box__header">
             <div>
-              <p class="eyebrow">Workspace</p>
+              <p class="eyebrow">Aktiver Raum</p>
               <h2 id="active-workspace-card-title">Workspace wählen</h2>
-            </div>
-            <div class="workspace-channel-box__actions">
-              <button class="workspace-channel-box__action" type="button" disabled title="Workspace bearbeiten ist noch nicht verfuegbar" aria-label="Workspace bearbeiten">✎</button>
-              <button class="workspace-channel-box__action" type="button" disabled title="Workspace loeschen ist noch nicht verfuegbar" aria-label="Workspace loeschen">×</button>
             </div>
           </header>
           <div class="workspace-channel-box__section">
             <header class="workspace-channel-box__subheader">
-              <span>Channels</span>
+              <span>Channel</span>
               <button id="create-channel-button" class="ghost-button compact" type="button" disabled>+ Channel</button>
             </header>
             <nav id="channel-tree" class="channel-tree" aria-label="Channel Tree"></nav>
+            <section id="sidebar-participants" class="sidebar-participants channel-users" aria-label="Channel Teilnehmer"></section>
           </div>
           <section id="workspace-members" class="sidebar-participants" aria-label="Workspace Mitglieder"></section>
-          <section id="sidebar-participants" class="sidebar-participants" aria-label="Voice Teilnehmer"></section>
         </section>
         ${renderOnboardingDialog()}
         ${renderInviteDialog()}
@@ -1597,7 +1593,7 @@ function updateCreateChannelButton(root: HTMLElement, channelCount: number): voi
   const hasWorkspace = Boolean(root.dataset.activeWorkspaceId);
   button.hidden = hasWorkspace && channelCount >= 5;
   button.disabled = !hasWorkspace || channelCount >= 5;
-  button.textContent = channelCount === 0 ? "+ Ersten Channel anlegen" : "+ Channel";
+  button.textContent = channelCount === 0 ? "+ Windfang anlegen" : "+ Channel anlegen";
 }
 
 function countSelectableChannels(nodes: readonly ChannelTreeNode[]): number {
@@ -1657,8 +1653,8 @@ function renderWorkspaceListItems(
           }" type="button" data-workspace-id="${escapeAttribute(workspace.id)}" data-workspace-name="${escapeAttribute(displayName)}">
             <span class="workspace-switcher__avatar" aria-hidden="true">${escapeHtml(initials(displayName))}</span>
             <span class="workspace-switcher__content">
-              <span class="workspace-switcher__name">${escapeHtml(displayName)}${workspace.accessMode === "global_authenticated" ? ' <small class="workspace-switcher__badge">Global</small>' : ""}</span>
-              <small>${escapeHtml(formatWorkspaceMembers(workspace))} · ${workspace.accessMode === "global_authenticated" ? "Keycloak" : `Privat`}</small>
+              <span class="workspace-switcher__name">${escapeHtml(displayName)} <small class="workspace-switcher__badge">${workspace.accessMode === "global_authenticated" ? "Öffentlich" : "Privat"}</small></span>
+              <small>${escapeHtml(formatWorkspaceMembers(workspace))}</small>
             </span>
           </button>
         </li>
@@ -1667,7 +1663,7 @@ function renderWorkspaceListItems(
     .join("")}</ol>${
     hasPrivateWorkspace
       ? ""
-      : '<button id="create-shell-workspace" class="primary-action workspace-create-shell" type="button">Eigenen Raum erstellen</button>'
+      : '<button id="create-shell-workspace" class="primary-action workspace-create-shell" type="button">+ Privaten Raum anlegen</button>'
   }`;
 }
 
@@ -1782,12 +1778,12 @@ function renderSidebarParticipants(
     return;
   }
   if (participants.length === 0) {
-    target.innerHTML = `<p class="sidebar-participants__empty">Noch keine Voice-Teilnehmer im aktiven Channel.</p>`;
+    target.innerHTML = `<p class="sidebar-participants__empty">Noch keine Nutzer in diesem Channel.</p>`;
     return;
   }
 
   target.innerHTML = `
-    <h3>Teilnehmer</h3>
+    <h3>Channel-Nutzer</h3>
     <ol class="participant-list participant-list--sidebar">
       ${participants.map(renderParticipantListItem).join("")}
     </ol>

@@ -112,8 +112,7 @@ describe("web foundation", () => {
     expect(html).not.toContain("Team Voice");
     expect(html).toContain("is-active");
     expect(html).toContain("3 Mitglieder");
-    expect(html).toContain("Global");
-    expect(html).toContain("Keycloak");
+    expect(html).toContain("Öffentlich");
     expect(html).toContain("workspace-switcher__item--global");
     expect(html).not.toContain("<h2>Workspaces</h2>");
     expect(html).not.toContain("data-open-onboarding");
@@ -161,7 +160,7 @@ describe("web foundation", () => {
       "global-workspace",
     );
 
-    expect(html).toContain("Eigenen Raum erstellen");
+    expect(html).toContain("+ Privaten Raum anlegen");
   });
 
   it("renders the empty workspace start card as the primary entry point", () => {
